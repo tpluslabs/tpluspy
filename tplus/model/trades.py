@@ -16,6 +16,7 @@ class Trade(BaseModel):
     is_buyer: bool
     confirmed: bool
 
+
 def parse_trades(data: list[dict]) -> list[Trade]:
     return [
         Trade(
@@ -27,34 +28,42 @@ def parse_trades(data: list[dict]) -> list[Trade]:
             timestamp_ns=item["timestamp_ns"],
             is_maker=item["is_maker"],
             is_buyer=item["is_buyer"],
-            confirmed=item["confirmed"]
+            confirmed=item["confirmed"],
         )
         for item in data
     ]
 
+
 # --- WebSocket Trade Events ---
+
 
 class BaseTradeEvent(BaseModel):
     event_type: str
 
+
 class TradePendingEvent(BaseTradeEvent):
     """Represents a trade that has occurred but is awaiting final confirmation."""
+
     event_type: Literal["PENDING"] = Field(default="PENDING")
     # Include fields available at the pending stage
     order_id: str
-    match_id: str # Or some identifier for the match
+    match_id: str  # Or some identifier for the match
     price: float
     quantity: int
     timestamp_ns: int
     # Maybe asset_id, buyer/seller info if available
 
+
 class TradeConfirmedEvent(BaseTradeEvent):
     """Represents a finalized trade."""
+
     event_type: Literal["CONFIRMED"] = Field(default="CONFIRMED")
-    trade: Trade # The fully confirmed trade details
+    trade: Trade  # The fully confirmed trade details
+
 
 # Union type for type hinting
 TradeEvent = Union[TradePendingEvent, TradeConfirmedEvent]
+
 
 # Helper to parse a single trade dict (similar to parse_trades but for one)
 def parse_single_trade(item: dict[str, Any]) -> Trade:
@@ -69,16 +78,17 @@ def parse_single_trade(item: dict[str, Any]) -> Trade:
             timestamp_ns=int(item["timestamp_ns"]),
             is_maker=bool(item["is_maker"]),
             is_buyer=bool(item["is_buyer"]),
-            confirmed=bool(item["confirmed"])
+            confirmed=bool(item["confirmed"]),
         )
     except (KeyError, ValueError, TypeError) as e:
         # Add logging if desired
         raise ValueError(f"Invalid single trade data: {item}") from e
 
+
 def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
     """Parses a trade event dictionary from the WebSocket stream."""
-    event_type = data.get('event_type')
-    payload = data.get('payload', {})
+    event_type = data.get("event_type")
+    payload = data.get("payload", {})
 
     if not event_type or not isinstance(payload, dict):
         raise ValueError(f"Invalid trade event structure: {data}")
@@ -87,11 +97,11 @@ def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
         if event_type == "PENDING":
             # Assuming payload directly contains the fields for TradePendingEvent
             return TradePendingEvent(
-                order_id=payload['order_id'],
-                match_id=payload['match_id'],
-                price=float(payload['price']),
-                quantity=int(payload['quantity']),
-                timestamp_ns=int(payload['timestamp_ns'])
+                order_id=payload["order_id"],
+                match_id=payload["match_id"],
+                price=float(payload["price"]),
+                quantity=int(payload["quantity"]),
+                timestamp_ns=int(payload["timestamp_ns"]),
             )
 
         elif event_type == "CONFIRMED":

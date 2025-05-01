@@ -24,7 +24,6 @@ class LimitOrderDetails(BaseModel):
         limit_data = {
             "limit_price": self.limit_price,
             "quantity": self.quantity,
-            "time_in_force": self.time_in_force # Pydantic handles nested dump
+            "time_in_force": self.time_in_force,  # Pydantic handles nested dump
         }
         return {"Limit": limit_data}
-

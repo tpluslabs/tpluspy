@@ -14,4 +14,3 @@ class SignedMessage(BaseModel):
     payload: ObRequest
     user_id: str
     post_sign_timestamp: int
-
