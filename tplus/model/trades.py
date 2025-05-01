@@ -1,11 +1,11 @@
-from dataclasses import dataclass, field
 from typing import Any, Literal, Union
+
+from pydantic import BaseModel, Field
 
 from tplus.model.asset_identifier import IndexAsset
 
 
-@dataclass
-class Trade:
+class Trade(BaseModel):
     asset_id: IndexAsset
     trade_id: int
     order_id: str
@@ -15,20 +15,6 @@ class Trade:
     is_maker: bool
     is_buyer: bool
     confirmed: bool
-
-    def to_dict(self):
-        """Converts the Trade object to a dictionary."""
-        return {
-            "asset_id": {"Index": self.asset_id.Index}, # Handle IndexAsset specifically
-            "trade_id": self.trade_id,
-            "order_id": self.order_id,
-            "price": self.price,
-            "quantity": self.quantity,
-            "timestamp_ns": self.timestamp_ns,
-            "is_maker": self.is_maker,
-            "is_buyer": self.is_buyer,
-            "confirmed": self.confirmed,
-        }
 
 def parse_trades(data: list[dict]) -> list[Trade]:
     return [
@@ -48,14 +34,12 @@ def parse_trades(data: list[dict]) -> list[Trade]:
 
 # --- WebSocket Trade Events ---
 
-@dataclass
-class BaseTradeEvent:
+class BaseTradeEvent(BaseModel):
     event_type: str
 
-@dataclass
 class TradePendingEvent(BaseTradeEvent):
     """Represents a trade that has occurred but is awaiting final confirmation."""
-    event_type: Literal["PENDING"] = field(default="PENDING", init=False)
+    event_type: Literal["PENDING"] = Field(default="PENDING")
     # Include fields available at the pending stage
     order_id: str
     match_id: str # Or some identifier for the match
@@ -64,10 +48,9 @@ class TradePendingEvent(BaseTradeEvent):
     timestamp_ns: int
     # Maybe asset_id, buyer/seller info if available
 
-@dataclass
 class TradeConfirmedEvent(BaseTradeEvent):
     """Represents a finalized trade."""
-    event_type: Literal["CONFIRMED"] = field(default="CONFIRMED", init=False)
+    event_type: Literal["CONFIRMED"] = Field(default="CONFIRMED")
     trade: Trade # The fully confirmed trade details
 
 # Union type for type hinting

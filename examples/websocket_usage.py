@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import signal  # To handle graceful shutdown
 
 import websockets  # Import websocket exceptions
 
@@ -8,7 +7,7 @@ import websockets  # Import websocket exceptions
 # Assumes 'tplus' is a package in your PYTHONPATH or installed
 from tplus.client import OrderBookClient
 from tplus.model.asset_identifier import IndexAsset
-from tplus.model.orderbook import PriceLevelUpdate  # Import specific model
+from tplus.model.orderbook import OrderBookDiff
 from tplus.model.trades import Trade  # Import specific model
 from tplus.utils.user import User
 
@@ -21,20 +20,25 @@ logger = logging.getLogger("WebSocketExample")
 API_BASE_URL = "http://127.0.0.1:8000/" # Example URL
 
 # Example Asset ID to use
-example_asset = IndexAsset(200) # Assuming asset index 200 for the example
+example_asset = IndexAsset(Index=200) # Fix instantiation: Use keyword argument
 
 # --- Stream Handler Functions ---
 
-async def listen_depth(client: OrderBookClient, asset: IndexAsset, max_messages: int = 5):
-    """Connects to the depth stream and logs received messages."""
+async def listen_depth(client: OrderBookClient, asset: IndexAsset, max_messages: int = 10):
+    """Connects to the depth diff stream and logs received messages."""
     logger.info(f"Connecting to Depth stream for asset {asset.Index}...")
     msg_count = 0
     try:
-        async for update in client.stream_depth(asset):
-            if isinstance(update, PriceLevelUpdate):
-                logger.info(f"[Depth-{asset.Index}] Received: Side={update.side}, Price={update.price_level}, Qty={update.quantity}")
+        # Expect OrderBookDiff objects now
+        async for diff_update in client.stream_depth(asset):
+            if isinstance(diff_update, OrderBookDiff):
+                # Log info from the diff object
+                logger.info(f"[Depth-{asset.Index}] Received Diff: Seq={diff_update.sequence_number}, Asks Count={len(diff_update.asks)}, Bids Count={len(diff_update.bids)}")
+                # Optional: Log specific asks/bids if needed for debugging
+                # logger.debug(f"[Depth-{asset.Index}] Asks: {diff_update.asks}")
+                # logger.debug(f"[Depth-{asset.Index}] Bids: {diff_update.bids}")
             else:
-                logger.warning(f"[Depth-{asset.Index}] Received unexpected data type: {type(update)} - {update}")
+                logger.warning(f"[Depth-{asset.Index}] Received unexpected data type: {type(diff_update)} - {diff_update}")
 
             msg_count += 1
             if msg_count >= max_messages:
@@ -77,11 +81,7 @@ async def main():
     logger.info(f"Using API Base URL: {API_BASE_URL}")
     logger.info(f"Example Asset Index: {example_asset.Index}")
 
-    # Graceful shutdown handling
-    loop = asyncio.get_running_loop()
-    stop = loop.create_future()
-    loop.add_signal_handler(signal.SIGINT, stop.set_result, None)
-    loop.add_signal_handler(signal.SIGTERM, stop.set_result, None)
+    # Removed signal handling setup - Not supported on Windows default loop
 
     try:
         async with OrderBookClient(user, base_url=API_BASE_URL) as client:
@@ -90,35 +90,36 @@ async def main():
             # Create tasks for the stream listeners
             depth_task = asyncio.create_task(listen_depth(client, example_asset, max_messages=10))
             trades_task = asyncio.create_task(listen_finalized_trades(client, max_messages=5))
+            # Add other stream tasks here if needed
 
-            # Wait for either the tasks to complete or for a shutdown signal
-            done, pending = await asyncio.wait(
-                [depth_task, trades_task, stop],
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            # Wait for all stream tasks to complete (or be cancelled by KeyboardInterrupt)
+            logger.info("Starting stream listeners. Press Ctrl+C to stop.")
+            try:
+                await asyncio.gather(depth_task, trades_task)
+            except asyncio.CancelledError:
+                logger.info("Stream tasks cancelled.")
+            finally:
+                # Ensure tasks are cancelled if gather didn't finish normally
+                if not depth_task.done():
+                    depth_task.cancel()
+                if not trades_task.done():
+                    trades_task.cancel()
+                # Wait briefly for cancellation
+                await asyncio.gather(depth_task, trades_task, return_exceptions=True)
+                logger.info("Stream listeners finished or cancelled.")
 
-            logger.info("First task or stop signal completed. Cleaning up...")
-
-            # If stop signal received, cancel pending tasks
-            if stop.done():
-                logger.info("Shutdown signal received, cancelling tasks.")
-                for task in pending:
-                    task.cancel()
-                # Wait for cancellations to complete
-                await asyncio.gather(*pending, return_exceptions=True)
-            else:
-                 # Check tasks that completed for errors
-                for task in done:
-                    if task.exception():
-                        logger.error(f"Task raised an exception: {task.exception()}")
-
+    except websockets.exceptions.ConnectionClosedError as e:
+        logger.error(f"Initial WebSocket connection failed: {e}")
     except Exception as e:
         logger.critical(f"An unexpected error occurred in main: {e}", exc_info=True)
+    # Client is closed automatically by async with block
     finally:
         logger.info("WebSocket example finished.")
 
 if __name__ == "__main__":
     try:
+        # asyncio.run handles KeyboardInterrupt automatically and cancels tasks
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Process interrupted by user.")
+        # This block will now catch Ctrl+C pressed during asyncio.run
+        logger.info("Process interrupted by user (KeyboardInterrupt).")

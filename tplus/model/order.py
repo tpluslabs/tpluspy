@@ -1,15 +1,15 @@
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Literal, Union
+from typing import Any, Literal, Optional, Union
+
+from pydantic import BaseModel, Field, ValidationError, model_serializer
 
 from tplus.model.asset_identifier import IndexAsset
-from tplus.model.limit_order import GTC, LimitOrderDetails
+from tplus.model.limit_order import LimitOrderDetails
 from tplus.model.market_order import MarketOrderDetails
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class Order:
+class Order(BaseModel):
     signer: list[int]
     order_id: str
     base_asset: IndexAsset
@@ -17,97 +17,57 @@ class Order:
     side: str
     creation_timestamp_ns: int
 
-    def to_dict(self):
-        return {
-            "signer": self.signer,
-            "order_id": self.order_id,
-            "base_asset": self.base_asset.to_dict(),
-            "details": self.details.to_dict(),
-            "side": self.side,
-            "creation_timestamp_ns": self.creation_timestamp_ns
-        }
 
-
-@dataclass
-class CreateOrderRequest:
+class CreateOrderRequest(BaseModel):
     order: Order
     signature: list[int]
 
-    def to_dict(self):
-        return {
-            "CreateOrderRequest": {
-                "order": self.order.to_dict(),
-                "signature": self.signature
-            }
+    @model_serializer
+    def serialize_model(self) -> dict[str, dict[str, Any]]:
+        # Replicates the old {"CreateOrderRequest": {...}} structure
+        # Nested order will use its own (default) serializer
+        request_data = {
+            "order": self.order,
+            "signature": self.signature
         }
+        return {"CreateOrderRequest": request_data}
 
 
-def parse_orders(orders_data: list[dict[str, Any]]) -> list[Order]:
+# --- Model for Order Data Received from GET Requests ---
+# Represents the FLAT structure observed in API responses
+class OrderResponse(BaseModel):
+    order_id: str
+    base_asset: IndexAsset
+    side: str
+    limit_price: Optional[int]
+    quantity: int
+    confirmed_filled_quantity: int
+    pending_filled_quantity: int
+    good_until_timestamp_ns: Optional[int]
+    timestamp_ns: int
+    # Add other fields if observed in raw responses
+    # signer: Optional[list[int]] = None # Example if signer is sometimes present
+
+
+def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
     """
-    Parses a list of order dictionaries (from API response) into Order objects.
+    Parses a list of order dictionaries (from GET API response) into OrderResponse objects.
     """
     parsed_orders = []
     if not isinstance(orders_data, list):
         logger.error(f"Expected a list for orders_data, got {type(orders_data)}")
-        # Depending on desired behavior, could return [] or raise TypeError
         return []
 
     for order_dict in orders_data:
         try:
-            # Parse base_asset
-            base_asset_data = order_dict.get('base_asset')
-            if not isinstance(base_asset_data, dict) or 'Index' not in base_asset_data:
-                raise ValueError(f"Invalid base_asset data: {base_asset_data}")
-            base_asset = IndexAsset(**base_asset_data) # Assumes {'Index': value}
-
-            # Parse details based on type (Limit or Market)
-            details_data = order_dict.get('details')
-            if not isinstance(details_data, dict):
-                 raise ValueError(f"Invalid details data: {details_data}")
-
-            order_details: LimitOrderDetails | MarketOrderDetails
-            if 'Limit' in details_data:
-                limit_data = details_data['Limit']
-                # Parse nested time_in_force (GTC)
-                tif_data = limit_data.get('time_in_force', {}).get('GTC', {})
-                time_in_force = GTC(**tif_data)
-                order_details = LimitOrderDetails(
-                    limit_price=limit_data['limit_price'],
-                    quantity=limit_data['quantity'],
-                    time_in_force=time_in_force
-                )
-            elif 'Market' in details_data:
-                market_data = details_data['Market']
-                # Handle potentially nested quantity like {'BaseAsset': qty}
-                quantity_data = market_data.get('quantity')
-                if isinstance(quantity_data, dict) and 'BaseAsset' in quantity_data:
-                    quantity = quantity_data['BaseAsset']
-                elif isinstance(quantity_data, int): # Allow direct int quantity as fallback
-                     quantity = quantity_data
-                else:
-                    raise ValueError(f"Invalid quantity data in Market order: {quantity_data}")
-
-                order_details = MarketOrderDetails(
-                    quantity=quantity,
-                    fill_or_kill=market_data['fill_or_kill']
-                )
-            else:
-                raise ValueError(f"Unknown order details type in data: {details_data}")
-
-            # Create Order object
-            order = Order(
-                signer=order_dict['signer'],
-                order_id=order_dict['order_id'],
-                base_asset=base_asset,
-                details=order_details,
-                side=order_dict['side'],
-                creation_timestamp_ns=order_dict['creation_timestamp_ns']
-            )
-            parsed_orders.append(order)
-
-        except (KeyError, TypeError, ValueError) as e:
-            logger.warning(f"Skipping order due to parsing error: {e}. Data: {order_dict}")
-            continue # Skip this order and proceed to the next
+            # Attempt to parse the dictionary directly into the flat OrderResponse model
+            order_response = OrderResponse(**order_dict)
+            parsed_orders.append(order_response)
+        except ValidationError as e:
+            logger.warning(f"Skipping order due to validation error: {e}. Data: {order_dict}")
+        except Exception as e:
+            # Catch other potential errors during instantiation
+            logger.warning(f"Skipping order due to unexpected parsing error: {e}. Data: {order_dict}")
 
     return parsed_orders
 
@@ -115,19 +75,18 @@ def parse_orders(orders_data: list[dict[str, Any]]) -> list[Order]:
 # --- WebSocket Order Events ---
 
 # Base class (optional, but can be useful)
-@dataclass
-class BaseOrderEvent:
+class BaseOrderEvent(BaseModel):
     event_type: str
 
-@dataclass
-class OrderCreatedEvent(BaseOrderEvent):
-    event_type: Literal["CREATED"] = field(default="CREATED", init=False)
-    order: Order # The newly created order
 
-@dataclass
+class OrderCreatedEvent(BaseOrderEvent):
+    event_type: Literal["CREATED"] = Field(default="CREATED")
+    order: Order
+
+
 class OrderUpdatedEvent(BaseOrderEvent):
     """Represents updates like partial fills or status changes."""
-    event_type: Literal["UPDATED"] = field(default="UPDATED", init=False)
+    event_type: Literal["UPDATED"] = Field(default="UPDATED")
     order_id: str
     # Include fields that can change, e.g.:
     status: str # Example: FILLED, PARTIALLY_FILLED, CANCELLED
@@ -137,9 +96,9 @@ class OrderUpdatedEvent(BaseOrderEvent):
     # Optionally include the full updated order object if the stream sends it
     # order: Order | None = None
 
-@dataclass
+
 class OrderCancelledEvent(BaseOrderEvent):
-    event_type: Literal["CANCELLED"] = field(default="CANCELLED", init=False)
+    event_type: Literal["CANCELLED"] = Field(default="CANCELLED")
     order_id: str
     reason: str # Example: "UserRequest", "System", "Expired"
     cancel_timestamp_ns: int
@@ -161,8 +120,7 @@ def parse_order_event(data: dict[str, Any]) -> OrderEvent:
             # We need a way to parse a single order dict, let's reuse/adapt parse_orders logic
             # For simplicity, let's assume parse_orders can handle a single dict or adapt it.
             # Hacky approach: wrap in list and get first element
-            parsed_order_list = parse_orders([payload])
-            if not parsed_order_list:
+            if not (parsed_order_list := parse_orders([payload])):
                  raise ValueError(f"Failed to parse order data in CREATED event: {payload}")
             return OrderCreatedEvent(order=parsed_order_list[0])
 

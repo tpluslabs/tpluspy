@@ -19,7 +19,7 @@ logger = logging.getLogger("RestExample")
 API_BASE_URL = "http://127.0.0.1:8000/" # Example URL
 
 # Example Asset ID to use
-example_asset = IndexAsset(200) # Assuming asset index 200 for the example
+example_asset = IndexAsset(Index=200) # Changed to keyword argument
 
 async def main():
     user = User()
@@ -85,8 +85,12 @@ async def main():
             # --- Get Orders (GET) ---
             logger.info(f"--- Getting Orders for user {user_id} ---")
             try:
-                user_orders = await client.get_user_orders(user_id)
-                logger.info(f"User Orders ({user_id}): {json.dumps([o.to_dict() for o in user_orders], indent=2)}")
+                # Unpack tuple
+                user_orders, raw_orders_response = await client.get_user_orders(user_id)
+                # Log raw response
+                logger.info(f"Raw User Orders Response ({user_id}): {json.dumps(raw_orders_response, indent=2)}")
+                # Log parsed orders (which might be empty due to parsing issues)
+                logger.info(f"Parsed User Orders ({user_id}): {json.dumps([o.model_dump() for o in user_orders], indent=2)}")
             except Exception as e:
                 logger.error(f"Get User Orders Failed: {e}", exc_info=True)
 
@@ -94,8 +98,12 @@ async def main():
 
             logger.info(f"--- Getting Orders for user {user_id}, asset {example_asset.Index} ---")
             try:
-                user_asset_orders = await client.get_user_orders_for_book(user_id, example_asset)
-                logger.info(f"User Asset Orders ({user_id}, {example_asset.Index}): {json.dumps([o.to_dict() for o in user_asset_orders], indent=2)}")
+                # Unpack tuple
+                user_asset_orders, raw_asset_orders_response = await client.get_user_orders_for_book(user_id, example_asset)
+                # Log raw response
+                logger.info(f"Raw User Asset Orders Response ({user_id}, {example_asset.Index}): {json.dumps(raw_asset_orders_response, indent=2)}")
+                # Log parsed orders
+                logger.info(f"Parsed User Asset Orders ({user_id}, {example_asset.Index}): {json.dumps([o.model_dump() for o in user_asset_orders], indent=2)}")
             except Exception as e:
                 logger.error(f"Get User Asset Orders Failed: {e}", exc_info=True)
 
@@ -104,7 +112,7 @@ async def main():
             logger.info(f"--- Getting Trades for user {user_id} ---")
             try:
                 user_trades = await client.get_user_trades(user_id)
-                logger.info(f"User Trades ({user_id}): {json.dumps([t.to_dict() for t in user_trades], indent=2)}")
+                logger.info(f"User Trades ({user_id}): {json.dumps([t.model_dump() for t in user_trades], indent=2)}")
             except Exception as e:
                 logger.error(f"Get User Trades Failed: {e}", exc_info=True)
 
@@ -113,7 +121,7 @@ async def main():
             logger.info(f"--- Getting Trades for user {user_id}, asset {example_asset.Index} ---")
             try:
                 user_asset_trades = await client.get_user_trades_for_asset(user_id, example_asset)
-                logger.info(f"User Asset Trades ({user_id}, {example_asset.Index}): {json.dumps([t.to_dict() for t in user_asset_trades], indent=2)}")
+                logger.info(f"User Asset Trades ({user_id}, {example_asset.Index}): {json.dumps([t.model_dump() for t in user_asset_trades], indent=2)}")
             except Exception as e:
                 logger.error(f"Get User Asset Trades Failed: {e}", exc_info=True)
 

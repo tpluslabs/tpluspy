@@ -1,20 +1,21 @@
-from dataclasses import dataclass
 from typing import Any, Literal
 
+from pydantic import BaseModel
 
-@dataclass
-class OrderBook:
-    def __init__(self,
-                 asks: list[list[int]] = None,
-                 bids: list[list[int]] = None,
-                 sequence_number: int = 0):
-        self.asks = asks or []  # List of [price, quantity]
-        self.bids = bids or []  # List of [price, quantity]
-        self.sequence_number = sequence_number
 
-# Added for WebSocket Depth Stream
-@dataclass
-class PriceLevelUpdate:
+class OrderBook(BaseModel):
+    asks: list[list[int]] = []  # List of [price, quantity]
+    bids: list[list[int]] = []  # List of [price, quantity]
+    sequence_number: int = 0
+
+# Model for WebSocket Depth Stream Diff updates
+class OrderBookDiff(BaseModel):
+    bids: list[list[int]]
+    asks: list[list[int]]
+    sequence_number: int
+
+# Model for individual Price Level Updates (Potentially for a different stream?)
+class PriceLevelUpdate(BaseModel):
     asset_id: int
     side: Literal["Ask", "Bid"]
     price_level: int # Assuming price is an integer

@@ -1,9 +1,10 @@
-from dataclasses import asdict, dataclass
+from pydantic import BaseModel, model_serializer
 
 
-@dataclass
-class IndexAsset:
+class IndexAsset(BaseModel):
     Index: int
 
-    def to_dict(self):
-        return asdict(self)
+    @model_serializer
+    def serialize_model(self) -> dict[str, int]:
+        # Replicates the old {"Index": value} structure
+        return {"Index": self.Index}

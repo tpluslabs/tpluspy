@@ -1,10 +1,10 @@
 import datetime
-from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel
 
-@dataclass
-class KlineUpdate:
+
+class KlineUpdate(BaseModel):
     """Represents a single K-line (candlestick) update from the WebSocket stream."""
     asset_id: int
     timestamp: int # Unix timestamp (e.g., seconds or milliseconds)

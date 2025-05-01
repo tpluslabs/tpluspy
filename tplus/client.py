@@ -6,19 +6,21 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 import websockets
+from pydantic import ValidationError
 
-# Assuming models and utils will be accessible from this path
-# Adjust imports based on actual project structure
 from tplus.model.asset_identifier import IndexAsset  # Assuming relative import
 from tplus.model.klines import KlineUpdate, parse_kline_update
-from tplus.model.order import Order, OrderEvent, parse_order_event, parse_orders
-from tplus.model.orderbook import OrderBook, PriceLevelUpdate, parse_price_level_update
+from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
+from tplus.model.orderbook import (
+    OrderBook,
+    OrderBookDiff,
+)
 from tplus.model.trades import Trade, TradeEvent, parse_trade_event, parse_trades
 from tplus.utils.limit_order import create_limit_order
 from tplus.utils.market_order import create_market_order
 from tplus.utils.user import User
 
-# Configure basic logging
+# Configure basic logging #TODO: make a separate tplus.logging module
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,13 @@ class OrderBookClient:
             # Response body might be empty even on 200 OK for some APIs
             if not response.content:
                 return {}
-            return response.json()
+
+            # Parse JSON and handle if the result is None (e.g., API returned "null")
+            json_response = response.json()
+            if json_response is None:
+                logger.warning(f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary.")
+                return {}
+            return json_response
         except httpx.TimeoutException as e:
             logger.error(f"Request timed out to {e.request.url!r}: {e}")
             raise
@@ -90,7 +98,7 @@ class OrderBookClient:
             fill_or_kill=fill_or_kill,
             asset_index=self.asset_index
         )
-        signed_message_dict = message.to_dict()
+        signed_message_dict = message.model_dump()
         logger.info(f"Sending Market Order (Asset {self.asset_index}): Qty={quantity}, Side={side}, FOK={fill_or_kill}")
         # Use await for the async request
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
@@ -116,7 +124,7 @@ class OrderBookClient:
             asset_index=self.asset_index,
             # Assuming create_limit_order handles post_only logic internally
         )
-        signed_message_dict = message.to_dict()
+        signed_message_dict = message.model_dump()
         logger.info(f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side}, PostOnly={post_only}")
         # Use await for the async request
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
@@ -150,14 +158,21 @@ class OrderBookClient:
         logger.info(f"Getting Order Book Snapshot for asset {asset_index}")
         # Use await for the async request
         response = await self._request("GET", endpoint)
+
+        # Check if the response is a valid dictionary before unpacking
+        if not isinstance(response, dict):
+            logger.error(f"Received non-dictionary response for order book snapshot: {response}")
+            raise ValueError(f"Invalid API response for order book snapshot: expected a dictionary, got {type(response).__name__}")
+
         # Assuming the response dict structure matches OrderBook constructor
         # Example: {'asks': [[price, qty], ...], 'bids': [[price, qty], ...], 'sequence_number': num}
         # If the API response structure is different, adjust parsing accordingly.
         try:
             return OrderBook(**response)
         except TypeError as e:
-            logger.error(f"Failed to parse order book snapshot response into OrderBook object: {e}. Response: {response}")
-            raise ValueError(f"Could not parse API response for order book snapshot: {response}") from e
+            # This catch might still be useful for other potential TypeError scenarios
+            logger.error(f"Failed to parse order book snapshot response dict into OrderBook object: {e}. Response dict: {response}")
+            raise ValueError(f"Could not parse API response dictionary for order book snapshot: {response}") from e
 
     async def get_klines(self, asset_id: IndexAsset) -> dict[str, Any]:
         """
@@ -211,7 +226,7 @@ class OrderBookClient:
         # Parsing remains synchronous
         return self.parse_trades(response_data)
 
-    async def get_user_orders(self, user_id: str) -> list[Order]:
+    async def get_user_orders(self, user_id: str) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
         Get all orders for a specific user (async).
 
@@ -219,16 +234,15 @@ class OrderBookClient:
             user_id: The user's public key hex string.
 
         Returns:
-            A list of Order objects.
+            A tuple containing the list of parsed OrderResponse objects and the raw API response dictionary.
         """
         endpoint = f"/orders/user/{user_id}"
         logger.info(f"Getting Orders for user {user_id}")
-        # Use await for the async request
         response_data = await self._request("GET", endpoint)
-        # Assuming parse_orders exists and handles the API response structure
-        return parse_orders(response_data)
+        parsed_orders = parse_orders(response_data)
+        return parsed_orders, response_data
 
-    async def get_user_orders_for_book(self, user_id: str, asset_id: IndexAsset) -> list[Order]:
+    async def get_user_orders_for_book(self, user_id: str, asset_id: IndexAsset) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
         Get orders for a specific user and asset (async).
 
@@ -237,15 +251,14 @@ class OrderBookClient:
             asset_id: The asset identifier (IndexAsset).
 
         Returns:
-            A list of Order objects.
+            A tuple containing the list of parsed OrderResponse objects and the raw API response dictionary.
         """
         asset_index = asset_id.Index
         endpoint = f"/orders/user/{user_id}/{asset_index}"
         logger.info(f"Getting Orders for user {user_id}, asset {asset_index}")
-        # Use await for the async request
         response_data = await self._request("GET", endpoint)
-        # Assuming parse_orders exists and handles the API response structure
-        return parse_orders(response_data)
+        parsed_orders = parse_orders(response_data)
+        return parsed_orders, response_data
 
     async def get_user_inventory(self, user_id: str) -> dict[str, Any]:
         """
@@ -321,8 +334,8 @@ class OrderBookClient:
                 except Exception as e:
                     logger.error(f"Error processing message from all trades stream: {e}. Message: {message[:100]}...")
 
-    async def stream_depth(self, asset_id: IndexAsset) -> AsyncIterator[PriceLevelUpdate]:
-        """Stream order book depth updates for a specific asset."""
+    async def stream_depth(self, asset_id: IndexAsset) -> AsyncIterator[OrderBookDiff]:
+        """Stream order book diff updates for a specific asset."""
         asset_index = asset_id.Index
         ws_url = self._get_websocket_url(f"/marketdepth/diff/{asset_index}")
         logger.info(f"Connecting to depth stream for asset {asset_index}: {ws_url}")
@@ -330,10 +343,13 @@ class OrderBookClient:
             async for message in websocket:
                 try:
                     data = json.loads(message)
-                    # Add parsing logic here, assuming parse_price_level_update exists
-                    yield parse_price_level_update(data)
+                    # Parse directly into the new OrderBookDiff model
+                    diff = OrderBookDiff(**data)
+                    yield diff
                 except json.JSONDecodeError:
                     logger.warning(f"Received non-JSON message on depth stream ({asset_index}): {message[:100]}...")
+                except ValidationError as e: # Catch Pydantic validation errors
+                     logger.error(f"Failed to validate OrderBookDiff data: {e}. Message: {message[:100]}...")
                 except Exception as e:
                     logger.error(f"Error processing message from depth stream ({asset_index}): {e}. Message: {message[:100]}...")
 
