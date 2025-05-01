@@ -1,5 +1,4 @@
-import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 from tplus.model.asset_identifier import IndexAsset
 from tplus.model.order import CreateOrderRequest

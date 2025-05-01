@@ -1,7 +1,6 @@
 from dataclasses import dataclass
-from typing import List
-from tplus.model.asset_identifier import IndexAsset
 
+from tplus.model.asset_identifier import IndexAsset
 
 
 @dataclass
@@ -30,7 +29,7 @@ class Trade:
             "confirmed": self.confirmed,
         }
 
-def parse_trades(data: List[dict]) -> List[Trade]:
+def parse_trades(data: list[dict]) -> list[Trade]:
     return [
         Trade(
             asset_id=IndexAsset(**item["asset_id"]),

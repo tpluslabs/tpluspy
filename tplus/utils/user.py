@@ -1,4 +1,4 @@
-from ecdsa import SigningKey, SECP256k1
+from ecdsa import SECP256k1, SigningKey
 
 
 class User:

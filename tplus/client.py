@@ -1,68 +1,18 @@
 import json
 import time
-from typing import Optional, List, Dict, Any
+from typing import Any, Optional
+
 import httpx
 
 # Assuming models and utils will be accessible from this path
 # Adjust imports based on actual project structure
-from tplus.model.asset_identifier import IndexAsset # Assuming relative import
-from tplus.model.limit_order import LimitOrderDetails, GTC
-from tplus.model.market_order import MarketOrderDetails
-from tplus.model.order import Order, CreateOrderRequest # Keep Order import
+from tplus.model.asset_identifier import IndexAsset  # Assuming relative import
+from tplus.model.order import Order, parse_orders
 from tplus.model.orderbook import OrderBook
-from tplus.model.signed_message import ObRequest, SignedMessage
 from tplus.model.trades import Trade, parse_trades
-from tplus.utils.user import User
 from tplus.utils.limit_order import create_limit_order
 from tplus.utils.market_order import create_market_order
-
-# Implementation for parse_order based on the provided example structure
-def parse_order(data: dict) -> Optional[Order]:
-    """Parses a single order dictionary from the API into an Order object."""
-    if not isinstance(data, dict):
-        print(f"Warning: parse_order expected a dict, got {type(data)}")
-        return None
-    try:
-        # Extract base_asset information
-        base_asset_data = data.get('base_asset')
-        if not isinstance(base_asset_data, dict) or 'Index' not in base_asset_data:
-            print(f"Warning: Invalid or missing 'base_asset' structure in order data: {data}")
-            return None
-        base_asset = IndexAsset(index=base_asset_data['Index'])
-
-        # Construct the Order object
-        # Ensure all required fields are present, handle optionals and defaults
-        order = Order(
-            order_id=data['order_id'], # Assuming order_id is always present
-            base_asset=base_asset,
-            side=data['side'], # Assuming side is always present
-            limit_price=data.get('limit_price'), # Optional
-            quantity=data['quantity'], # Assuming quantity is always present
-            confirmed_filled_quantity=data.get('confirmed_filled_quantity', 0), # Default to 0 if missing
-            pending_filled_quantity=data.get('pending_filled_quantity', 0),   # Default to 0 if missing
-            good_until_timestamp_ns=data.get('good_until_timestamp_ns'), # Optional
-            timestamp_ns=data['timestamp_ns'] # Assuming timestamp_ns is always present
-        )
-        return order
-    except KeyError as e:
-        print(f"Error parsing order data: Missing key {e}, data was: {data}")
-        return None
-    except Exception as e:
-        print(f"Error parsing order data: {type(e).__name__} - {e}, data was: {data}")
-        return None
-
-# Updated parse_orders to use the implemented parse_order
-def parse_orders(data: List[dict]) -> List[Order]:
-    """Parses a list of order dictionaries into Order objects using parse_order."""
-    if not isinstance(data, list):
-        print(f"Warning: parse_orders expected a list, got {type(data)}. Returning empty list.")
-        return []
-    parsed = [parse_order(item) for item in data if isinstance(item, dict)]
-    # Filter out None results from failed parsing in parse_order
-    valid_orders = [order for order in parsed if order is not None]
-    if len(valid_orders) != len(data):
-        print(f"Warning: parse_orders filtered out {len(data) - len(valid_orders)} invalid/unparseable order entries.")
-    return valid_orders
+from tplus.utils.user import User
 
 
 class OrderBookClient:
@@ -79,7 +29,7 @@ class OrderBookClient:
             headers={"Content-Type": "application/json", "Accept": "application/json"}
         )
 
-    def _request(self, method: str, endpoint: str, json_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _request(self, method: str, endpoint: str, json_data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         """Internal method to handle REST API requests."""
         relative_url = endpoint if endpoint.startswith('/') else f"/{endpoint}"
         try:
@@ -107,7 +57,7 @@ class OrderBookClient:
             # Potentially parse error details from e.response.json() if available
             raise
 
-    def create_market_order(self, quantity: int, side: str, fill_or_kill: bool = False) -> Dict[str, Any]:
+    def create_market_order(self, quantity: int, side: str, fill_or_kill: bool = False) -> dict[str, Any]:
         """
         Create and send a market order.
 
@@ -131,7 +81,7 @@ class OrderBookClient:
         # Assuming a standard /orders endpoint for creating orders
         return self._request("POST", "/orders/create", json_data=signed_message_dict)
 
-    def create_limit_order(self, quantity: int, price: int, side: str, post_only: bool = True) -> Dict[str, Any]:
+    def create_limit_order(self, quantity: int, price: int, side: str, post_only: bool = True) -> dict[str, Any]:
         """
         Create and send a limit order.
 
@@ -157,7 +107,7 @@ class OrderBookClient:
         # Assuming a standard /orders endpoint for creating orders
         return self._request("POST", "/orders/create", json_data=signed_message_dict)
 
-    def update_orderbook(self, asks: List[List[int]], bids: List[List[int]], sequence_number: int):
+    def update_orderbook(self, asks: list[list[int]], bids: list[list[int]], sequence_number: int):
         """
         Update the local orderbook state.
 
@@ -177,7 +127,7 @@ class OrderBookClient:
         """
         return self.orderbook
 
-    def parse_trades(self, trades_data: List[Dict[str, Any]]) -> List[Trade]:
+    def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:
         """
         Parse trade data into Trade objects.
 
@@ -189,7 +139,7 @@ class OrderBookClient:
         """
         return parse_trades(trades_data)
 
-    def get_orderbook_snapshot(self, asset_id: IndexAsset) -> Dict[str, Any]:
+    def get_orderbook_snapshot(self, asset_id: IndexAsset) -> dict[str, Any]:
         """
         Get a snapshot of the order book for a given asset.
 
@@ -208,7 +158,7 @@ class OrderBookClient:
         # e.g., return OrderBook(**response)
         return response
 
-    def get_klines(self, asset_id: IndexAsset) -> Dict[str, Any]:
+    def get_klines(self, asset_id: IndexAsset) -> dict[str, Any]:
         """
         Get K-line (candlestick) data for a given asset.
 
@@ -223,7 +173,7 @@ class OrderBookClient:
         print(f"Getting Klines for asset {asset_index}")
         return self._request("GET", endpoint)
 
-    def get_user_trades(self, user_id: str) -> List[Trade]:
+    def get_user_trades(self, user_id: str) -> list[Trade]:
         """
         Get all trades for a specific user.
 
@@ -239,7 +189,7 @@ class OrderBookClient:
         # Assuming the response is a list of trade dictionaries
         return parse_trades(response_data)
 
-    def get_user_trades_for_asset(self, user_id: str, asset_id: IndexAsset) -> List[Trade]:
+    def get_user_trades_for_asset(self, user_id: str, asset_id: IndexAsset) -> list[Trade]:
         """
         Get trades for a specific user and asset.
 
@@ -257,7 +207,7 @@ class OrderBookClient:
         # Assuming the response is a list of trade dictionaries
         return parse_trades(response_data)
 
-    def get_user_orders(self, user_id: str) -> List[Order]:
+    def get_user_orders(self, user_id: str) -> list[Order]:
         """
         Get all orders for a specific user.
 
@@ -273,7 +223,7 @@ class OrderBookClient:
         # Needs proper parsing based on API response structure
         return parse_orders(response_data)
 
-    def get_user_orders_for_book(self, user_id: str, asset_id: IndexAsset) -> List[Order]:
+    def get_user_orders_for_book(self, user_id: str, asset_id: IndexAsset) -> list[Order]:
         """
         Get orders for a specific user and asset.
 
@@ -291,7 +241,7 @@ class OrderBookClient:
         # Needs proper parsing based on API response structure
         return parse_orders(response_data)
 
-    def get_user_inventory(self, user_id: str) -> Dict[str, Any]:
+    def get_user_inventory(self, user_id: str) -> dict[str, Any]:
         """
         Get inventory for a specific user.
 
@@ -434,4 +384,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Get Klines Failed: {e}")
 
-    print("\nClient closed.") 
+    print("\nClient closed.")

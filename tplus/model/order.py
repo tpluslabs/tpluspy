@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Union
+from typing import Union
 
 from tplus.model.asset_identifier import IndexAsset
 from tplus.model.limit_order import LimitOrderDetails
@@ -8,7 +8,7 @@ from tplus.model.market_order import MarketOrderDetails
 
 @dataclass
 class Order:
-    signer: List[int]
+    signer: list[int]
     order_id: str
     base_asset: IndexAsset
     details: Union[LimitOrderDetails, MarketOrderDetails]
@@ -29,7 +29,7 @@ class Order:
 @dataclass
 class CreateOrderRequest:
     order: Order
-    signature: List[int]
+    signature: list[int]
 
     def to_dict(self):
         return {

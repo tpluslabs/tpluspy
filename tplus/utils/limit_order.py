@@ -4,8 +4,8 @@ import uuid
 from typing import Optional
 
 from tplus.model.asset_identifier import IndexAsset
-from tplus.model.limit_order import LimitOrderDetails, GTC
-from tplus.model.order import Order, CreateOrderRequest
+from tplus.model.limit_order import GTC, LimitOrderDetails
+from tplus.model.order import CreateOrderRequest, Order
 from tplus.model.signed_message import ObRequest, SignedMessage
 from tplus.utils.user import User
 
