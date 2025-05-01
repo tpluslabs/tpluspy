@@ -19,6 +19,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "eth-ape>=0.8.32,<0.9",
+        "ape-tokens",
         "httpx>=0.20",
         "ecdsa>=0.17",
     ],

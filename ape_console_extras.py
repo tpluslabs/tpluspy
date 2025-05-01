@@ -8,6 +8,6 @@ from tplus.contracts import DepositVault, Registry
 
 def ape_init_extras(chain):
     return {
-        "deposit_vault": DepositVault(),
+        "vault": DepositVault(),
         "registry": Registry(),
     }
