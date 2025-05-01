@@ -1,5 +1,4 @@
-import json
-import time
+import logging
 from typing import Any, Optional
 
 import httpx
@@ -14,6 +13,9 @@ from tplus.utils.limit_order import create_limit_order
 from tplus.utils.market_order import create_market_order
 from tplus.utils.user import User
 
+# Configure basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class OrderBookClient:
     DEFAULT_TIMEOUT = 10.0 # Default request timeout
@@ -22,7 +24,6 @@ class OrderBookClient:
         self.user = user
         self.asset_index = asset_index
         self.base_url = base_url.rstrip('/')
-        self.orderbook = OrderBook()
         self._client = httpx.Client(
             base_url=self.base_url,
             timeout=timeout,
@@ -45,21 +46,21 @@ class OrderBookClient:
             return response.json()
         except httpx.TimeoutException as e:
             # Re-raise or handle specific exceptions as needed
-            print(f"Request timed out to {e.request.url!r}: {e}")
+            logger.error(f"Request timed out to {e.request.url!r}: {e}")
             raise
         except httpx.RequestError as e:
             # Includes connection errors, read errors, etc.
-            print(f"An error occurred while requesting {e.request.url!r}: {type(e).__name__} - {e}")
+            logger.error(f"An error occurred while requesting {e.request.url!r}: {type(e).__name__} - {e}")
             raise
         except httpx.HTTPStatusError as e:
             # Specific HTTP error status codes (4xx, 5xx)
-            print(f"HTTP error {e.response.status_code} while requesting {e.request.url!r}: {e.response.text}")
+            logger.error(f"HTTP error {e.response.status_code} while requesting {e.request.url!r}: {e.response.text}")
             # Potentially parse error details from e.response.json() if available
             raise
 
     def create_market_order(self, quantity: int, side: str, fill_or_kill: bool = False) -> dict[str, Any]:
         """
-        Create and send a market order.
+        Create and send a market order using the default asset index.
 
         Args:
             quantity: Amount to buy/sell
@@ -77,19 +78,18 @@ class OrderBookClient:
             asset_index=self.asset_index
         )
         signed_message_dict = message.to_dict()
-        print(f"Sending Market Order: {json.dumps(signed_message_dict, indent=2)}")
-        # Assuming a standard /orders endpoint for creating orders
+        logger.info(f"Sending Market Order (Asset {self.asset_index}): Qty={quantity}, Side={side}, FOK={fill_or_kill}")
         return self._request("POST", "/orders/create", json_data=signed_message_dict)
 
     def create_limit_order(self, quantity: int, price: int, side: str, post_only: bool = True) -> dict[str, Any]:
         """
-        Create and send a limit order.
+        Create and send a limit order using the default asset index.
 
         Args:
             quantity: Amount to buy/sell
             price: Limit price
             side: "Buy" or "Sell"
-            post_only: Whether the order should only be posted to the order book
+            post_only: Whether the order should only be posted to the order book (via GTC time_in_force)
 
         Returns:
             The API response dictionary.
@@ -99,47 +99,26 @@ class OrderBookClient:
             price=price,
             side=side,
             signer=self.user,
-            asset_index=self.asset_index
-            # Note: post_only is part of GTC time_in_force in create_limit_order utility
+            asset_index=self.asset_index,
+            # Assuming create_limit_order handles post_only logic internally
         )
         signed_message_dict = message.to_dict()
-        print(f"Sending Limit Order: {json.dumps(signed_message_dict, indent=2)}")
-        # Assuming a standard /orders endpoint for creating orders
+        logger.info(f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side}, PostOnly={post_only}")
         return self._request("POST", "/orders/create", json_data=signed_message_dict)
-
-    def update_orderbook(self, asks: list[list[int]], bids: list[list[int]], sequence_number: int):
-        """
-        Update the local orderbook state.
-
-        Args:
-            asks: List of [price, quantity] for asks
-            bids: List of [price, quantity] for bids
-            sequence_number: The sequence number of this update
-        """
-        self.orderbook = OrderBook(asks=asks, bids=bids, sequence_number=sequence_number)
-
-    def get_orderbook(self) -> OrderBook:
-        """
-        Get the current orderbook state.
-
-        Returns:
-            The current OrderBook instance
-        """
-        return self.orderbook
 
     def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:
         """
         Parse trade data into Trade objects.
 
         Args:
-            trades_data: List of trade dictionaries
+            trades_data: List of trade dictionaries from the API
 
         Returns:
             List of Trade objects
         """
         return parse_trades(trades_data)
 
-    def get_orderbook_snapshot(self, asset_id: IndexAsset) -> dict[str, Any]:
+    def get_orderbook_snapshot(self, asset_id: IndexAsset) -> OrderBook:
         """
         Get a snapshot of the order book for a given asset.
 
@@ -147,16 +126,20 @@ class OrderBookClient:
             asset_id: The asset identifier (IndexAsset).
 
         Returns:
-            The order book data dictionary from the API.
-            (Could be parsed into OrderBook object if structure matches)
+            An OrderBook object representing the snapshot.
         """
         asset_index = asset_id.Index
         endpoint = f"/marketdepth/{asset_index}"
-        print(f"Getting Order Book Snapshot for asset {asset_index}")
+        logger.info(f"Getting Order Book Snapshot for asset {asset_index}")
         response = self._request("GET", endpoint)
-        # Potentially parse into OrderBook object here if response format is known
-        # e.g., return OrderBook(**response)
-        return response
+        # Assuming the response dict structure matches OrderBook constructor
+        # Example: {'asks': [[price, qty], ...], 'bids': [[price, qty], ...], 'sequence_number': num}
+        # If the API response structure is different, adjust parsing accordingly.
+        try:
+            return OrderBook(**response)
+        except TypeError as e:
+            logger.error(f"Failed to parse order book snapshot response into OrderBook object: {e}. Response: {response}")
+            raise ValueError(f"Could not parse API response for order book snapshot: {response}") from e
 
     def get_klines(self, asset_id: IndexAsset) -> dict[str, Any]:
         """
@@ -170,7 +153,7 @@ class OrderBookClient:
         """
         asset_index = asset_id.Index
         endpoint = f"/klines/{asset_index}"
-        print(f"Getting Klines for asset {asset_index}")
+        logger.info(f"Getting Klines for asset {asset_index}")
         return self._request("GET", endpoint)
 
     def get_user_trades(self, user_id: str) -> list[Trade]:
@@ -184,10 +167,9 @@ class OrderBookClient:
             A list of Trade objects.
         """
         endpoint = f"/trades/user/{user_id}"
-        print(f"Getting Trades for user {user_id}")
+        logger.info(f"Getting Trades for user {user_id}")
         response_data = self._request("GET", endpoint)
-        # Assuming the response is a list of trade dictionaries
-        return parse_trades(response_data)
+        return self.parse_trades(response_data)
 
     def get_user_trades_for_asset(self, user_id: str, asset_id: IndexAsset) -> list[Trade]:
         """
@@ -202,10 +184,9 @@ class OrderBookClient:
         """
         asset_index = asset_id.Index
         endpoint = f"/trades/user/{user_id}/{asset_index}"
-        print(f"Getting Trades for user {user_id}, asset {asset_index}")
+        logger.info(f"Getting Trades for user {user_id}, asset {asset_index}")
         response_data = self._request("GET", endpoint)
-        # Assuming the response is a list of trade dictionaries
-        return parse_trades(response_data)
+        return self.parse_trades(response_data)
 
     def get_user_orders(self, user_id: str) -> list[Order]:
         """
@@ -215,12 +196,12 @@ class OrderBookClient:
             user_id: The user's public key hex string.
 
         Returns:
-            A list of Order objects (parsing needed).
+            A list of Order objects.
         """
         endpoint = f"/orders/user/{user_id}"
-        print(f"Getting Orders for user {user_id}")
+        logger.info(f"Getting Orders for user {user_id}")
         response_data = self._request("GET", endpoint)
-        # Needs proper parsing based on API response structure
+        # Assuming parse_orders exists and handles the API response structure
         return parse_orders(response_data)
 
     def get_user_orders_for_book(self, user_id: str, asset_id: IndexAsset) -> list[Order]:
@@ -232,13 +213,13 @@ class OrderBookClient:
             asset_id: The asset identifier (IndexAsset).
 
         Returns:
-            A list of Order objects (parsing needed).
+            A list of Order objects.
         """
         asset_index = asset_id.Index
         endpoint = f"/orders/user/{user_id}/{asset_index}"
-        print(f"Getting Orders for user {user_id}, asset {asset_index}")
+        logger.info(f"Getting Orders for user {user_id}, asset {asset_index}")
         response_data = self._request("GET", endpoint)
-        # Needs proper parsing based on API response structure
+        # Assuming parse_orders exists and handles the API response structure
         return parse_orders(response_data)
 
     def get_user_inventory(self, user_id: str) -> dict[str, Any]:
@@ -250,14 +231,16 @@ class OrderBookClient:
 
         Returns:
             The inventory data dictionary from the API.
+            (Consider creating an Inventory model for parsing)
         """
         endpoint = f"/inventory/user/{user_id}"
-        print(f"Getting Inventory for user {user_id}")
+        logger.info(f"Getting Inventory for user {user_id}")
         return self._request("GET", endpoint)
 
     # --- Context Management ---
     def close(self) -> None:
         """Closes the underlying httpx client."""
+        logger.info("Closing HTTP client.")
         self._client.close()
 
     def __enter__(self):
@@ -267,121 +250,3 @@ class OrderBookClient:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.close()
-
-
-# Example usage (potentially move to a separate script or tests)
-if __name__ == "__main__":
-    # Create a new user
-    user = User()
-
-    # --- IMPORTANT: Replace with your actual API endpoint URL ---
-    API_BASE_URL = "http://127.0.0.1:8000/" # Example URL
-
-    # Example Asset ID to use
-    example_asset = IndexAsset(200) # Assuming asset index 200
-
-    # Initialize client with the API base URL
-    # Using context manager ensures the client connection is closed properly
-    with OrderBookClient(user, base_url=API_BASE_URL) as client:
-
-        # --- Simple GET Test First ---
-        print("="*20 + " Simple GET Test " + "="*20)
-        try:
-            print(f"\n--- Getting Order Book Snapshot for asset {example_asset.Index} ---")
-            orderbook_snapshot = client.get_orderbook_snapshot(example_asset)
-            print(f"Order Book Snapshot ({example_asset.Index}):", json.dumps(orderbook_snapshot, indent=2))
-            print("Simple GET test SUCCEEDED.")
-        except Exception as e:
-            print(f"Simple GET test FAILED: {e}")
-            print("Skipping further tests as basic GET failed.")
-            # Optionally exit here if needed
-            # exit()
-
-        print("\n" + "="*20 + " POST Endpoints " + "="*20)
-        time.sleep(1) # Pause before POST attempts
-
-        # --- Create Orders (POST) ---
-        try:
-            print("--- Attempting Market Order ---")
-            market_order_response = client.create_market_order(
-                quantity=10,
-                side="Buy",
-                fill_or_kill=False
-            )
-            print("Market Order Response:", json.dumps(market_order_response, indent=2))
-        except Exception as e:
-            print(f"Market Order Failed: {e}")
-
-        time.sleep(0.5) # Brief pause
-
-        try:
-            print("\n--- Attempting Limit Order ---")
-            limit_order_response = client.create_limit_order(
-                quantity=5,
-                price=1000,
-                side="Sell",
-                post_only=True
-            )
-            print("Limit Order Response:", json.dumps(limit_order_response, indent=2))
-        except Exception as e:
-            print(f"Limit Order Failed: {e}")
-
-        print("\n" + "="*20 + " GET Endpoints " + "="*20)
-        time.sleep(1) # Longer pause before reads
-
-        user_id = user.pubkey()
-
-        # --- Get Orders (GET) ---
-        try:
-            print(f"\n--- Getting Orders for user {user_id} ---")
-            user_orders = client.get_user_orders(user_id)
-            print(f"User Orders ({user_id}):", json.dumps(user_orders, indent=2))
-        except Exception as e:
-            print(f"Get User Orders Failed: {e}")
-
-        time.sleep(0.5)
-
-        try:
-            print(f"\n--- Getting Orders for user {user_id}, asset {example_asset.Index} ---")
-            user_asset_orders = client.get_user_orders_for_book(user_id, example_asset)
-            print(f"User Asset Orders ({user_id}, {example_asset.Index}):", json.dumps(user_asset_orders, indent=2))
-        except Exception as e:
-            print(f"Get User Asset Orders Failed: {e}")
-
-        # --- Get Trades (GET) ---
-        time.sleep(0.5)
-        try:
-            print(f"\n--- Getting Trades for user {user_id} ---")
-            user_trades = client.get_user_trades(user_id)
-            print(f"User Trades ({user_id}):", json.dumps([t.to_dict() for t in user_trades], indent=2) if user_trades else "[]")
-        except Exception as e:
-            print(f"Get User Trades Failed: {e}")
-
-        time.sleep(0.5)
-
-        try:
-            print(f"\n--- Getting Trades for user {user_id}, asset {example_asset.Index} ---")
-            user_asset_trades = client.get_user_trades_for_asset(user_id, example_asset)
-            print(f"User Asset Trades ({user_id}, {example_asset.Index}):", json.dumps([t.to_dict() for t in user_asset_trades], indent=2) if user_asset_trades else "[]")
-        except Exception as e:
-            print(f"Get User Asset Trades Failed: {e}")
-
-        # --- Get Inventory (GET) ---
-        time.sleep(0.5)
-        try:
-            print(f"\n--- Getting Inventory for user {user_id} ---")
-            inventory = client.get_user_inventory(user_id)
-            print(f"User Inventory ({user_id}):", json.dumps(inventory, indent=2))
-        except Exception as e:
-            print(f"Get User Inventory Failed: {e}")
-
-        # --- Get Market Data (GET) ---
-        time.sleep(0.5)
-        try:
-            print(f"\n--- Getting Klines for asset {example_asset.Index} ---")
-            klines = client.get_klines(example_asset)
-            print(f"Klines ({example_asset.Index}):", json.dumps(klines, indent=2))
-        except Exception as e:
-            print(f"Get Klines Failed: {e}")
-
-    print("\nClient closed.")
