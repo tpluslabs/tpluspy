@@ -1,6 +1,6 @@
 import logging
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Literal, Union
 
 from tplus.model.asset_identifier import IndexAsset
 from tplus.model.limit_order import GTC, LimitOrderDetails
@@ -110,5 +110,88 @@ def parse_orders(orders_data: list[dict[str, Any]]) -> list[Order]:
             continue # Skip this order and proceed to the next
 
     return parsed_orders
+
+
+# --- WebSocket Order Events ---
+
+# Base class (optional, but can be useful)
+@dataclass
+class BaseOrderEvent:
+    event_type: str
+
+@dataclass
+class OrderCreatedEvent(BaseOrderEvent):
+    event_type: Literal["CREATED"] = field(default="CREATED", init=False)
+    order: Order # The newly created order
+
+@dataclass
+class OrderUpdatedEvent(BaseOrderEvent):
+    """Represents updates like partial fills or status changes."""
+    event_type: Literal["UPDATED"] = field(default="UPDATED", init=False)
+    order_id: str
+    # Include fields that can change, e.g.:
+    status: str # Example: FILLED, PARTIALLY_FILLED, CANCELLED
+    filled_quantity: int
+    remaining_quantity: int
+    update_timestamp_ns: int
+    # Optionally include the full updated order object if the stream sends it
+    # order: Order | None = None
+
+@dataclass
+class OrderCancelledEvent(BaseOrderEvent):
+    event_type: Literal["CANCELLED"] = field(default="CANCELLED", init=False)
+    order_id: str
+    reason: str # Example: "UserRequest", "System", "Expired"
+    cancel_timestamp_ns: int
+
+# Union type for type hinting
+OrderEvent = Union[OrderCreatedEvent, OrderUpdatedEvent, OrderCancelledEvent]
+
+def parse_order_event(data: dict[str, Any]) -> OrderEvent:
+    """Parses an order event dictionary from the WebSocket stream."""
+    event_type = data.get('event_type')
+    payload = data.get('payload', {}) # Assume payload contains the event data
+
+    if not event_type or not isinstance(payload, dict):
+        raise ValueError(f"Invalid order event structure: {data}")
+
+    try:
+        if event_type == "CREATED":
+            # Assume payload is the raw order dictionary
+            # We need a way to parse a single order dict, let's reuse/adapt parse_orders logic
+            # For simplicity, let's assume parse_orders can handle a single dict or adapt it.
+            # Hacky approach: wrap in list and get first element
+            parsed_order_list = parse_orders([payload])
+            if not parsed_order_list:
+                 raise ValueError(f"Failed to parse order data in CREATED event: {payload}")
+            return OrderCreatedEvent(order=parsed_order_list[0])
+
+        elif event_type == "UPDATED":
+            # Assuming payload directly contains the fields for OrderUpdatedEvent
+            return OrderUpdatedEvent(
+                order_id=payload['order_id'],
+                status=payload['status'],
+                filled_quantity=int(payload['filled_quantity']),
+                remaining_quantity=int(payload['remaining_quantity']),
+                update_timestamp_ns=int(payload['update_timestamp_ns'])
+                # Parse optional full order if present
+            )
+
+        elif event_type == "CANCELLED":
+            # Assuming payload directly contains the fields for OrderCancelledEvent
+            return OrderCancelledEvent(
+                order_id=payload['order_id'],
+                reason=payload['reason'],
+                cancel_timestamp_ns=int(payload['cancel_timestamp_ns'])
+            )
+
+        else:
+            logger.warning(f"Received unknown order event type: {event_type}. Data: {data}")
+            # Option: return a generic event or raise an error
+            raise ValueError(f"Unknown order event type: {event_type}")
+
+    except (KeyError, ValueError, TypeError) as e:
+        logger.error(f"Error parsing order event ({event_type}): {e}. Data: {data}")
+        raise ValueError(f"Invalid data for order event type {event_type}: {data}") from e
 
 

@@ -19,6 +19,8 @@ setup(
     include_package_data=True,
     install_requires=[
         "eth-ape>=0.8.32,<0.9",
+        "httpx>=0.20",
+        "ecdsa>=0.17",
     ],
     python_requires=">=3.9,<4",
     extras_require={
