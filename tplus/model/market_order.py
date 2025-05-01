@@ -10,10 +10,5 @@ class MarketOrderDetails(BaseModel):
     @model_serializer
     def serialize_model(self) -> dict[str, dict[str, Any]]:
         # Replicates the old {"Market": {"quantity": {"BaseAsset" : ...}, ...}} structure
-        market_data = {
-            "quantity": {"BaseAsset": self.quantity},
-            "fill_or_kill": self.fill_or_kill
-        }
+        market_data = {"quantity": {"BaseAsset": self.quantity}, "fill_or_kill": self.fill_or_kill}
         return {"Market": market_data}
-
-

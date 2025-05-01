@@ -21,29 +21,36 @@ from tplus.utils.market_order import create_market_order
 from tplus.utils.user import User
 
 # Configure basic logging #TODO: make a separate tplus.logging module
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-class OrderBookClient:
-    DEFAULT_TIMEOUT = 10.0 # Default request timeout
 
-    def __init__(self, user: User, base_url: str, asset_index: int = 200, timeout: float = DEFAULT_TIMEOUT):
+class OrderBookClient:
+    DEFAULT_TIMEOUT = 10.0  # Default request timeout
+
+    def __init__(
+        self, user: User, base_url: str, asset_index: int = 200, timeout: float = DEFAULT_TIMEOUT
+    ):
         self.user = user
         self.asset_index = asset_index
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         # Store original base_url parts for WS construction
         self._parsed_base_url = urlparse(self.base_url)
         # Use AsyncClient now
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=timeout,
-            headers={"Content-Type": "application/json", "Accept": "application/json"}
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
 
     # --- Async HTTP Request Handling ---
-    async def _request(self, method: str, endpoint: str, json_data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    async def _request(
+        self, method: str, endpoint: str, json_data: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         """Internal method to handle asynchronous REST API requests."""
-        relative_url = endpoint if endpoint.startswith('/') else f"/{endpoint}"
+        relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         try:
             # Use await for the async client request
             response = await self._client.request(
@@ -51,7 +58,7 @@ class OrderBookClient:
                 url=relative_url,
                 json=json_data,
             )
-            response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
             # Handle cases where the response might be empty (e.g., 204 No Content)
             if response.status_code == 204:
                 return {}
@@ -62,24 +69,34 @@ class OrderBookClient:
             # Parse JSON and handle if the result is None (e.g., API returned "null")
             json_response = response.json()
             if json_response is None:
-                logger.warning(f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary.")
+                logger.warning(
+                    f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary."
+                )
                 return {}
             return json_response
         except httpx.TimeoutException as e:
             logger.error(f"Request timed out to {e.request.url!r}: {e}")
             raise
         except httpx.RequestError as e:
-            logger.error(f"An error occurred while requesting {e.request.url!r}: {type(e).__name__} - {e}")
+            logger.error(
+                f"An error occurred while requesting {e.request.url!r}: {type(e).__name__} - {e}"
+            )
             raise
         except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP error {e.response.status_code} while requesting {e.request.url!r}: {e.response.text}")
+            logger.error(
+                f"HTTP error {e.response.status_code} while requesting {e.request.url!r}: {e.response.text}"
+            )
             raise
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON response from {response.request.url!r}. Status: {response.status_code}. Content: {response.text[:100]}...")
+            logger.error(
+                f"Failed to decode JSON response from {response.request.url!r}. Status: {response.status_code}. Content: {response.text[:100]}..."
+            )
             raise ValueError(f"Invalid JSON received from API: {e}") from e
 
     # --- Async Order Creation Methods ---
-    async def create_market_order(self, quantity: int, side: str, fill_or_kill: bool = False) -> dict[str, Any]:
+    async def create_market_order(
+        self, quantity: int, side: str, fill_or_kill: bool = False
+    ) -> dict[str, Any]:
         """
         Create and send a market order using the default asset index (async).
 
@@ -96,14 +113,18 @@ class OrderBookClient:
             side=side,
             signer=self.user,
             fill_or_kill=fill_or_kill,
-            asset_index=self.asset_index
+            asset_index=self.asset_index,
         )
         signed_message_dict = message.model_dump()
-        logger.info(f"Sending Market Order (Asset {self.asset_index}): Qty={quantity}, Side={side}, FOK={fill_or_kill}")
+        logger.info(
+            f"Sending Market Order (Asset {self.asset_index}): Qty={quantity}, Side={side}, FOK={fill_or_kill}"
+        )
         # Use await for the async request
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
 
-    async def create_limit_order(self, quantity: int, price: int, side: str, post_only: bool = True) -> dict[str, Any]:
+    async def create_limit_order(
+        self, quantity: int, price: int, side: str, post_only: bool = True
+    ) -> dict[str, Any]:
         """
         Create and send a limit order using the default asset index (async).
 
@@ -125,7 +146,9 @@ class OrderBookClient:
             # Assuming create_limit_order handles post_only logic internally
         )
         signed_message_dict = message.model_dump()
-        logger.info(f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side}, PostOnly={post_only}")
+        logger.info(
+            f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side}, PostOnly={post_only}"
+        )
         # Use await for the async request
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
 
@@ -162,7 +185,9 @@ class OrderBookClient:
         # Check if the response is a valid dictionary before unpacking
         if not isinstance(response, dict):
             logger.error(f"Received non-dictionary response for order book snapshot: {response}")
-            raise ValueError(f"Invalid API response for order book snapshot: expected a dictionary, got {type(response).__name__}")
+            raise ValueError(
+                f"Invalid API response for order book snapshot: expected a dictionary, got {type(response).__name__}"
+            )
 
         # Assuming the response dict structure matches OrderBook constructor
         # Example: {'asks': [[price, qty], ...], 'bids': [[price, qty], ...], 'sequence_number': num}
@@ -171,8 +196,12 @@ class OrderBookClient:
             return OrderBook(**response)
         except TypeError as e:
             # This catch might still be useful for other potential TypeError scenarios
-            logger.error(f"Failed to parse order book snapshot response dict into OrderBook object: {e}. Response dict: {response}")
-            raise ValueError(f"Could not parse API response dictionary for order book snapshot: {response}") from e
+            logger.error(
+                f"Failed to parse order book snapshot response dict into OrderBook object: {e}. Response dict: {response}"
+            )
+            raise ValueError(
+                f"Could not parse API response dictionary for order book snapshot: {response}"
+            ) from e
 
     async def get_klines(self, asset_id: IndexAsset) -> dict[str, Any]:
         """
@@ -242,7 +271,9 @@ class OrderBookClient:
         parsed_orders = parse_orders(response_data)
         return parsed_orders, response_data
 
-    async def get_user_orders_for_book(self, user_id: str, asset_id: IndexAsset) -> tuple[list[OrderResponse], dict[str, Any]]:
+    async def get_user_orders_for_book(
+        self, user_id: str, asset_id: IndexAsset
+    ) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
         Get orders for a specific user and asset (async).
 
@@ -283,9 +314,9 @@ class OrderBookClient:
         # Use the netloc (host:port) from the original base URL
         netloc = self._parsed_base_url.netloc
         # Ensure the path starts with a '/'
-        ws_path = path if path.startswith('/') else f'/{path}'
+        ws_path = path if path.startswith("/") else f"/{path}"
         # Reconstruct the URL with ws/wss scheme
-        return urlunparse((scheme, netloc, ws_path, '', '', ''))
+        return urlunparse((scheme, netloc, ws_path, "", "", ""))
 
     # --- WebSocket Streaming Methods ---
     async def stream_orders(self) -> AsyncIterator[OrderEvent]:
@@ -299,9 +330,13 @@ class OrderBookClient:
                     # Add parsing logic here, assuming parse_order_event exists
                     yield parse_order_event(data)
                 except json.JSONDecodeError:
-                    logger.warning(f"Received non-JSON message on orders stream: {message[:100]}...")
+                    logger.warning(
+                        f"Received non-JSON message on orders stream: {message[:100]}..."
+                    )
                 except Exception as e:
-                    logger.error(f"Error processing message from orders stream: {e}. Message: {message[:100]}...")
+                    logger.error(
+                        f"Error processing message from orders stream: {e}. Message: {message[:100]}..."
+                    )
                     # Decide whether to continue or break/raise
 
     async def stream_finalized_trades(self) -> AsyncIterator[Trade]:
@@ -313,11 +348,15 @@ class OrderBookClient:
                 try:
                     data = json.loads(message)
                     # Reuse the single Trade parser
-                    yield Trade(**data) # Assuming direct mapping
+                    yield Trade(**data)  # Assuming direct mapping
                 except json.JSONDecodeError:
-                    logger.warning(f"Received non-JSON message on finalized trades stream: {message[:100]}...")
+                    logger.warning(
+                        f"Received non-JSON message on finalized trades stream: {message[:100]}..."
+                    )
                 except Exception as e:
-                    logger.error(f"Error processing message from finalized trades stream: {e}. Message: {message[:100]}...")
+                    logger.error(
+                        f"Error processing message from finalized trades stream: {e}. Message: {message[:100]}..."
+                    )
 
     async def stream_all_trades(self) -> AsyncIterator[TradeEvent]:
         """Stream all trade events (e.g., Pending, Confirmed)."""
@@ -330,9 +369,13 @@ class OrderBookClient:
                     # Add parsing logic here, assuming parse_trade_event exists
                     yield parse_trade_event(data)
                 except json.JSONDecodeError:
-                    logger.warning(f"Received non-JSON message on all trades stream: {message[:100]}...")
+                    logger.warning(
+                        f"Received non-JSON message on all trades stream: {message[:100]}..."
+                    )
                 except Exception as e:
-                    logger.error(f"Error processing message from all trades stream: {e}. Message: {message[:100]}...")
+                    logger.error(
+                        f"Error processing message from all trades stream: {e}. Message: {message[:100]}..."
+                    )
 
     async def stream_depth(self, asset_id: IndexAsset) -> AsyncIterator[OrderBookDiff]:
         """Stream order book diff updates for a specific asset."""
@@ -347,11 +390,17 @@ class OrderBookClient:
                     diff = OrderBookDiff(**data)
                     yield diff
                 except json.JSONDecodeError:
-                    logger.warning(f"Received non-JSON message on depth stream ({asset_index}): {message[:100]}...")
-                except ValidationError as e: # Catch Pydantic validation errors
-                     logger.error(f"Failed to validate OrderBookDiff data: {e}. Message: {message[:100]}...")
+                    logger.warning(
+                        f"Received non-JSON message on depth stream ({asset_index}): {message[:100]}..."
+                    )
+                except ValidationError as e:  # Catch Pydantic validation errors
+                    logger.error(
+                        f"Failed to validate OrderBookDiff data: {e}. Message: {message[:100]}..."
+                    )
                 except Exception as e:
-                    logger.error(f"Error processing message from depth stream ({asset_index}): {e}. Message: {message[:100]}...")
+                    logger.error(
+                        f"Error processing message from depth stream ({asset_index}): {e}. Message: {message[:100]}..."
+                    )
 
     async def stream_klines(self, asset_id: IndexAsset) -> AsyncIterator[KlineUpdate]:
         """Stream K-line (candlestick) updates for a specific asset."""
@@ -365,15 +414,19 @@ class OrderBookClient:
                     # Add parsing logic here, assuming parse_kline_update exists
                     yield parse_kline_update(data)
                 except json.JSONDecodeError:
-                    logger.warning(f"Received non-JSON message on klines stream ({asset_index}): {message[:100]}...")
+                    logger.warning(
+                        f"Received non-JSON message on klines stream ({asset_index}): {message[:100]}..."
+                    )
                 except Exception as e:
-                    logger.error(f"Error processing message from klines stream ({asset_index}): {e}. Message: {message[:100]}...")
+                    logger.error(
+                        f"Error processing message from klines stream ({asset_index}): {e}. Message: {message[:100]}..."
+                    )
 
     # --- Async Context Management ---
     async def close(self) -> None:
         """Closes the underlying httpx async client."""
         logger.info("Closing async HTTP client.")
-        await self._client.aclose() # Use aclose for AsyncClient
+        await self._client.aclose()  # Use aclose for AsyncClient
 
     async def __aenter__(self):
         """Async context manager entry."""

@@ -12,17 +12,20 @@ from tplus.model.trades import Trade  # Import specific model
 from tplus.utils.user import User
 
 # Configure basic logging for the example
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s"
+)
 logger = logging.getLogger("WebSocketExample")
 
 # --- IMPORTANT: Replace with your actual API endpoint URL ---
 # Use the correct URL for your running tplus-core instance
-API_BASE_URL = "http://127.0.0.1:8000/" # Example URL
+API_BASE_URL = "http://127.0.0.1:8000/"  # Example URL
 
 # Example Asset ID to use
-example_asset = IndexAsset(Index=200) # Fix instantiation: Use keyword argument
+example_asset = IndexAsset(Index=200)  # Fix instantiation: Use keyword argument
 
 # --- Stream Handler Functions ---
+
 
 async def listen_depth(client: OrderBookClient, asset: IndexAsset, max_messages: int = 10):
     """Connects to the depth diff stream and logs received messages."""
@@ -33,16 +36,22 @@ async def listen_depth(client: OrderBookClient, asset: IndexAsset, max_messages:
         async for diff_update in client.stream_depth(asset):
             if isinstance(diff_update, OrderBookDiff):
                 # Log info from the diff object
-                logger.info(f"[Depth-{asset.Index}] Received Diff: Seq={diff_update.sequence_number}, Asks Count={len(diff_update.asks)}, Bids Count={len(diff_update.bids)}")
+                logger.info(
+                    f"[Depth-{asset.Index}] Received Diff: Seq={diff_update.sequence_number}, Asks Count={len(diff_update.asks)}, Bids Count={len(diff_update.bids)}"
+                )
                 # Optional: Log specific asks/bids if needed for debugging
                 # logger.debug(f"[Depth-{asset.Index}] Asks: {diff_update.asks}")
                 # logger.debug(f"[Depth-{asset.Index}] Bids: {diff_update.bids}")
             else:
-                logger.warning(f"[Depth-{asset.Index}] Received unexpected data type: {type(diff_update)} - {diff_update}")
+                logger.warning(
+                    f"[Depth-{asset.Index}] Received unexpected data type: {type(diff_update)} - {diff_update}"
+                )
 
             msg_count += 1
             if msg_count >= max_messages:
-                logger.info(f"[Depth-{asset.Index}] Received {max_messages} messages, stopping listener.")
+                logger.info(
+                    f"[Depth-{asset.Index}] Received {max_messages} messages, stopping listener."
+                )
                 break
     except websockets.exceptions.ConnectionClosedError as e:
         logger.error(f"[Depth-{asset.Index}] Connection closed unexpectedly: {e}")
@@ -50,6 +59,7 @@ async def listen_depth(client: OrderBookClient, asset: IndexAsset, max_messages:
         logger.error(f"[Depth-{asset.Index}] Error in stream: {e}", exc_info=True)
     finally:
         logger.info(f"[Depth-{asset.Index}] Listener finished.")
+
 
 async def listen_finalized_trades(client: OrderBookClient, max_messages: int = 5):
     """Connects to the finalized trades stream and logs received messages."""
@@ -59,13 +69,19 @@ async def listen_finalized_trades(client: OrderBookClient, max_messages: int = 5
         async for trade in client.stream_finalized_trades():
             if isinstance(trade, Trade):
                 # Use trade.to_dict() for cleaner logging if needed
-                logger.info(f"[Trades-Finalized] Received Trade ID: {trade.trade_id}, Price: {trade.price}, Qty: {trade.quantity}, Buyer: {trade.is_buyer}")
+                logger.info(
+                    f"[Trades-Finalized] Received Trade ID: {trade.trade_id}, Price: {trade.price}, Qty: {trade.quantity}, Buyer: {trade.is_buyer}"
+                )
             else:
-                 logger.warning(f"[Trades-Finalized] Received unexpected data type: {type(trade)} - {trade}")
+                logger.warning(
+                    f"[Trades-Finalized] Received unexpected data type: {type(trade)} - {trade}"
+                )
 
             msg_count += 1
             if msg_count >= max_messages:
-                logger.info(f"[Trades-Finalized] Received {max_messages} messages, stopping listener.")
+                logger.info(
+                    f"[Trades-Finalized] Received {max_messages} messages, stopping listener."
+                )
                 break
     except websockets.exceptions.ConnectionClosedError as e:
         logger.error(f"[Trades-Finalized] Connection closed unexpectedly: {e}")
@@ -74,10 +90,12 @@ async def listen_finalized_trades(client: OrderBookClient, max_messages: int = 5
     finally:
         logger.info("[Trades-Finalized] Listener finished.")
 
+
 # --- Main Execution ---
 
+
 async def main():
-    user = User() # Create a user for potential future authenticated streams
+    user = User()  # Create a user for potential future authenticated streams
     logger.info(f"Using API Base URL: {API_BASE_URL}")
     logger.info(f"Example Asset Index: {example_asset.Index}")
 
@@ -115,6 +133,7 @@ async def main():
     # Client is closed automatically by async with block
     finally:
         logger.info("WebSocket example finished.")
+
 
 if __name__ == "__main__":
     try:

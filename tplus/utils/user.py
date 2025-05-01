@@ -7,7 +7,7 @@ class User:
         self.vk = self.sk.verifying_key
 
     def pubkey(self):
-        uncompressed_pubkey = b'\x04' + self.vk.to_string()
+        uncompressed_pubkey = b"\x04" + self.vk.to_string()
         hex_pubkey = uncompressed_pubkey.hex()
         return hex_pubkey
 
@@ -20,7 +20,7 @@ class User:
         return signature
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     user = User()
     print("Uncompressed public key:", user.pubkey())
     print("Uncompressed public key:", user)
