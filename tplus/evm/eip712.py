@@ -1,6 +1,6 @@
 from eip712.messages import EIP712Message
 
-from tplus.contracts import TPLUS_DEPLOYMENTS
+from tplus.evm.contracts import TPLUS_DEPLOYMENTS
 
 
 class Domain(EIP712Message):

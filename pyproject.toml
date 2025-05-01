@@ -1,21 +1,11 @@
 [build-system]
 requires = ["setuptools>=75.0.0", "wheel", "setuptools_scm[toml]>=5.0"]
 
-[tool.ape.ethereum]
-default_network = "sepolia"
-
-# Uncomment to use the remote version of the contracts.
-#[[tool.ape.dependencies]]
-#name = "tplus-contracts"
-#github = "tpluslabs/tplus-contracts"
-#ref = "main"
-#scheme = "ssh"
-
-# Comment this out if using GitHub above.
-# Else, point this to your contracts repository
 [[tool.ape.dependencies]]
 name = "tplus-contracts"
-local = "$HOME/tplus/tplus-contracts"
+github = "tpluslabs/tplus-contracts"
+ref = "main"
+scheme = "ssh"
 
 [tool.mypy]
 exclude = ["build/", "dist/", "docs/"]

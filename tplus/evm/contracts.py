@@ -1,11 +1,9 @@
 from typing import TYPE_CHECKING
 
-from ape.exceptions import ContractNotFoundError
+from ape.exceptions import ContractNotFoundError, ProjectError
 from ape.utils.basemodel import ManagerAccessMixin
-from ape_tokens.types import ERC20
-from eth_pydantic_types import AddressType
-from ethpm_types import MethodABI
-from ethpm_types.abi import ABIType
+
+from tplus.evm.abi import get_erc20_type
 
 if TYPE_CHECKING:
     from ape.api import AccountAPI
@@ -21,17 +19,6 @@ TPLUS_DEPLOYMENTS = {
     }
 }
 
-MINT_METHOD = MethodABI(
-    type="function",
-    name="mint",
-    stateMutability="nonpayable",
-    inputs=[
-        ABIType(name="to", type="address", components=None, internal_type="address"),
-        ABIType(name="amount", type="uint256", components=None, internal_type="uint256"),
-    ],
-    outputs=[],
-)
-
 
 class TPlusMixin(ManagerAccessMixin):
     """
@@ -45,9 +32,17 @@ class TPlusMixin(ManagerAccessMixin):
         download and cache the contracts project from GitHub. See pyproject.toml
         Ape config for current specification.
         """
-        versions = self.local_project.dependencies["tplus-contracts"]
-        project = versions[next(iter(versions))]
-        project.load_contracts()
+        if self.local_project.name == "tplus-contracts":
+            # Working from the t+ contracts repo
+            return self.local_project
+
+        # Load the project from dependencies.
+        available_versions = self.local_project.dependencies["tplus-contracts"]
+        if not (version_key := next(iter(available_versions), None)):
+            raise ProjectError("Please install the t+ contracts project")
+
+        project = available_versions[version_key]
+        project.load_contracts()  # Ensure is compiled.
         return project
 
 
@@ -134,7 +129,7 @@ class Registry(TPlusContract):
         contract = self.contract
         data = contract.getAssets()
         res = []
-        # [getAssets_return(assetAddress=HexBytes('0x00000000000000000000000062622e77d1349face943c6e7d5c01c61465fe1dc'), chainId=11155111, maxDeposits=100), getAssets_return(assetAddress=HexBytes('0x00000000000000000000000058372ab62269a52fa636ad7f200d93999595dcaf'), chainId=11155111, maxDeposits=100)]
+
         for itm in data:
             address = self.network_manager.ethereum.decode_address(itm.assetAddress)
 
@@ -142,7 +137,7 @@ class Registry(TPlusContract):
             try:
                 contract = self.chain_manager.contracts.instance_at(address)
             except ContractNotFoundError:
-                contract_type = get_test_erc20_type()
+                contract_type = get_erc20_type()
                 contract = self.chain_manager.contracts.instance_at(
                     address, contract_type=contract_type
                 )
@@ -155,21 +150,6 @@ class Registry(TPlusContract):
 class DepositVault(TPlusContract):
     def __init__(self):
         super().__init__("DepositVault")
-
-
-def get_erc20_type():
-    return ERC20.model_copy()
-
-
-def get_test_erc20_type():
-    contract_type = ERC20.model_copy()
-    contract_type.abi.append(MINT_METHOD)
-    return contract_type
-
-
-def address_to_bytes32(address: str | AddressType) -> bytes:
-    addr_bytes = bytes.fromhex(address[2:])
-    return addr_bytes.rjust(32, b"\x00")
 
 
 registry = Registry()
