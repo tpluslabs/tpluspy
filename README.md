@@ -38,3 +38,112 @@ You can also get raw returndata, which can be helpful to ensure we can decode el
 In [1]: registry.getRiskParameters(decode=False)
 Out[1]: HexBytes('0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000')
 ```
+
+## REST and WebSocket Client (`tplus.client`)
+
+The `tpluspy` library also provides an asynchronous client (`OrderBookClient`) for interacting with the `tplus-core` REST API and WebSocket streams.
+
+### Initialization
+
+To use the client, first initialize it with a `User` object (for signing requests) and the base URL of your `tplus-core` instance:
+
+```python
+import asyncio
+from tplus.client import OrderBookClient
+from tplus.utils.user import User
+
+API_BASE_URL = "http://127.0.0.1:8000/" # Replace with your API URL
+user = User()
+
+async def run_client():
+    # Use async context manager for automatic cleanup
+    async with OrderBookClient(user, base_url=API_BASE_URL) as client:
+        print("Client initialized.")
+        # ... use client methods ...
+
+asyncio.run(run_client())
+```
+
+### REST API Usage
+
+The client offers async methods for common REST endpoints:
+
+**Fetching Data:**
+
+```python
+# Get Order Book Snapshot for asset index 200
+from tplus.model.asset_identifier import IndexAsset
+example_asset = IndexAsset(Index=200)
+orderbook = await client.get_orderbook_snapshot(example_asset)
+print(f"Snapshot Sequence: {orderbook.sequence_number}")
+
+# Get Klines for an asset
+klines = await client.get_klines(example_asset)
+print(f"Klines: {klines}")
+
+# Get orders for the user
+user_id = user.pubkey()
+user_orders, _ = await client.get_user_orders(user_id)
+print(f"User Orders: {user_orders}")
+
+# Get trades for the user and asset
+user_asset_trades = await client.get_user_trades_for_asset(user_id, example_asset)
+print(f"User Asset Trades: {user_asset_trades}")
+
+# Get user inventory
+inventory = await client.get_user_inventory(user_id)
+print(f"Inventory: {inventory}")
+```
+
+**Creating Orders:**
+
+```python
+# Create a Market Order
+market_response = await client.create_market_order(
+    quantity=10,
+    side="Buy"
+)
+print(f"Market Order Response: {market_response}")
+
+# Create a Limit Order (Post-Only)
+limit_response = await client.create_limit_order(
+    quantity=5,
+    price=1000, # Example price
+    side="Sell",
+    post_only=True
+)
+print(f"Limit Order Response: {limit_response}")
+```
+
+See `examples/rest_usage.py` for a runnable demonstration.
+
+### WebSocket Streaming
+
+The client provides async iterators to stream real-time data:
+
+```python
+from tplus.model.asset_identifier import IndexAsset
+from tplus.model.orderbook import OrderBookDiff
+from tplus.model.trades import Trade
+
+example_asset = IndexAsset(Index=200)
+
+# Stream Order Book Diffs
+async for diff_update in client.stream_depth(example_asset):
+    if isinstance(diff_update, OrderBookDiff):
+        print(f"[Depth] Seq={diff_update.sequence_number}, Asks={len(diff_update.asks)}, Bids={len(diff_update.bids)}")
+    # Add logic to handle the update, e.g., update a local order book
+
+# Stream Finalized Trades
+async for trade in client.stream_finalized_trades():
+     if isinstance(trade, Trade):
+        print(f"[Trade] ID: {trade.trade_id}, Price: {trade.price}, Qty: {trade.quantity}")
+    # Add logic to handle the trade
+
+# Other available streams:
+# client.stream_orders() -> OrderEvent
+# client.stream_all_trades() -> TradeEvent
+# client.stream_klines(asset_id) -> KlineUpdate
+```
+
+See `examples/websocket_usage.py` for a runnable demonstration using `asyncio.gather` to run multiple streams concurrently.
