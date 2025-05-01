@@ -20,6 +20,7 @@ setup(
     install_requires=[
         "eth-ape>=0.8.32,<0.9",
         "ape-tokens",
+        "eip712",
         "httpx>=0.20",
         "ecdsa>=0.17",
     ],

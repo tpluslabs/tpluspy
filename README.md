@@ -141,45 +141,9 @@ In [2]: registry.admin()
 Out[2]: '0x467a95fC5359edE5d5dDc4f10A1F4B680694858E'
 ```
 
-You can also get raw returndata, which can be helpful to ensure we can decode elsewhere, such as in Rust:
-
-```python
-In [1]: registry.getRiskParameters(decode=False)
-Out[1]: HexBytes('0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000')
-```
-
-You can also do contract writes, such as deposit assets into a vault.
-First, ensure you have set up an account with Ape:
+For more examples for interacting with the contracts, see the `scripts/` directory.
+You can execute any script using the command:
 
 ```shell
-ape accounts import <name>
-```
-
-For example, assume you named it `"tplus-account"`.
-
-```python
-from ape import accounts, Contract
-from ape_tokens.types import ERC20
-from tplus.contracts import DepositVault
-
-account = accounts.load("tplus-account")
-tkn = Contract("0x62622E77D1349Face943C6e7D5c01C61465FE1dc", contract_type=ERC20)
-stbl = Contract("0x58372ab62269A52fA636aD7F200d93999595DCAF", contract_type=ERC20)
-
-# Ensure we have tokens.
-tkn.mint(account, "1 ether", sender=account)
-stbl.mint(account, "1 ether", sender=account)
-
-vault = DepositVault()
-
-# Approve the vault to spend the tokens first.
-tkn.approve(vault.contract, "1 ether", sender=account)
-stbl.approve(vault.contract, "1 ether", sender=account)
-
-# Deposit the tokens into your t+ account.
-vault.deposit(account, account, tkn, "1 ether", sender=account)
-vault.deposit(account, account, stbl, "1 ether", sender=account)
-
-# Now, you can check your deposits using another call.
-print(vault.getDeposits(0, account))
+ape run <script-name>
 ```
