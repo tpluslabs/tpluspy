@@ -141,9 +141,39 @@ In [2]: registry.admin()
 Out[2]: '0x467a95fC5359edE5d5dDc4f10A1F4B680694858E'
 ```
 
-For more examples for interacting with the contracts, see the `scripts/` directory.
-You can execute any script using the command:
+#### EIP-712
 
-```shell
-ape run <script-name>
+Sign EIP-712 messages, such as settlements, using the `eip712` library.
+
+```python
+from ape import accounts, convert, chain
+from tplus.evm.eip712 import Order
+from tplus.evm.utils import address_to_bytes32
+from tplus.evm.contracts import vault
+
+# Load your Ethereum account for t+.
+tplus_user = accounts.load("tplus-account")
+
+# t+ user IDs are bytes32 padded ETH addresses.
+user_id = address_to_bytes32(tplus_user.address)
+
+# Get the nonce from t+ or the contracts directly.
+nonce = vault.getDepositNonce(tplus_user)
+
+details = {
+    "tokenOut": "0x62622E77D1349Face943C6e7D5c01C61465FE1dc",
+    "amountOut": convert("1 ether", int),
+    "tokenIn": "0x58372ab62269A52fA636aD7F200d93999595DCAF",
+    "amountIn": convert("1 ether", int),
+}
+order = Order(
+    **details,
+    userId=user_id,
+    nonce=nonce,
+    validUntil=chain.pending_timestamp,
+)
+
+# Use this signature for the settlement.
+signature = tplus_user.sign_message(order).encode_rsv()
+print(signature)
 ```

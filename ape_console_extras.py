@@ -8,6 +8,6 @@ from tplus.evm.contracts import registry, vault
 
 def ape_init_extras():
     return {
-        "vault": vault.Vault,
+        "vault": vault,
         "registry": registry,
     }
