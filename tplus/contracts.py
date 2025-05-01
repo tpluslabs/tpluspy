@@ -3,10 +3,12 @@ from typing import TYPE_CHECKING
 from ape.exceptions import ContractNotFoundError
 from ape.utils.basemodel import ManagerAccessMixin
 from ape_tokens.types import ERC20
+from eth_pydantic_types import AddressType
 from ethpm_types import MethodABI
 from ethpm_types.abi import ABIType
 
 if TYPE_CHECKING:
+    from ape.api import AccountAPI
     from ape.contracts import ContractContainer, ContractInstance
     from ape.managers.project import Project
 
@@ -43,7 +45,10 @@ class TPlusMixin(ManagerAccessMixin):
         download and cache the contracts project from GitHub. See pyproject.toml
         Ape config for current specification.
         """
-        return self.local_project.dependencies["tplus-contracts"]["main"]
+        versions = self.local_project.dependencies["tplus-contracts"]
+        project = versions[next(iter(versions))]
+        project.load_contracts()
+        return project
 
 
 class TPlusContract(TPlusMixin):
@@ -95,24 +100,39 @@ class TPlusContract(TPlusMixin):
             return self._deployments[chain_id]
 
         try:
-            address = TPLUS_DEPLOYMENTS[chain_id][self._name]
+            addresses = TPLUS_DEPLOYMENTS[chain_id]
         except KeyError:
-            raise ValueError(f"Registry not deployed on chain '{chain_id}'.")
+            raise ValueError(f"{self._name} not deployed on chain '{chain_id}'.")
 
-        contract_container = self._contract_container.at(address)
+        contract_container = self._contract_container.at(addresses[self._name])
 
         # Cache for next time.
         self._deployments[chain_id] = contract_container
 
         return contract_container
 
+    def deploy(self, deployer: "AccountAPI") -> "TPlusContract":
+        instance = deployer.deploy(self._contract_container)
+        chain_id = self.chain_manager.chain_id
+        self._deployments[chain_id] = instance
+        return instance
+
 
 class Registry(TPlusContract):
     def __init__(self):
         super().__init__("Registry")
 
-    def get_assets(self) -> list["ContractInstance"]:
-        data = self.contract.getAssets()
+    def get_assets(self, chain_id: int | None = None) -> list["ContractInstance"]:
+        connected_chain = self.chain_manager.chain_id
+        if connected_chain != chain_id and chain_id == 11155111:
+            with self.network_manager.ethereum.sepolia.use_default_provider():
+                return self._get_assets()
+
+        return self._get_assets()
+
+    def _get_assets(self) -> list["ContractInstance"]:
+        contract = self.contract
+        data = contract.getAssets()
         res = []
         # [getAssets_return(assetAddress=HexBytes('0x00000000000000000000000062622e77d1349face943c6e7d5c01c61465fe1dc'), chainId=11155111, maxDeposits=100), getAssets_return(assetAddress=HexBytes('0x00000000000000000000000058372ab62269a52fa636ad7f200d93999595dcaf'), chainId=11155111, maxDeposits=100)]
         for itm in data:
@@ -122,11 +142,7 @@ class Registry(TPlusContract):
             try:
                 contract = self.chain_manager.contracts.instance_at(address)
             except ContractNotFoundError:
-                contract_type = ERC20.model_copy()
-                if self.chain_manager.provider.chain_id in (11155111,):
-                    # Include the mint method.
-                    contract_type.abi.append(MINT_METHOD)
-
+                contract_type = get_test_erc20_type()
                 contract = self.chain_manager.contracts.instance_at(
                     address, contract_type=contract_type
                 )
@@ -139,3 +155,22 @@ class Registry(TPlusContract):
 class DepositVault(TPlusContract):
     def __init__(self):
         super().__init__("DepositVault")
+
+
+def get_erc20_type():
+    return ERC20.model_copy()
+
+
+def get_test_erc20_type():
+    contract_type = ERC20.model_copy()
+    contract_type.abi.append(MINT_METHOD)
+    return contract_type
+
+
+def address_to_bytes32(address: str | AddressType) -> bytes:
+    addr_bytes = bytes.fromhex(address[2:])
+    return addr_bytes.rjust(32, b"\x00")
+
+
+registry = Registry()
+vault = DepositVault()

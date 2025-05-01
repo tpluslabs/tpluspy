@@ -1,18 +1,25 @@
-from ape import Contract, accounts
+import click
+from ape.cli import ConnectedProviderCommand, account_option
 
-from tplus.contracts import DepositVault, Registry
+from tplus.contracts import registry, vault
+
+from .deploy import deploy
 
 
-def main():
-    account = accounts.load("tplus-account")
+@click.command(cls=ConnectedProviderCommand)
+@account_option()
+def cli(account, network):
+    if network.is_local:
+        # Simulation - ensure deployed first.
+        deploy(account, network)
 
-    tokens = Registry().get_assets()
+    if not (tokens := registry.get_assets()):
+        print("No tokens available")
+        return
 
     # Ensure we have tokens.
     tokens[0].mint(account, "1 ether", sender=account)
     tokens[1].mint(account, "1 ether", sender=account)
-
-    vault = DepositVault()  # Loads address from connected network
 
     # Approve the vault to spend the tokens first.
     tokens[0].approve(vault.contract, "1 ether", sender=account)
