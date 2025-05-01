@@ -20,7 +20,7 @@ setup(
     install_requires=[
         "eth-ape>=0.8.32,<0.9",
     ],
-    python_requires=">=3.9,<4",
+    python_requires=">=3.10,<4",
     extras_require={
         "test": [
             "pytest>=6.0",
@@ -52,7 +52,6 @@ setup(
         "Operating System :: MacOS",
         "Operating System :: POSIX",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
