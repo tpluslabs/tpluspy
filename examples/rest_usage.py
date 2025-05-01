@@ -34,8 +34,8 @@ async def main():
 
             # --- Simple GET Test First ---
             logger.info("="*20 + " Simple GET Test " + "="*20)
+            logger.info(f"--- Getting Order Book Snapshot for asset {example_asset.Index} ---")
             try:
-                logger.info(f"--- Getting Order Book Snapshot for asset {example_asset.Index} ---")
                 orderbook = await client.get_orderbook_snapshot(example_asset)
                 logger.info(f"Order Book Snapshot ({example_asset.Index}): Sequence={orderbook.sequence_number}, Asks={len(orderbook.asks)}, Bids={len(orderbook.bids)}")
                 logger.info("Simple GET test SUCCEEDED.")
@@ -52,8 +52,8 @@ async def main():
             await asyncio.sleep(1)
 
             # --- Create Orders (POST) ---
+            logger.info("--- Attempting Market Order ---")
             try:
-                logger.info("--- Attempting Market Order ---")
                 market_order_response = await client.create_market_order(
                     quantity=10,
                     side="Buy",
@@ -65,8 +65,8 @@ async def main():
 
             await asyncio.sleep(0.5)
 
+            logger.info("--- Attempting Limit Order ---")
             try:
-                logger.info("--- Attempting Limit Order ---")
                 limit_order_response = await client.create_limit_order(
                     quantity=5,
                     price=1000, # Example price, adjust as needed
@@ -83,8 +83,8 @@ async def main():
             user_id = user.pubkey()
 
             # --- Get Orders (GET) ---
+            logger.info(f"--- Getting Orders for user {user_id} ---")
             try:
-                logger.info(f"--- Getting Orders for user {user_id} ---")
                 user_orders = await client.get_user_orders(user_id)
                 logger.info(f"User Orders ({user_id}): {json.dumps([o.to_dict() for o in user_orders], indent=2)}")
             except Exception as e:
@@ -92,8 +92,8 @@ async def main():
 
             await asyncio.sleep(0.5)
 
+            logger.info(f"--- Getting Orders for user {user_id}, asset {example_asset.Index} ---")
             try:
-                logger.info(f"--- Getting Orders for user {user_id}, asset {example_asset.Index} ---")
                 user_asset_orders = await client.get_user_orders_for_book(user_id, example_asset)
                 logger.info(f"User Asset Orders ({user_id}, {example_asset.Index}): {json.dumps([o.to_dict() for o in user_asset_orders], indent=2)}")
             except Exception as e:
@@ -101,8 +101,8 @@ async def main():
 
             # --- Get Trades (GET) ---
             await asyncio.sleep(0.5)
+            logger.info(f"--- Getting Trades for user {user_id} ---")
             try:
-                logger.info(f"--- Getting Trades for user {user_id} ---")
                 user_trades = await client.get_user_trades(user_id)
                 logger.info(f"User Trades ({user_id}): {json.dumps([t.to_dict() for t in user_trades], indent=2)}")
             except Exception as e:
@@ -110,8 +110,8 @@ async def main():
 
             await asyncio.sleep(0.5)
 
+            logger.info(f"--- Getting Trades for user {user_id}, asset {example_asset.Index} ---")
             try:
-                logger.info(f"--- Getting Trades for user {user_id}, asset {example_asset.Index} ---")
                 user_asset_trades = await client.get_user_trades_for_asset(user_id, example_asset)
                 logger.info(f"User Asset Trades ({user_id}, {example_asset.Index}): {json.dumps([t.to_dict() for t in user_asset_trades], indent=2)}")
             except Exception as e:
@@ -119,8 +119,8 @@ async def main():
 
             # --- Get Inventory (GET) ---
             await asyncio.sleep(0.5)
+            logger.info(f"--- Getting Inventory for user {user_id} ---")
             try:
-                logger.info(f"--- Getting Inventory for user {user_id} ---")
                 inventory = await client.get_user_inventory(user_id)
                 logger.info(f"User Inventory ({user_id}): {json.dumps(inventory, indent=2)}")
             except Exception as e:
@@ -128,8 +128,8 @@ async def main():
 
             # --- Get Market Data (GET) ---
             await asyncio.sleep(0.5)
+            logger.info(f"--- Getting Klines for asset {example_asset.Index} ---")
             try:
-                logger.info(f"--- Getting Klines for asset {example_asset.Index} ---")
                 klines = await client.get_klines(example_asset)
                 logger.info(f"Klines ({example_asset.Index}): {json.dumps(klines, indent=2)}")
             except Exception as e:
