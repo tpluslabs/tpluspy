@@ -160,14 +160,11 @@ user_id = address_to_bytes32(tplus_user.address)
 # Get the nonce from t+ or the contracts directly.
 nonce = vault.getDepositNonce(tplus_user)
 
-details = {
-    "tokenOut": "0x62622E77D1349Face943C6e7D5c01C61465FE1dc",
-    "amountOut": convert("1 ether", int),
-    "tokenIn": "0x58372ab62269A52fA636aD7F200d93999595DCAF",
-    "amountIn": convert("1 ether", int),
-}
 order = Order(
-    **details,
+    tokenOut="0x62622E77D1349Face943C6e7D5c01C61465FE1dc",
+    amountOut=convert("1 ether", int),
+    tokenIn="0x58372ab62269A52fA636aD7F200d93999595DCAF",
+    amountIn=convert("1 ether", int),
     userId=user_id,
     nonce=nonce,
     validUntil=chain.pending_timestamp,
