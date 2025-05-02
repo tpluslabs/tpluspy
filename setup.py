@@ -18,11 +18,12 @@ setup(
     url="https://github.com/tpluslabs/tpluspy",
     include_package_data=True,
     install_requires=[
-        "eth-ape>=0.8.32,<0.9",
         "ape-tokens",
-        "eip712",
-        "httpx>=0.20",
+        "click",
         "ecdsa>=0.17",
+        "eip712",
+        "eth-ape>=0.8.32,<0.9",
+        "httpx>=0.20",
     ],
     python_requires=">=3.10,<4",
     extras_require={
