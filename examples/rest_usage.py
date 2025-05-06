@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from enum import Enum
 
 import httpx
 
@@ -23,6 +24,10 @@ API_BASE_URL = "http://127.0.0.1:8000/"  # Example URL
 # Example Asset ID to use
 example_asset = IndexAsset(Index=200)  # Changed to keyword argument
 
+def enum_encoder(obj):
+    if isinstance(obj, Enum):
+        return obj.value
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 async def main():
     user = User()
@@ -96,7 +101,7 @@ async def main():
                 )
                 # Log parsed orders (which might be empty due to parsing issues)
                 logger.info(
-                    f"Parsed User Orders ({user_id}): {json.dumps([o.model_dump() for o in user_orders], indent=2)}"
+                    f"Parsed User Orders ({user_id}): {json.dumps([o.model_dump(mode="json") for o in user_orders], indent=2, default=enum_encoder)}"
                 )
             except Exception as e:
                 logger.error(f"Get User Orders Failed: {e}", exc_info=True)
@@ -116,7 +121,7 @@ async def main():
                 )
                 # Log parsed orders
                 logger.info(
-                    f"Parsed User Asset Orders ({user_id}, {example_asset.Index}): {json.dumps([o.model_dump() for o in user_asset_orders], indent=2)}"
+                    f"Parsed User Asset Orders ({user_id}, {example_asset.Index}): {json.dumps([o.model_dump() for o in user_asset_orders], indent=2, default=enum_encoder)}"
                 )
             except Exception as e:
                 logger.error(f"Get User Asset Orders Failed: {e}", exc_info=True)

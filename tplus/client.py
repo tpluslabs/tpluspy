@@ -16,7 +16,8 @@ from tplus.model.order import (
     parse_order_event,
     parse_orders,
     CancelOrderResponse,
-    ReplaceOrderResponse
+    ReplaceOrderResponse,
+    Side  # Added Side import
 )
 from tplus.model.orderbook import (
     OrderBook,
@@ -103,35 +104,43 @@ class OrderBookClient:
 
     # --- Async Order Creation Methods ---
     async def create_market_order(
-        self, quantity: int, side: str, fill_or_kill: bool = False
+        self, quantity: int, side, fill_or_kill: bool = False
     ) -> dict[str, Any]:
         """
         Create and send a market order using the default asset index (async).
 
         Args:
             quantity: Amount to buy/sell
-            side: "Buy" or "Sell"
+            side: Side enum (Buy or Sell) or string ("Buy"/"Sell")
             fill_or_kill: Whether the order must be filled immediately or cancelled
 
         Returns:
             The API response dictionary.
         """
+        # Accept both Side and str for side
+        if isinstance(side, str):
+            try:
+                side = Side(side.capitalize())
+            except ValueError:
+                raise ValueError(f"Invalid side string: {side}. Must be 'Buy' or 'Sell'.")
+        elif not isinstance(side, Side):
+            raise TypeError(f"side must be a Side enum or 'Buy'/'Sell' string, got {type(side)}")
+
         message = create_market_order(
             quantity=quantity,
-            side=side,
+            side=side.value,
             signer=self.user,
             fill_or_kill=fill_or_kill,
             asset_index=self.asset_index,
         )
-        signed_message_dict = message.model_dump()
+        signed_message_dict = message.model_dump(mode="json")
         logger.info(
-            f"Sending Market Order (Asset {self.asset_index}): Qty={quantity}, Side={side}, FOK={fill_or_kill}"
+            f"Sending Market Order (Asset {self.asset_index}): Qty={quantity}, Side={side.value}, FOK={fill_or_kill}"
         )
-        # Use await for the async request
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
 
     async def create_limit_order(
-        self, quantity: int, price: int, side: str, post_only: bool = True
+        self, quantity: int, price: int, side: Side, post_only: bool = True
     ) -> dict[str, Any]:
         """
         Create and send a limit order using the default asset index (async).
@@ -139,25 +148,32 @@ class OrderBookClient:
         Args:
             quantity: Amount to buy/sell
             price: Limit price
-            side: "Buy" or "Sell"
+            side: Side enum (Buy or Sell) or string ("Buy"/"Sell")
             post_only: Whether the order should only be posted to the order book (via GTC time_in_force)
 
         Returns:
             The API response dictionary.
         """
+        # Accept both Side and str for side
+        if isinstance(side, str):
+            try:
+                side = Side(side.capitalize())
+            except ValueError:
+                raise ValueError(f"Invalid side string: {side}. Must be 'Buy' or 'Sell'.")
+        elif not isinstance(side, Side):
+            raise TypeError(f"side must be a Side enum or 'Buy'/'Sell' string, got {type(side)}")
+
         message = create_limit_order(
             quantity=quantity,
             price=price,
-            side=side,
+            side=side.value,
             signer=self.user,
             asset_index=self.asset_index,
-            # Assuming create_limit_order handles post_only logic internally
         )
-        signed_message_dict = message.model_dump()
+        signed_message_dict = message.model_dump(mode="json")
         logger.info(
-            f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side}, PostOnly={post_only}"
+            f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side.value}, PostOnly={post_only}"
         )
-        # Use await for the async request
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
 
     # --- ADDED: Async Order Cancellation Method ---
@@ -206,10 +222,9 @@ class OrderBookClient:
     async def replace_order(
         self,
         order_id_to_replace: str,
-        new_quantity: int, # Assuming integer representation required by API
-        new_price: int,    # Assuming integer representation
-        new_side: str,     # 'Buy' or 'Sell'
-        # Add other potential params like post_only if needed by API/signing
+        new_quantity: int,
+        new_price: int,
+        new_side: Side,
     ) -> Optional[ReplaceOrderResponse]:
         """
         Request replacement of an existing order with a new one.
@@ -218,38 +233,40 @@ class OrderBookClient:
             order_id_to_replace: The ID of the order to replace.
             new_quantity: Quantity for the new order (integer units).
             new_price: Limit price for the new order (integer units).
-            new_side: Side for the new order ('Buy' or 'Sell').
+            new_side: Side enum (Buy or Sell) or string ("Buy"/"Sell").
 
         Returns:
             A ReplaceOrderResponse object if the API request succeeds, None otherwise.
-            The status indicates if the replacement request was accepted.
         """
+        # Accept both Side and str for new_side
+        if isinstance(new_side, str):
+            try:
+                new_side = Side(new_side.capitalize())
+            except ValueError:
+                raise ValueError(f"Invalid new_side string: {new_side}. Must be 'Buy' or 'Sell'.")
+        elif not isinstance(new_side, Side):
+            raise TypeError(f"new_side must be a Side enum or 'Buy'/'Sell' string, got {type(new_side)}")
+
         logger.info(f"Requesting Replace Order for ID: {order_id_to_replace}, Asset: {self.asset_index}")
         try:
-            # Use the signing utility
             signed_payload = sign_order_replace(
                 order_id_to_replace=order_id_to_replace,
                 asset_index=self.asset_index,
                 new_quantity=new_quantity,
                 new_price=new_price,
-                new_side=new_side,
+                new_side=new_side.value,
                 signer=self.user
             )
-            
-            # Send the request
             response_data = await self._request(
-                method="PATCH", # As per Rust code
+                method="PATCH",
                 endpoint="/orders/replace",
-                json_data=signed_payload.model_dump()
+                json_data=signed_payload.model_dump(mode="json")
             )
-
-            # Parse the response
             if response_data:
                 return ReplaceOrderResponse(**response_data)
             else:
-                 logger.warning(f"Replace order request for {order_id_to_replace} received empty response.")
-                 return None
-        
+                logger.warning(f"Replace order request for {order_id_to_replace} received empty response.")
+                return None
         except ValidationError as e:
             logger.error(f"Failed to validate ReplaceOrderResponse: {e}. Raw data: {response_data}")
             return None

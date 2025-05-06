@@ -10,13 +10,16 @@ from tplus.model.market_order import MarketOrderDetails
 
 logger = logging.getLogger(__name__)
 
+class Side(Enum):
+    BUY = "Buy"
+    SELL = "Sell"
 
 class Order(BaseModel):
     signer: list[int]
     order_id: str
     base_asset: IndexAsset
     details: LimitOrderDetails | MarketOrderDetails
-    side: str
+    side: Side
     creation_timestamp_ns: int
 
 
@@ -37,7 +40,7 @@ class CreateOrderRequest(BaseModel):
 class OrderResponse(BaseModel):
     order_id: str
     base_asset: IndexAsset
-    side: str
+    side: Side
     limit_price: Optional[int]
     quantity: int
     confirmed_filled_quantity: int
@@ -138,6 +141,17 @@ def parse_order_event(data: dict[str, Any]) -> OrderEvent:
     # Handle the actual server event format
     if "Created" in data:
         order_data = data["Created"]["user_order"]
+        # Ensure 'side' is converted to Enum if it's a string from the raw data
+        if "side" in order_data and isinstance(order_data["side"], str):
+            try:
+                order_data["side"] = Side(order_data["side"].capitalize()) # Attempt to map e.g. "buy" or "BUY" to "Buy"
+            except ValueError:
+                try:
+                    order_data["side"] = Side[order_data["side"].upper()] # Attempt to map e.g. "BUY" to Side.BUY enum member name
+                except (ValueError, KeyError) as e:
+                    logger.warning(f"Invalid side value '{order_data['side']}' in Created event, cannot map to Side enum: {e}")
+                    # If critical, re-raise or handle as an error. For now, parsing might fail later.
+
         # Handle nested details structure
         if "details" in order_data and isinstance(order_data["details"], dict):
             details = order_data["details"]
