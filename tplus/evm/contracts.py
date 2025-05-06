@@ -1,9 +1,10 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from ape.exceptions import ContractNotFoundError, ProjectError
 from ape.utils.basemodel import ManagerAccessMixin
 
 from tplus.evm.abi import get_erc20_type
+from tplus.evm.exceptions import ContractNotExists
 
 if TYPE_CHECKING:
     from ape.api import AccountAPI
@@ -51,9 +52,10 @@ class TPlusContract(TPlusMixin):
     An abstraction around a t+ contract.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, default_deployer: Optional["AccountAPI"] = None) -> None:
         self._deployments: dict[int, ContractInstance] = {}
         self._name = name
+        self._default_deployer = default_deployer
 
     def __repr__(self) -> str:
         return f"<{self._name}>"
@@ -75,7 +77,26 @@ class TPlusContract(TPlusMixin):
         """
         The contract instance at the currently connected chain.
         """
-        return self.get_contract()
+        try:
+            return self.get_contract()
+        except ContractNotExists:
+            if self.chain_manager.provider.network.is_local:
+                # If simulating, deploy it now.
+                return self.deploy(self.default_deployer)
+
+            raise  # This error.
+
+    @property
+    def default_deployer(self) -> "AccountAPI":
+        if deployer := self._default_deployer:
+            return deployer
+
+        elif self._default_deployer is None and self.network_manager.provider.network.is_local:
+            deployer = self.account_manager.test_accounts[0]
+            self._default_deployer = deployer
+            return deployer
+
+        raise ValueError(f"Cannot deploy '{self._name}' - No default deployer configured.")
 
     def get_contract(self, chain_id: int | None = None) -> "ContractInstance":
         """
@@ -97,7 +118,7 @@ class TPlusContract(TPlusMixin):
         try:
             addresses = TPLUS_DEPLOYMENTS[chain_id]
         except KeyError:
-            raise ValueError(f"{self._name} not deployed on chain '{chain_id}'.")
+            raise ContractNotExists(f"{self._name} not deployed on chain '{chain_id}'.")
 
         contract_container = self._contract_container.at(addresses[self._name])
 
