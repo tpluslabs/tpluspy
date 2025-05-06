@@ -123,6 +123,12 @@ See `examples/websocket_usage.py` for a runnable demonstration using `asyncio.ga
 
 ### Contracts
 
+To interact with the contracts or sign T+ specific EIP-712 messages, ensure you have installed the `evm` extra:
+
+```shell
+pip install tpluspy[evm]
+```
+
 Use the `tplusp.contracts` module to read data from t+ contracts.
 For example, launch a Sepolia-connected Ape console:
 
