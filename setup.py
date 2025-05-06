@@ -40,7 +40,6 @@ setup(
             "twine",
         ],
     },
-    py_modules=["tpluspy"],
     license="Apache-2.0",
     zip_safe=False,
     keywords="ethereum",

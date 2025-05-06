@@ -10,7 +10,14 @@ from pydantic import ValidationError
 
 from tplus.model.asset_identifier import IndexAsset  # Assuming relative import
 from tplus.model.klines import KlineUpdate, parse_kline_update
-from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
+from tplus.model.order import (
+    OrderEvent,
+    OrderResponse,
+    parse_order_event,
+    parse_orders,
+    CancelOrderResponse,
+    ReplaceOrderResponse
+)
 from tplus.model.orderbook import (
     OrderBook,
     OrderBookDiff,
@@ -19,6 +26,7 @@ from tplus.model.trades import Trade, TradeEvent, parse_trade_event, parse_trade
 from tplus.utils.limit_order import create_limit_order
 from tplus.utils.market_order import create_market_order
 from tplus.utils.user import User
+from tplus.utils.signing import sign_order_cancel, sign_order_replace
 
 # Configure basic logging #TODO: make a separate tplus.logging module
 logging.basicConfig(
@@ -151,6 +159,103 @@ class OrderBookClient:
         )
         # Use await for the async request
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
+
+    # --- ADDED: Async Order Cancellation Method ---
+    async def cancel_order(self, order_id: str) -> Optional[CancelOrderResponse]:
+        """
+        Request cancellation of a specific order.
+
+        Args:
+            order_id: The ID of the order to cancel.
+
+        Returns:
+            A CancelOrderResponse object if the API request succeeds, None otherwise.
+            The status within the response indicates if the cancellation was accepted.
+        """
+        logger.info(f"Requesting Cancel Order for ID: {order_id}, Asset: {self.asset_index}")
+        try:
+            # Use the signing utility
+            signed_payload = sign_order_cancel(
+                order_id=order_id,
+                asset_index=self.asset_index, # Client holds the default asset index
+                signer=self.user
+            )
+            
+            # Send the request using the internal method
+            response_data = await self._request(
+                method="DELETE", # As per Rust code
+                endpoint="/orders/cancel",
+                json_data=signed_payload.model_dump() # Use the signing output
+            )
+
+            # Parse the response using the Pydantic model
+            if response_data:
+                return CancelOrderResponse(**response_data)
+            else:
+                 logger.warning(f"Cancel order request for {order_id} received empty response.")
+                 return None
+
+        except ValidationError as e:
+            logger.error(f"Failed to validate CancelOrderResponse: {e}. Raw data: {response_data}")
+            return None
+        except Exception as e:
+            logger.error(f"Error cancelling order {order_id}: {e}", exc_info=True)
+            return None
+
+    # --- ADDED: Async Order Replacement Method ---
+    async def replace_order(
+        self,
+        order_id_to_replace: str,
+        new_quantity: int, # Assuming integer representation required by API
+        new_price: int,    # Assuming integer representation
+        new_side: str,     # 'Buy' or 'Sell'
+        # Add other potential params like post_only if needed by API/signing
+    ) -> Optional[ReplaceOrderResponse]:
+        """
+        Request replacement of an existing order with a new one.
+
+        Args:
+            order_id_to_replace: The ID of the order to replace.
+            new_quantity: Quantity for the new order (integer units).
+            new_price: Limit price for the new order (integer units).
+            new_side: Side for the new order ('Buy' or 'Sell').
+
+        Returns:
+            A ReplaceOrderResponse object if the API request succeeds, None otherwise.
+            The status indicates if the replacement request was accepted.
+        """
+        logger.info(f"Requesting Replace Order for ID: {order_id_to_replace}, Asset: {self.asset_index}")
+        try:
+            # Use the signing utility
+            signed_payload = sign_order_replace(
+                order_id_to_replace=order_id_to_replace,
+                asset_index=self.asset_index,
+                new_quantity=new_quantity,
+                new_price=new_price,
+                new_side=new_side,
+                signer=self.user
+            )
+            
+            # Send the request
+            response_data = await self._request(
+                method="PATCH", # As per Rust code
+                endpoint="/orders/replace",
+                json_data=signed_payload.model_dump()
+            )
+
+            # Parse the response
+            if response_data:
+                return ReplaceOrderResponse(**response_data)
+            else:
+                 logger.warning(f"Replace order request for {order_id_to_replace} received empty response.")
+                 return None
+        
+        except ValidationError as e:
+            logger.error(f"Failed to validate ReplaceOrderResponse: {e}. Raw data: {response_data}")
+            return None
+        except Exception as e:
+            logger.error(f"Error replacing order {order_id_to_replace}: {e}", exc_info=True)
+            return None
 
     # --- Parsing Methods (remain synchronous utility functions) ---
     def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:

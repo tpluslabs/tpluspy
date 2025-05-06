@@ -1,5 +1,6 @@
 import logging
 from typing import Any, Literal, Optional, Union
+from enum import Enum
 
 from pydantic import BaseModel, Field, ValidationError, model_serializer
 
@@ -106,52 +107,92 @@ class OrderCancelledEvent(BaseOrderEvent):
     cancel_timestamp_ns: int
 
 
+class OrderCreateFailedEvent(BaseOrderEvent):
+    event_type: Literal["CREATE_FAILED"] = Field(default="CREATE_FAILED")
+    order_id: str
+
+
+class OrderReplaceFailedEvent(BaseOrderEvent):
+    event_type: Literal["REPLACE_FAILED"] = Field(default="REPLACE_FAILED")
+    order_id: str
+
+
+class OrderCancelFailedEvent(BaseOrderEvent):
+    event_type: Literal["CANCEL_FAILED"] = Field(default="CANCEL_FAILED")
+    order_id: str
+
+
 # Union type for type hinting
-OrderEvent = Union[OrderCreatedEvent, OrderUpdatedEvent, OrderCancelledEvent]
+OrderEvent = Union[
+    OrderCreatedEvent,
+    OrderUpdatedEvent,
+    OrderCancelledEvent,
+    OrderCreateFailedEvent,
+    OrderReplaceFailedEvent,
+    OrderCancelFailedEvent,
+]
 
 
 def parse_order_event(data: dict[str, Any]) -> OrderEvent:
     """Parses an order event dictionary from the WebSocket stream."""
-    event_type = data.get("event_type")
-    payload = data.get("payload", {})  # Assume payload contains the event data
+    # Handle the actual server event format
+    if "Created" in data:
+        order_data = data["Created"]["user_order"]
+        # Handle nested details structure
+        if "details" in order_data and isinstance(order_data["details"], dict):
+            details = order_data["details"]
+            if "Limit" in details:
+                limit_details = details["Limit"]
+                # Convert hex strings to integers if needed
+                if isinstance(limit_details["limit_price"], str) and limit_details["limit_price"].startswith("0x"):
+                    limit_details["limit_price"] = int(limit_details["limit_price"], 16)
+                if isinstance(limit_details["quantity"], str) and limit_details["quantity"].startswith("0x"):
+                    limit_details["quantity"] = int(limit_details["quantity"], 16)
+                # Flatten the time_in_force structure
+                if "time_in_force" in limit_details and "GTC" in limit_details["time_in_force"]:
+                    limit_details["time_in_force"] = limit_details["time_in_force"]["GTC"]
+                order_data["details"] = limit_details
+        return OrderCreatedEvent(order=Order(**order_data))
+    elif "Updated" in data:
+        update_data = data["Updated"]
+        return OrderUpdatedEvent(
+            order_id=update_data["order_id"],
+            status=update_data.get("status", "UPDATED"),
+            filled_quantity=int(update_data.get("filled_quantity", 0)),
+            remaining_quantity=int(update_data.get("remaining_quantity", 0)),
+            update_timestamp_ns=int(update_data.get("book_timestamp_ns", 0))
+        )
+    elif "Canceled" in data:
+        cancel_data = data["Canceled"]
+        return OrderCancelledEvent(
+            order_id=cancel_data["order_id"],
+            reason=cancel_data.get("reason", "Unknown"),
+            cancel_timestamp_ns=int(cancel_data.get("book_timestamp_ns", 0))
+        )
+    elif "CreateFailed" in data:
+        return OrderCreateFailedEvent(order_id=data["CreateFailed"]["order_id"])
+    elif "ReplaceFailed" in data:
+        return OrderReplaceFailedEvent(order_id=data["ReplaceFailed"]["order_id"])
+    elif "CancelFailed" in data:
+        return OrderCancelFailedEvent(order_id=data["CancelFailed"]["order_id"])
+    else:
+        raise ValueError(f"Unknown order event structure: {data}")
 
-    if not event_type or not isinstance(payload, dict):
-        raise ValueError(f"Invalid order event structure: {data}")
 
-    try:
-        if event_type == "CREATED":
-            # Assume payload is the raw order dictionary
-            # We need a way to parse a single order dict, let's reuse/adapt parse_orders logic
-            # For simplicity, let's assume parse_orders can handle a single dict or adapt it.
-            # Hacky approach: wrap in list and get first element
-            if not (parsed_order_list := parse_orders([payload])):
-                raise ValueError(f"Failed to parse order data in CREATED event: {payload}")
-            return OrderCreatedEvent(order=parsed_order_list[0])
+# --- REST API Cancel/Replace Responses ---
 
-        elif event_type == "UPDATED":
-            # Assuming payload directly contains the fields for OrderUpdatedEvent
-            return OrderUpdatedEvent(
-                order_id=payload["order_id"],
-                status=payload["status"],
-                filled_quantity=int(payload["filled_quantity"]),
-                remaining_quantity=int(payload["remaining_quantity"]),
-                update_timestamp_ns=int(payload["update_timestamp_ns"]),
-                # Parse optional full order if present
-            )
+class CancelOrderStatus(str, Enum):
+    RECEIVED = "Received"
+    REJECTED = "Rejected"
 
-        elif event_type == "CANCELLED":
-            # Assuming payload directly contains the fields for OrderCancelledEvent
-            return OrderCancelledEvent(
-                order_id=payload["order_id"],
-                reason=payload["reason"],
-                cancel_timestamp_ns=int(payload["cancel_timestamp_ns"]),
-            )
+class CancelOrderResponse(BaseModel):
+    order_id: str
+    status: CancelOrderStatus
 
-        else:
-            logger.warning(f"Received unknown order event type: {event_type}. Data: {data}")
-            # Option: return a generic event or raise an error
-            raise ValueError(f"Unknown order event type: {event_type}")
+class ReplaceOrderStatus(str, Enum):
+    RECEIVED = "Received"
+    REJECTED = "Rejected"
 
-    except (KeyError, ValueError, TypeError) as e:
-        logger.error(f"Error parsing order event ({event_type}): {e}. Data: {data}")
-        raise ValueError(f"Invalid data for order event type {event_type}: {data}") from e
+class ReplaceOrderResponse(BaseModel):
+    order_id: str # ID of the *original* order being replaced
+    status: ReplaceOrderStatus
