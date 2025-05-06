@@ -12,38 +12,11 @@ uv pip install -e .
 
 ## Usage Example
 
-### Contracts
-
-Use the `tplusp.contracts` module to read data from t+ contracts.
-For example, launch a Sepolia-connected Ape console:
-
-```shell
-ape console --network ethereum:sepolia:alchemy
-```
-
-**Note**: You can use any provider you want or a RPC directly, it doesn't have to be Alchemy.
-
-Then, once in the console, you will already have access to contracts that you can call methods on:
-
-```python
-In [1]: registry.getAssets()
-Out[1]: [getAssets_return(assetAddress=HexBytes('0x000000000000000000000000f08a50178dfcde18524640ea6618a1f965821715'), chainId=11155111, maxDeposits=100)]
-In [2]: registry.admin()
-Out[2]: '0x467a95fC5359edE5d5dDc4f10A1F4B680694858E'
-```
-
-You can also get raw returndata, which can be helpful to ensure we can decode elsewhere, such as in Rust:
-
-```python
-In [1]: registry.getRiskParameters(decode=False)
-Out[1]: HexBytes('0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000')
-```
-
-## REST and WebSocket Client (`tplus.client`)
+### REST and WebSocket Client (`tplus.client`)
 
 The `tpluspy` library also provides an asynchronous client (`OrderBookClient`) for interacting with the `tplus-core` REST API and WebSocket streams.
 
-### Initialization
+#### Initialization
 
 To use the client, first initialize it with a `User` object (for signing requests) and the base URL of your `tplus-core` instance:
 
@@ -64,7 +37,7 @@ async def run_client():
 asyncio.run(run_client())
 ```
 
-### REST API Usage
+#### REST API Usage
 
 The client offers async methods for common REST endpoints:
 
@@ -117,7 +90,7 @@ print(f"Limit Order Response: {limit_response}")
 
 See `examples/rest_usage.py` for a runnable demonstration.
 
-### WebSocket Streaming
+#### WebSocket Streaming
 
 The client provides async iterators to stream real-time data:
 
@@ -147,3 +120,57 @@ async for trade in client.stream_finalized_trades():
 ```
 
 See `examples/websocket_usage.py` for a runnable demonstration using `asyncio.gather` to run multiple streams concurrently.
+
+### Contracts
+
+Use the `tplusp.contracts` module to read data from t+ contracts.
+For example, launch a Sepolia-connected Ape console:
+
+```shell
+ape console --network ethereum:sepolia:alchemy
+```
+
+**Note**: You can use any provider you want or a RPC directly, it doesn't have to be Alchemy.
+
+Then, once in the console, you will already have access to contracts that you can call methods on:
+
+```python
+In [1]: registry.getAssets()
+Out[1]: [getAssets_return(assetAddress=HexBytes('0x000000000000000000000000f08a50178dfcde18524640ea6618a1f965821715'), chainId=11155111, maxDeposits=100)]
+In [2]: registry.admin()
+Out[2]: '0x467a95fC5359edE5d5dDc4f10A1F4B680694858E'
+```
+
+#### EIP-712
+
+Sign EIP-712 messages, such as settlements, using the `eip712` library.
+
+```python
+from ape import accounts, convert, chain
+from tplus.evm.eip712 import Order
+from tplus.evm.utils import address_to_bytes32
+from tplus.evm.contracts import vault
+
+# Load your Ethereum account for t+.
+tplus_user = accounts.load("tplus-account")
+
+# t+ user IDs are bytes32 padded ETH addresses.
+user_id = address_to_bytes32(tplus_user.address)
+
+# Get the nonce from t+ or the contracts directly.
+nonce = vault.getDepositNonce(tplus_user)
+
+order = Order(
+    tokenOut="0x62622E77D1349Face943C6e7D5c01C61465FE1dc",
+    amountOut=convert("1 ether", int),
+    tokenIn="0x58372ab62269A52fA636aD7F200d93999595DCAF",
+    amountIn=convert("1 ether", int),
+    userId=user_id,
+    nonce=nonce,
+    validUntil=chain.pending_timestamp,
+)
+
+# Use this signature for the settlement.
+signature = tplus_user.sign_message(order).encode_rsv()
+print(signature)
+```

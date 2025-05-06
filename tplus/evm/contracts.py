@@ -1,8 +1,12 @@
 from typing import TYPE_CHECKING
 
+from ape.exceptions import ContractNotFoundError, ProjectError
 from ape.utils.basemodel import ManagerAccessMixin
 
+from tplus.evm.abi import get_erc20_type
+
 if TYPE_CHECKING:
+    from ape.api import AccountAPI
     from ape.contracts import ContractContainer, ContractInstance
     from ape.managers.project import Project
 
@@ -28,7 +32,18 @@ class TPlusMixin(ManagerAccessMixin):
         download and cache the contracts project from GitHub. See pyproject.toml
         Ape config for current specification.
         """
-        return self.local_project.dependencies["tplus-contracts"]["main"]
+        if self.local_project.name == "tplus-contracts":
+            # Working from the t+ contracts repo
+            return self.local_project
+
+        # Load the project from dependencies.
+        available_versions = self.local_project.dependencies["tplus-contracts"]
+        if not (version_key := next(iter(available_versions), None)):
+            raise ProjectError("Please install the t+ contracts project")
+
+        project = available_versions[version_key]
+        project.load_contracts()  # Ensure is compiled.
+        return project
 
 
 class TPlusContract(TPlusMixin):
@@ -79,20 +94,63 @@ class TPlusContract(TPlusMixin):
             # Get previously cached instance.
             return self._deployments[chain_id]
 
-        address = TPLUS_DEPLOYMENTS[chain_id][self._name]
-        contract_container = self._contract_container.at(address)
+        try:
+            addresses = TPLUS_DEPLOYMENTS[chain_id]
+        except KeyError:
+            raise ValueError(f"{self._name} not deployed on chain '{chain_id}'.")
+
+        contract_container = self._contract_container.at(addresses[self._name])
 
         # Cache for next time.
         self._deployments[chain_id] = contract_container
 
         return contract_container
 
+    def deploy(self, deployer: "AccountAPI") -> "TPlusContract":
+        instance = deployer.deploy(self._contract_container)
+        chain_id = self.chain_manager.chain_id
+        self._deployments[chain_id] = instance
+        return instance
+
 
 class Registry(TPlusContract):
     def __init__(self):
         super().__init__("Registry")
 
+    def get_assets(self, chain_id: int | None = None) -> list["ContractInstance"]:
+        connected_chain = self.chain_manager.chain_id
+        if connected_chain != chain_id and chain_id == 11155111:
+            with self.network_manager.ethereum.sepolia.use_default_provider():
+                return self._get_assets()
+
+        return self._get_assets()
+
+    def _get_assets(self) -> list["ContractInstance"]:
+        contract = self.contract
+        data = contract.getAssets()
+        res = []
+
+        for itm in data:
+            address = self.network_manager.ethereum.decode_address(itm.assetAddress)
+
+            # Attempt to look up native contract.
+            try:
+                contract = self.chain_manager.contracts.instance_at(address)
+            except ContractNotFoundError:
+                contract_type = get_erc20_type()
+                contract = self.chain_manager.contracts.instance_at(
+                    address, contract_type=contract_type
+                )
+
+            res.append(contract)
+
+        return res
+
 
 class DepositVault(TPlusContract):
     def __init__(self):
         super().__init__("DepositVault")
+
+
+registry = Registry()
+vault = DepositVault()

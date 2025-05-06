@@ -45,6 +45,7 @@ select = [
 # Rules to ignore
 ignore = [
     "E501",
+    "F821",  # Doesn't play nice with EIP712 package
 
     # Specific bugbear issues
     "B904",     # Use 'raise from' in except blocks

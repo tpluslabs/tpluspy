@@ -3,11 +3,11 @@ This file is the *magic* behind making `registry` and `deposit_vault` automatica
 in the `ape console` session.
 """
 
-from tplus.contracts import DepositVault, Registry
+from tplus.evm.contracts import registry, vault
 
 
-def ape_init_extras(chain):
+def ape_init_extras():
     return {
-        "deposit_vault": DepositVault(),
-        "registry": Registry(),
+        "vault": vault,
+        "registry": registry,
     }
