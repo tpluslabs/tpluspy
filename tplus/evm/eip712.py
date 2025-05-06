@@ -14,6 +14,6 @@ class Order(Domain):
     amountOut: "uint256"  # type: ignore
     tokenIn: "address"  # type: ignore
     amountIn: "uint256"  # type: ignore
-    userId: "uint256"  # type: ignore
+    userId: "bytes"  # type: ignore
     nonce: "uint256"  # type: ignore
     validUntil: "uint256"  # type: ignore
