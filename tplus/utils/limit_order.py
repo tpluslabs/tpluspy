@@ -17,7 +17,7 @@ def create_limit_order(
     fill_or_kill=False,
     asset_index=200,
     order_id: Optional[str] = None,
-    post_only: bool = False
+    post_only: bool = False,
 ):
     order_id = str(uuid.uuid4()) if order_id is None else order_id
     asset = IndexAsset(Index=asset_index)
