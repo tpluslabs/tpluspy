@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from tplus.model.asset_identifier import IndexAsset  # Assuming relative import
 from tplus.model.klines import KlineUpdate, parse_kline_update
+from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
 from tplus.model.orderbook import (
     OrderBook,
@@ -123,7 +124,7 @@ class OrderBookClient:
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
 
     async def create_limit_order(
-        self, quantity: int, price: int, side: str, post_only: bool = True
+        self, quantity: int, price: int, side: str, time_in_force: Optional[GTC|GTD|IOC] = None
     ) -> dict[str, Any]:
         """
         Create and send a limit order using the default asset index (async).
@@ -143,11 +144,11 @@ class OrderBookClient:
             side=side,
             signer=self.user,
             asset_index=self.asset_index,
-            # Assuming create_limit_order handles post_only logic internally
+            time_in_force=time_in_force
         )
         signed_message_dict = message.model_dump()
         logger.info(
-            f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side}, PostOnly={post_only}"
+            f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side}"
         )
         # Use await for the async request
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
