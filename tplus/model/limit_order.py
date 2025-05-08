@@ -12,10 +12,25 @@ class GTC(BaseModel):
         return {"GTC": {"post_only": self.post_only}}
 
 
+class GTD(BaseModel):
+    post_only: bool
+    timestamp_ns: int
+
+    @model_serializer
+    def serialize_model(self) -> dict[str, dict[str, bool|int]]:
+        return {"GTD": {"post_only": self.post_only, "timestamp_ns": self.timestamp_ns}}
+
+class IOC(BaseModel):
+    fill_or_kill: bool
+
+    @model_serializer
+    def serialize_model(self) -> dict[str, dict[str, bool]]:
+        return {"GTD": {"fill_or_kill": self.fill_or_kill}}
+
 class LimitOrderDetails(BaseModel):
     limit_price: int
     quantity: int
-    time_in_force: GTC
+    time_in_force: GTC | GTD | IOC
 
     @model_serializer
     def serialize_model(self) -> dict[str, dict[str, Any]]:

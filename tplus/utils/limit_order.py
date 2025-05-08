@@ -3,7 +3,7 @@ import uuid
 from typing import Optional
 
 from tplus.model.asset_identifier import IndexAsset
-from tplus.model.limit_order import GTC, LimitOrderDetails
+from tplus.model.limit_order import GTC, GTD, IOC, LimitOrderDetails
 from tplus.model.order import CreateOrderRequest, Order
 from tplus.model.signed_message import ObRequest, SignedMessage
 from tplus.utils.user import User
@@ -14,17 +14,18 @@ def create_limit_order(
     price,
     side,
     signer: User,
-    fill_or_kill=False,
     asset_index=200,
     order_id: Optional[str] = None,
-    post_only: bool = False,
+    time_in_force: Optional[GTC | GTD | IOC] = None
 ):
     order_id = str(uuid.uuid4()) if order_id is None else order_id
     asset = IndexAsset(Index=asset_index)
     side = "Sell" if side.lower() == "sell" else "Buy"
 
+    time_in_force = GTC(post_only=False) if time_in_force is None else time_in_force
+
     details = LimitOrderDetails(
-        quantity=quantity, limit_price=price, time_in_force=GTC(post_only=post_only)
+        quantity=quantity, limit_price=price, time_in_force=time_in_force
     )
     order = Order(
         signer=list(bytes.fromhex(signer.pubkey())),

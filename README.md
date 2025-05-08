@@ -82,8 +82,7 @@ print(f"Market Order Response: {market_response}")
 limit_response = await client.create_limit_order(
     quantity=5,
     price=1000, # Example price
-    side="Sell",
-    post_only=True
+    side="Sell"
 )
 print(f"Limit Order Response: {limit_response}")
 ```

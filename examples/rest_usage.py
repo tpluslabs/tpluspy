@@ -74,7 +74,6 @@ async def main():
                     quantity=5,
                     price=1000,  # Example price, adjust as needed
                     side="Sell",
-                    post_only=True,
                 )
                 logger.info(f"Limit Order Response: {json.dumps(limit_order_response, indent=2)}")
             except Exception as e:
