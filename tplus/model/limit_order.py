@@ -25,7 +25,7 @@ class IOC(BaseModel):
 
     @model_serializer
     def serialize_model(self) -> dict[str, dict[str, bool]]:
-        return {"GTD": {"fill_or_kill": self.fill_or_kill}}
+        return {"IOC": {"fill_or_kill": self.fill_or_kill}}
 
 class LimitOrderDetails(BaseModel):
     limit_price: int
