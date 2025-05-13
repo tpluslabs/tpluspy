@@ -1,6 +1,9 @@
 # Ape
 .build
 
+# Editor
+.idea
+
 # Setuptools SCM
 tplus/version.py
 
