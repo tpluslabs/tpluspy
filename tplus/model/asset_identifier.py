@@ -8,3 +8,8 @@ class IndexAsset(BaseModel):
     def serialize_model(self) -> dict[str, int]:
         # Replicates the old {"Index": value} structure
         return {"Index": self.Index}
+
+    def __str__(self) -> str:
+        return self.Index.__str__()
+
+    

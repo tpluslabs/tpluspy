@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from tplus.model.asset_identifier import IndexAsset  # Assuming relative import
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
+from tplus.model.market import parse_market, Market
 from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
 from tplus.model.orderbook import (
     OrderBook,
@@ -93,6 +94,45 @@ class OrderBookClient:
                 f"Failed to decode JSON response from {response.request.url!r}. Status: {response.status_code}. Content: {response.text[:100]}..."
             )
             raise ValueError(f"Invalid JSON received from API: {e}") from e
+
+    # --- Async Market Creation Methods ---
+    async def create_market(
+        self, asset_id: IndexAsset
+    ) -> dict[str, Any]:
+        """
+        Create and send a market (async).
+
+        Args:
+            asset_id: asset for which the market must be created
+
+        Returns:
+            The API response dictionary.
+        """
+        message_dict = {"asset_id": asset_id.model_dump()}
+
+        logger.info(
+            f"Creating Market for Asset {asset_id}"
+        )
+        # Use await for the async request
+        return await self._request("POST", "/market/create", json_data=message_dict)
+
+    # --- Async Get Market Methods ---
+    async def get_market(
+            self, asset_id: IndexAsset
+    ) -> Market:
+        """
+        Get a market (async).
+
+        Args:
+            asset_id: asset for which we get the market
+
+        Returns:
+            The API response dictionary.
+        """
+        # Use await for the async request
+        response = await self._request("GET", f"/market/{asset_id}")
+        market = parse_market(response)
+        return market
 
     # --- Async Order Creation Methods ---
     async def create_market_order(
