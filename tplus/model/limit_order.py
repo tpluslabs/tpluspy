@@ -31,6 +31,8 @@ class LimitOrderDetails(BaseModel):
     limit_price: int
     quantity: int
     time_in_force: GTC | GTD | IOC
+    book_quantity_decimals: int
+    book_price_decimals: int
 
     @model_serializer
     def serialize_model(self) -> dict[str, dict[str, Any]]:
@@ -40,5 +42,7 @@ class LimitOrderDetails(BaseModel):
             "limit_price": self.limit_price,
             "quantity": self.quantity,
             "time_in_force": self.time_in_force,  # Pydantic handles nested dump
+            "book_quantity_decimals": self.book_quantity_decimals,
+            "book_price_decimals": self.book_price_decimals,
         }
         return {"Limit": limit_data}

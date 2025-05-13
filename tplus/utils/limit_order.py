@@ -14,6 +14,8 @@ def create_limit_order(
     price,
     side,
     signer: User,
+    book_quantity_decimals: int,
+    book_price_decimals: int,
     asset_index=200,
     order_id: Optional[str] = None,
     time_in_force: Optional[GTC | GTD | IOC] = None
@@ -25,7 +27,11 @@ def create_limit_order(
     time_in_force = GTC(post_only=False) if time_in_force is None else time_in_force
 
     details = LimitOrderDetails(
-        quantity=quantity, limit_price=price, time_in_force=time_in_force
+        quantity=quantity,
+        limit_price=price,
+        time_in_force=time_in_force,
+        book_quantity_decimals=book_quantity_decimals,
+        book_price_decimals=book_price_decimals
     )
     order = Order(
         signer=list(bytes.fromhex(signer.pubkey())),

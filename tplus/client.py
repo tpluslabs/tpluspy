@@ -149,12 +149,16 @@ class OrderBookClient:
         Returns:
             The API response dictionary.
         """
+
+        market = await self.get_market(IndexAsset(Index=self.asset_index))
+
         message = create_market_order(
             quantity=quantity,
             side=side,
             signer=self.user,
             fill_or_kill=fill_or_kill,
             asset_index=self.asset_index,
+            book_quantity_decimals= market.book_quantity_decimals
         )
         signed_message_dict = message.model_dump()
         logger.info(
@@ -178,13 +182,17 @@ class OrderBookClient:
         Returns:
             The API response dictionary.
         """
+        market = await self.get_market(IndexAsset(Index=self.asset_index))
+
         message = create_limit_order(
             quantity=quantity,
             price=price,
             side=side,
             signer=self.user,
             asset_index=self.asset_index,
-            time_in_force=time_in_force
+            time_in_force=time_in_force,
+            book_quantity_decimals=market.book_quantity_decimals,
+            book_price_decimals=market.book_price_decimals,
         )
         signed_message_dict = message.model_dump()
         logger.info(
