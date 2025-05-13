@@ -4,15 +4,15 @@ from pydantic import BaseModel
 
 
 class OrderBook(BaseModel):
-    asks: list[list[int]] = []  # List of [price, quantity]
-    bids: list[list[int]] = []  # List of [price, quantity]
+    asks: list[list[float]] = []  # List of [price, quantity]
+    bids: list[list[float]] = []  # List of [price, quantity]
     sequence_number: int = 0
 
 
 # Model for WebSocket Depth Stream Diff updates
 class OrderBookDiff(BaseModel):
-    bids: list[list[int]]
-    asks: list[list[int]]
+    bids: list[list[float]]
+    asks: list[list[float]]
     sequence_number: int
 
 
@@ -20,8 +20,8 @@ class OrderBookDiff(BaseModel):
 class PriceLevelUpdate(BaseModel):
     asset_id: int
     side: Literal["Ask", "Bid"]
-    price_level: int  # Assuming price is an integer
-    quantity: int  # New quantity at this level (0 means level removed)
+    price_level: float  # Assuming price is an integer
+    quantity: float  # New quantity at this level (0 means level removed)
 
 
 def parse_price_level_update(data: dict[str, Any]) -> PriceLevelUpdate:

@@ -10,7 +10,7 @@ class Trade(BaseModel):
     trade_id: int
     order_id: str
     price: float
-    quantity: int
+    quantity: float
     timestamp_ns: int
     is_maker: bool
     is_buyer: bool
