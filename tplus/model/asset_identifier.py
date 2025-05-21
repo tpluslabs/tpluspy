@@ -11,5 +11,3 @@ class IndexAsset(BaseModel):
 
     def __str__(self) -> str:
         return self.Index.__str__()
-
-    

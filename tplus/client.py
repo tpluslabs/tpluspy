@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from tplus.model.asset_identifier import IndexAsset  # Assuming relative import
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
-from tplus.model.market import parse_market, Market
+from tplus.model.market import Market, parse_market
 from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
 from tplus.model.orderbook import (
     OrderBook,
@@ -96,9 +96,7 @@ class OrderBookClient:
             raise ValueError(f"Invalid JSON received from API: {e}") from e
 
     # --- Async Market Creation Methods ---
-    async def create_market(
-        self, asset_id: IndexAsset
-    ) -> dict[str, Any]:
+    async def create_market(self, asset_id: IndexAsset) -> dict[str, Any]:
         """
         Create and send a market (async).
 
@@ -110,16 +108,12 @@ class OrderBookClient:
         """
         message_dict = {"asset_id": asset_id.model_dump()}
 
-        logger.info(
-            f"Creating Market for Asset {asset_id}"
-        )
+        logger.info(f"Creating Market for Asset {asset_id}")
         # Use await for the async request
         return await self._request("POST", "/market/create", json_data=message_dict)
 
     # --- Async Get Market Methods ---
-    async def get_market(
-            self, asset_id: IndexAsset
-    ) -> Market:
+    async def get_market(self, asset_id: IndexAsset) -> Market:
         """
         Get a market (async).
 
@@ -158,7 +152,7 @@ class OrderBookClient:
             signer=self.user,
             fill_or_kill=fill_or_kill,
             asset_index=self.asset_index,
-            book_quantity_decimals= market.book_quantity_decimals
+            book_quantity_decimals=market.book_quantity_decimals,
         )
         signed_message_dict = message.model_dump()
         logger.info(
@@ -168,7 +162,7 @@ class OrderBookClient:
         return await self._request("POST", "/orders/create", json_data=signed_message_dict)
 
     async def create_limit_order(
-        self, quantity: int, price: int, side: str, time_in_force: Optional[GTC|GTD|IOC] = None
+        self, quantity: int, price: int, side: str, time_in_force: Optional[GTC | GTD | IOC] = None
     ) -> dict[str, Any]:
         """
         Create and send a limit order using the default asset index (async).

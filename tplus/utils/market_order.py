@@ -17,13 +17,14 @@ def create_market_order(
     fill_or_kill=False,
     asset_index=200,
     order_id: Optional[str] = None,
-
 ):
     order_id = str(uuid.uuid4()) if order_id is None else order_id
     asset = IndexAsset(Index=asset_index)
     side = "Sell" if side.lower() == "sell" else "Buy"
 
-    details = MarketOrderDetails(quantity=quantity, fill_or_kill=fill_or_kill, book_quantity_decimals=book_quantity_decimals)
+    details = MarketOrderDetails(
+        quantity=quantity, fill_or_kill=fill_or_kill, book_quantity_decimals=book_quantity_decimals
+    )
     order = Order(
         signer=list(bytes.fromhex(signer.pubkey())),
         order_id=order_id,

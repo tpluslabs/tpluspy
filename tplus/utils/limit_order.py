@@ -18,7 +18,7 @@ def create_limit_order(
     book_price_decimals: int,
     asset_index=200,
     order_id: Optional[str] = None,
-    time_in_force: Optional[GTC | GTD | IOC] = None
+    time_in_force: Optional[GTC | GTD | IOC] = None,
 ):
     order_id = str(uuid.uuid4()) if order_id is None else order_id
     asset = IndexAsset(Index=asset_index)
@@ -31,7 +31,7 @@ def create_limit_order(
         limit_price=price,
         time_in_force=time_in_force,
         book_quantity_decimals=book_quantity_decimals,
-        book_price_decimals=book_price_decimals
+        book_price_decimals=book_price_decimals,
     )
     order = Order(
         signer=list(bytes.fromhex(signer.pubkey())),
