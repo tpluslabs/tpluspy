@@ -1,14 +1,15 @@
 import json
 import logging
+import uuid # Added for generating order_ids
 from collections.abc import AsyncIterator
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
 import httpx
 import websockets
 from pydantic import ValidationError
 
-from tplus.model.asset_identifier import IndexAsset  # Assuming relative import
+from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
@@ -18,8 +19,11 @@ from tplus.model.orderbook import (
     OrderBookDiff,
 )
 from tplus.model.trades import Trade, TradeEvent, parse_trade_event, parse_trades
-from tplus.utils.limit_order import create_limit_order
-from tplus.utils.market_order import create_market_order
+
+# Updated imports for refactored utils
+from tplus.utils.limit_order import create_limit_order_ob_request_payload
+from tplus.utils.market_order import create_market_order_ob_request_payload
+from tplus.utils.signing import create_cancel_order_ob_request_payload, build_signed_message
 from tplus.utils.user import User
 
 # Configure basic logging #TODO: make a separate tplus.logging module
@@ -33,14 +37,15 @@ class OrderBookClient:
     DEFAULT_TIMEOUT = 10.0  # Default request timeout
 
     def __init__(
-        self, user: User, base_url: str, asset_index: int = 200, timeout: float = DEFAULT_TIMEOUT
+        self,
+        user: User,
+        base_url: str,
+        timeout: float = DEFAULT_TIMEOUT
     ):
         self.user = user
-        self.asset_index = asset_index
+        # Convert default_asset_id string to AssetIdentifier object upon initialization
         self.base_url = base_url.rstrip("/")
-        # Store original base_url parts for WS construction
         self._parsed_base_url = urlparse(self.base_url)
-        # Use AsyncClient now
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=timeout,
@@ -54,6 +59,9 @@ class OrderBookClient:
         """Internal method to handle asynchronous REST API requests."""
         relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         try:
+            # Log the request payload if present
+            if json_data:
+                logger.debug(f"Request to {method} {relative_url} with payload: {json_data}")
             # Use await for the async client request
             response = await self._client.request(
                 method=method,
@@ -96,16 +104,22 @@ class OrderBookClient:
             raise ValueError(f"Invalid JSON received from API: {e}") from e
 
     # --- Async Market Creation Methods ---
-    async def create_market(self, asset_id: IndexAsset) -> dict[str, Any]:
+    async def create_market(
+        self, asset_id: Union[AssetIdentifier, str]
+    ) -> dict[str, Any]:
         """
         Create and send a market (async).
 
         Args:
-            asset_id: asset for which the market must be created
+            asset_id: asset for which the market must be created. Can be an AssetIdentifier object or string.
 
         Returns:
             The API response dictionary.
         """
+        # Convert string to AssetIdentifier if needed
+        if isinstance(asset_id, str):
+            asset_id = AssetIdentifier(asset_id)
+
         message_dict = {"asset_id": asset_id.model_dump()}
 
         logger.info(f"Creating Market for Asset {asset_id}")
@@ -113,7 +127,9 @@ class OrderBookClient:
         return await self._request("POST", "/market/create", json_data=message_dict)
 
     # --- Async Get Market Methods ---
-    async def get_market(self, asset_id: IndexAsset) -> Market:
+    async def get_market(
+            self, asset_id: AssetIdentifier
+    ) -> Market:
         """
         Get a market (async).
 
@@ -130,70 +146,86 @@ class OrderBookClient:
 
     # --- Async Order Creation Methods ---
     async def create_market_order(
-        self, quantity: int, side: str, fill_or_kill: bool = False
+        self, quantity: int, side: str, fill_or_kill: bool = False, asset_id: Optional[AssetIdentifier] = None
     ) -> dict[str, Any]:
-        """
-        Create and send a market order using the default asset index (async).
+        order_id = str(uuid.uuid4())
+        market = await self.get_market(asset_id)
 
-        Args:
-            quantity: Amount to buy/sell
-            side: "Buy" or "Sell"
-            fill_or_kill: Whether the order must be filled immediately or cancelled
-
-        Returns:
-            The API response dictionary.
-        """
-
-        market = await self.get_market(IndexAsset(Index=self.asset_index))
-
-        message = create_market_order(
+        ob_request_payload = create_market_order_ob_request_payload(
             quantity=quantity,
             side=side,
             signer=self.user,
-            fill_or_kill=fill_or_kill,
-            asset_index=self.asset_index,
             book_quantity_decimals=market.book_quantity_decimals,
+            asset_identifier=asset_id,
+            order_id=order_id,
+            fill_or_kill=fill_or_kill
         )
-        signed_message_dict = message.model_dump()
+
+        signed_message = build_signed_message(
+            order_id=order_id,
+            asset_identifier=asset_id,
+            operation_specific_payload=ob_request_payload,
+            signer=self.user
+        )
+        
         logger.info(
-            f"Sending Market Order (Asset {self.asset_index}): Qty={quantity}, Side={side}, FOK={fill_or_kill}"
+            f"Sending Market Order (Asset {asset_id}): Qty={quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
         )
-        # Use await for the async request
-        return await self._request("POST", "/orders/create", json_data=signed_message_dict)
+        return await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
 
     async def create_limit_order(
-        self, quantity: int, price: int, side: str, time_in_force: Optional[GTC | GTD | IOC] = None
+        self, quantity: int, price: int, side: str, time_in_force: Optional[GTC|GTD|IOC] = None, asset_id: Optional[AssetIdentifier] = None
     ) -> dict[str, Any]:
-        """
-        Create and send a limit order using the default asset index (async).
+        order_id = str(uuid.uuid4())
+        market = await self.get_market(asset_id)
 
-        Args:
-            quantity: Amount to buy/sell
-            price: Limit price
-            side: "Buy" or "Sell"
-            post_only: Whether the order should only be posted to the order book (via GTC time_in_force)
-
-        Returns:
-            The API response dictionary.
-        """
-        market = await self.get_market(IndexAsset(Index=self.asset_index))
-
-        message = create_limit_order(
+        ob_request_payload = create_limit_order_ob_request_payload(
             quantity=quantity,
             price=price,
             side=side,
             signer=self.user,
-            asset_index=self.asset_index,
-            time_in_force=time_in_force,
             book_quantity_decimals=market.book_quantity_decimals,
             book_price_decimals=market.book_price_decimals,
+            asset_identifier=asset_id,
+            order_id=order_id,
+            time_in_force=time_in_force
         )
-        signed_message_dict = message.model_dump()
+
+        signed_message = build_signed_message(
+            order_id=order_id,
+            asset_identifier=asset_id,
+            operation_specific_payload=ob_request_payload,
+            signer=self.user
+        )
+
         logger.info(
-            f"Sending Limit Order (Asset {self.asset_index}): Qty={quantity}, Price={price}, Side={side}"
+            f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
         )
-        # Use await for the async request
-        return await self._request("POST", "/orders/create", json_data=signed_message_dict)
+        return await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
+
+    async def cancel_order(
+        self, order_id: str, asset_id: Optional[AssetIdentifier] = None
+    ) -> dict[str, Any]:        
+        # Use the new helper to create the specific cancel request payload
+        cancel_ob_request_payload = create_cancel_order_ob_request_payload(
+            order_id=order_id, 
+            asset_identifier=asset_id,
+            signer=self.user # Pass signer here as it's needed for user_id in signed data
+        )
+
+        signed_message = build_signed_message(
+            order_id=order_id, # order_id is also part of CancelOrderDataToSign
+            asset_identifier=asset_id, # asset_identifier is also part of CancelOrderDataToSign
+            operation_specific_payload=cancel_ob_request_payload,
+            signer=self.user
+        )
+
+        logger.info(
+            f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}"
+        )
+        return await self._request(
+            "DELETE", "/orders/cancel", json_data=signed_message.model_dump()
+        )
 
     # --- Parsing Methods (remain synchronous utility functions) ---
     def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:
@@ -209,19 +241,18 @@ class OrderBookClient:
         return parse_trades(trades_data)
 
     # --- Async GET Methods ---
-    async def get_orderbook_snapshot(self, asset_id: IndexAsset) -> OrderBook:
+    async def get_orderbook_snapshot(self, asset_id: AssetIdentifier) -> OrderBook:
         """
         Get a snapshot of the order book for a given asset (async).
 
         Args:
-            asset_id: The asset identifier (IndexAsset).
+            asset_id: The asset identifier (AssetIdentifier).
 
         Returns:
             An OrderBook object representing the snapshot.
         """
-        asset_index = asset_id.Index
-        endpoint = f"/marketdepth/{asset_index}"
-        logger.info(f"Getting Order Book Snapshot for asset {asset_index}")
+        endpoint = f"/marketdepth/{asset_id}"
+        logger.info(f"Getting Order Book Snapshot for asset {asset_id}")
         # Use await for the async request
         response = await self._request("GET", endpoint)
 
@@ -246,19 +277,18 @@ class OrderBookClient:
                 f"Could not parse API response dictionary for order book snapshot: {response}"
             ) from e
 
-    async def get_klines(self, asset_id: IndexAsset) -> dict[str, Any]:
+    async def get_klines(self, asset_id: AssetIdentifier) -> dict[str, Any]:
         """
         Get K-line (candlestick) data for a given asset (async).
 
         Args:
-            asset_id: The asset identifier (IndexAsset).
+            asset_id: The asset identifier (AssetIdentifier).
 
         Returns:
             The K-line data dictionary from the API.
         """
-        asset_index = asset_id.Index
-        endpoint = f"/klines/{asset_index}"
-        logger.info(f"Getting Klines for asset {asset_index}")
+        endpoint = f"/klines/{asset_id}"
+        logger.info(f"Getting Klines for asset {asset_id}")
         # Use await for the async request
         return await self._request("GET", endpoint)
 
@@ -279,20 +309,19 @@ class OrderBookClient:
         # Parsing remains synchronous
         return self.parse_trades(response_data)
 
-    async def get_user_trades_for_asset(self, user_id: str, asset_id: IndexAsset) -> list[Trade]:
+    async def get_user_trades_for_asset(self, user_id: str, asset_id: AssetIdentifier) -> list[Trade]:
         """
         Get trades for a specific user and asset (async).
 
         Args:
             user_id: The user's public key hex string.
-            asset_id: The asset identifier (IndexAsset).
+            asset_id: The asset identifier (AssetIdentifier).
 
         Returns:
             A list of Trade objects.
         """
-        asset_index = asset_id.Index
-        endpoint = f"/trades/user/{user_id}/{asset_index}"
-        logger.info(f"Getting Trades for user {user_id}, asset {asset_index}")
+        endpoint = f"/trades/user/{user_id}/{asset_id}"
+        logger.info(f"Getting Trades for user {user_id}, asset {asset_id}")
         # Use await for the async request
         response_data = await self._request("GET", endpoint)
         # Parsing remains synchronous
@@ -315,21 +344,20 @@ class OrderBookClient:
         return parsed_orders, response_data
 
     async def get_user_orders_for_book(
-        self, user_id: str, asset_id: IndexAsset
+        self, user_id: str, asset_id: AssetIdentifier
     ) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
         Get orders for a specific user and asset (async).
 
         Args:
             user_id: The user's public key hex string.
-            asset_id: The asset identifier (IndexAsset).
+            asset_id: The asset identifier (AssetIdentifier).
 
         Returns:
             A tuple containing the list of parsed OrderResponse objects and the raw API response dictionary.
         """
-        asset_index = asset_id.Index
-        endpoint = f"/orders/user/{user_id}/{asset_index}"
-        logger.info(f"Getting Orders for user {user_id}, asset {asset_index}")
+        endpoint = f"/orders/user/{user_id}/{asset_id}"
+        logger.info(f"Getting Orders for user {user_id}, asset {asset_id}")
         response_data = await self._request("GET", endpoint)
         parsed_orders = parse_orders(response_data)
         return parsed_orders, response_data
@@ -420,11 +448,10 @@ class OrderBookClient:
                         f"Error processing message from all trades stream: {e}. Message: {message[:100]}..."
                     )
 
-    async def stream_depth(self, asset_id: IndexAsset) -> AsyncIterator[OrderBookDiff]:
+    async def stream_depth(self, asset_id: AssetIdentifier) -> AsyncIterator[OrderBookDiff]:
         """Stream order book diff updates for a specific asset."""
-        asset_index = asset_id.Index
-        ws_url = self._get_websocket_url(f"/marketdepth/diff/{asset_index}")
-        logger.info(f"Connecting to depth stream for asset {asset_index}: {ws_url}")
+        ws_url = self._get_websocket_url(f"/marketdepth/diff/{asset_id}")
+        logger.info(f"Connecting to depth stream for asset {asset_id}: {ws_url}")
         async with websockets.connect(ws_url) as websocket:
             async for message in websocket:
                 try:
@@ -434,7 +461,7 @@ class OrderBookClient:
                     yield diff
                 except json.JSONDecodeError:
                     logger.warning(
-                        f"Received non-JSON message on depth stream ({asset_index}): {message[:100]}..."
+                        f"Received non-JSON message on depth stream ({asset_id}): {message[:100]}..."
                     )
                 except ValidationError as e:  # Catch Pydantic validation errors
                     logger.error(
@@ -442,14 +469,13 @@ class OrderBookClient:
                     )
                 except Exception as e:
                     logger.error(
-                        f"Error processing message from depth stream ({asset_index}): {e}. Message: {message[:100]}..."
+                        f"Error processing message from depth stream ({asset_id}): {e}. Message: {message[:100]}..."
                     )
 
-    async def stream_klines(self, asset_id: IndexAsset) -> AsyncIterator[KlineUpdate]:
+    async def stream_klines(self, asset_id: AssetIdentifier) -> AsyncIterator[KlineUpdate]:
         """Stream K-line (candlestick) updates for a specific asset."""
-        asset_index = asset_id.Index
-        ws_url = self._get_websocket_url(f"/klines/diff/{asset_index}")
-        logger.info(f"Connecting to klines stream for asset {asset_index}: {ws_url}")
+        ws_url = self._get_websocket_url(f"/klines/diff/{asset_id}")
+        logger.info(f"Connecting to klines stream for asset {asset_id}: {ws_url}")
         async with websockets.connect(ws_url) as websocket:
             async for message in websocket:
                 try:
@@ -458,11 +484,11 @@ class OrderBookClient:
                     yield parse_kline_update(data)
                 except json.JSONDecodeError:
                     logger.warning(
-                        f"Received non-JSON message on klines stream ({asset_index}): {message[:100]}..."
+                        f"Received non-JSON message on klines stream ({asset_id}): {message[:100]}..."
                     )
                 except Exception as e:
                     logger.error(
-                        f"Error processing message from klines stream ({asset_index}): {e}. Message: {message[:100]}..."
+                        f"Error processing message from klines stream ({asset_id}): {e}. Message: {message[:100]}..."
                     )
 
     # --- Async Context Management ---

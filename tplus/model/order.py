@@ -3,7 +3,7 @@ from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, ValidationError, model_serializer
 
-from tplus.model.asset_identifier import IndexAsset
+from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
 from tplus.model.market_order import MarketOrderDetails
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class Order(BaseModel):
     signer: list[int]
     order_id: str
-    base_asset: IndexAsset
+    base_asset: AssetIdentifier
     details: LimitOrderDetails | MarketOrderDetails
     side: str
     creation_timestamp_ns: int
@@ -35,7 +35,7 @@ class CreateOrderRequest(BaseModel):
 # Represents the FLAT structure observed in API responses
 class OrderResponse(BaseModel):
     order_id: str
-    base_asset: IndexAsset
+    base_asset: AssetIdentifier
     side: str
     limit_price: Optional[int]
     quantity: int
