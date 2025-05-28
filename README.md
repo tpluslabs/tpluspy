@@ -23,6 +23,8 @@ To use the client, first initialize it with a `User` object (for signing request
 ```python
 import asyncio
 from tplus.client import OrderBookClient
+from tplus.model.asset_identifier import AssetIdentifier, IndexAsset
+from tplus.model.limit_order import GTC
 from tplus.utils.user import User
 
 API_BASE_URL = "http://127.0.0.1:8000/" # Replace with your API URL
@@ -54,6 +56,10 @@ print(f"Snapshot Sequence: {orderbook.sequence_number}")
 klines = await client.get_klines(example_asset)
 print(f"Klines: {klines}")
 
+# Get Market Details for an asset
+market_details = await client.get_market(example_asset)
+print(f"Market Details: Price Decimals={market_details.book_price_decimals}, Quantity Decimals={market_details.book_quantity_decimals}")
+
 # Get orders for the user
 user_id = user.pubkey()
 user_orders, _ = await client.get_user_orders(user_id)
@@ -71,20 +77,53 @@ print(f"Inventory: {inventory}")
 **Creating Orders:**
 
 ```python
-# Create a Market Order
+# Ensure example_asset is defined (e.g., from "Fetching Data" section)
+# from tplus.model.asset_identifier import IndexAsset # If not defined elsewhere
+# example_asset = IndexAsset(Index=200)
+
+# Create a Market for an asset (idempotent)
+market_creation_response = await client.create_market(asset_id=example_asset)
+print(f"Market Creation Response: {market_creation_response}")
+
+# Create a Market Order for a specific asset
 market_response = await client.create_market_order(
-    quantity=10,
-    side="Buy"
+    asset_id=example_asset,
+    quantity=10, # API expects integer quantity
+    side="Buy",
+    fill_or_kill=False
 )
 print(f"Market Order Response: {market_response}")
 
-# Create a Limit Order (Post-Only)
+# Create a Limit Order for a specific asset
+# from tplus.model.limit_order import GTC # Ensure GTC is imported
 limit_response = await client.create_limit_order(
-    quantity=5,
-    price=1000, # Example price
-    side="Sell"
+    asset_id=example_asset,
+    quantity=5,  # API expects integer quantity
+    price=1000,  # API expects integer price
+    side="Sell",
+    time_in_force=GTC() # Example: Good Till Cancelled (default if omitted)
 )
 print(f"Limit Order Response: {limit_response}")
+
+# Cancel an Order
+# Order ID should be obtained from an order creation response.
+order_id_to_cancel = "actual-order-id-from-api" # Replace with a real order ID
+cancel_response = await client.cancel_order(
+    order_id=order_id_to_cancel,
+    asset_id=example_asset
+)
+print(f"Cancel Order Response: {cancel_response}")
+
+# Replace an Order
+# Original Order ID should be from an existing, open order.
+original_order_id_to_replace = "actual-original-order-id" # Replace with a real order ID
+replace_response = await client.replace_order(
+    original_order_id=original_order_id_to_replace,
+    asset_id=example_asset,
+    new_quantity=6, # Optional: New integer quantity
+    new_price=1050   # Optional: New integer price
+)
+print(f"Replace Order Response: {replace_response}")
 ```
 
 See `examples/rest_usage.py` for a runnable demonstration.
