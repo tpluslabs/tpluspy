@@ -1,9 +1,10 @@
+from typing import Any, Union
+
 from pydantic import BaseModel, model_serializer
-from typing import Union, Any, Dict
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.order import CreateOrderRequest
 from tplus.model.cancel_order import CancelOrderRequest
+from tplus.model.order import CreateOrderRequest
 from tplus.model.replace_order import ReplaceOrderRequestPayload
 
 
@@ -13,7 +14,7 @@ class ObRequest(BaseModel):
     ob_request_payload: Union[CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload]
 
     @model_serializer
-    def serialize_model(self) -> Dict[str, Any]:
+    def serialize_model(self) -> dict[str, Any]:
         data = {
             "order_id": self.order_id,
             "base_asset": self.base_asset.model_dump(),

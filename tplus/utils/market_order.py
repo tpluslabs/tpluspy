@@ -1,6 +1,4 @@
 import time
-import uuid
-from typing import Optional
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.market_order import MarketOrderDetails
@@ -20,8 +18,8 @@ def create_market_order_ob_request_payload(
     side_normalized = "Sell" if side.lower() == "sell" else "Buy"
 
     details = MarketOrderDetails(
-        quantity=quantity, 
-        fill_or_kill=fill_or_kill, 
+        quantity=quantity,
+        fill_or_kill=fill_or_kill,
         book_quantity_decimals=book_quantity_decimals
     )
     order = Order(

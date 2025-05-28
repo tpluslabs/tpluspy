@@ -1,5 +1,5 @@
-from ecdsa import SECP256k1, SigningKey
 from Crypto.Hash import keccak
+from ecdsa import SECP256k1, SigningKey
 
 
 class User:
@@ -25,7 +25,7 @@ class User:
         payload_bytes = payload.encode("utf-8")
         signature = self.sk.sign(payload_bytes)
         return signature
-    
+
     @property
     def address(self):
         public_key = self.vk.to_string()

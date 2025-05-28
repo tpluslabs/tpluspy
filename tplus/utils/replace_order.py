@@ -21,10 +21,10 @@ def create_replace_order_ob_request_payload(
 ) -> ReplaceOrderRequestPayload:
     """
     Creates the ReplaceOrderRequestPayload for an ObRequest.
-    This payload type directly corresponds to the Rust struct 
+    This payload type directly corresponds to the Rust struct
     orderbook_messages::actions::ReplaceOrderRequest.
     """
-    
+
     current_ts = request_timestamp_ns if request_timestamp_ns is not None else time.time_ns()
 
     replace_details = ReplaceOrderDetails(
@@ -39,7 +39,7 @@ def create_replace_order_ob_request_payload(
     # Sign the ReplaceOrderDetails part
     # The Rust equivalent is ReplaceOrder::signable_part -> serde_json::to_string without spaces
     sign_payload_json = replace_details.model_dump_json(exclude_none=True) # Ensure compact like server
-    
+
     # Server does: payload.replace(" ", "").replace("\r", "").replace("\n", "") before signing
     # Pydantic's model_dump_json might not be compact enough by default for perfect match.
     # For exactness with Rust's specific string replacement for signing:
@@ -51,4 +51,4 @@ def create_replace_order_ob_request_payload(
         user_id=signer.pubkey(),
         asset_id=asset_identifier,
         signature=list(signature_bytes)
-    ) 
+    )

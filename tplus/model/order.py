@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Union
 
-from pydantic import BaseModel, Field, ValidationError, model_serializer, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError, model_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
@@ -39,13 +39,13 @@ class OrderResponse(BaseModel):
     order_id: str
     base_asset: AssetIdentifier
     side: str
-    limit_price: Optional[int]
+    limit_price: int | None
     quantity: int
     confirmed_filled_quantity: int
     pending_filled_quantity: int
-    good_until_timestamp_ns: Optional[int]
+    good_until_timestamp_ns: int | None
     timestamp_ns: int
-    canceled: Optional[bool] = None
+    canceled: bool | None = None
     # Add other fields if observed in raw responses
     # signer: Optional[list[int]] = None # Example if signer is sometimes present
 
@@ -88,8 +88,8 @@ class OrderCreatedEvent(BaseOrderEvent):
     user_order: Order
     signature: list[int]
     book_timestamp_ns: int
-    limit_overrides: Optional[Any] = None
-    limit_overrides_signature: Optional[Any] = None
+    limit_overrides: Any | None = None
+    limit_overrides_signature: Any | None = None
 
 
 class OrderUpdatedEvent(BaseOrderEvent):

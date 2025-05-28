@@ -1,7 +1,7 @@
 import json
 import logging
-import uuid # Added for generating order_ids
-import time # Added for timestamps
+import time  # Added for timestamps
+import uuid  # Added for generating order_ids
 from collections.abc import AsyncIterator
 from typing import Any, Optional, Union
 from urllib.parse import urlparse, urlunparse
@@ -25,7 +25,7 @@ from tplus.model.trades import Trade, TradeEvent, parse_trade_event, parse_trade
 from tplus.utils.limit_order import create_limit_order_ob_request_payload
 from tplus.utils.market_order import create_market_order_ob_request_payload
 from tplus.utils.replace_order import create_replace_order_ob_request_payload
-from tplus.utils.signing import create_cancel_order_ob_request_payload, build_signed_message
+from tplus.utils.signing import build_signed_message, create_cancel_order_ob_request_payload
 from tplus.utils.user import User
 
 # Configure basic logging #TODO: make a separate tplus.logging module
@@ -171,7 +171,7 @@ class OrderBookClient:
             operation_specific_payload=ob_request_payload,
             signer=self.user
         )
-        
+
         logger.debug(
             f"Sending Market Order (Asset {asset_id}): Qty={quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
         )
@@ -209,7 +209,7 @@ class OrderBookClient:
 
     async def cancel_order(
         self, order_id: str, asset_id: Optional[AssetIdentifier] = None
-    ) -> dict[str, Any]:        
+    ) -> dict[str, Any]:
         # Use the new helper to create the specific cancel request payload
         cancel_ob_request_payload = create_cancel_order_ob_request_payload(
             order_id=order_id
@@ -231,10 +231,10 @@ class OrderBookClient:
         )
 
     async def replace_order(
-        self, 
-        original_order_id: str, 
+        self,
+        original_order_id: str,
         asset_id: AssetIdentifier,
-        new_quantity: Optional[int] = None, 
+        new_quantity: Optional[int] = None,
         new_price: Optional[int] = None,
     ) -> dict[str, Any]:
         """
@@ -251,7 +251,7 @@ class OrderBookClient:
         """
         # This ID is for the replace operation itself, if needed for the ObRequest wrapper.
         # The actual order ID being replaced is inside ReplaceOrderDetails.
-        replace_operation_id = str(uuid.uuid4()) 
+        replace_operation_id = str(uuid.uuid4())
         market = await self.get_market(asset_id) # Fetch market details for decimals
 
         # Use the new create_replace_order_ob_request_payload from replace_order.py
@@ -269,11 +269,11 @@ class OrderBookClient:
         signed_message = build_signed_message(
             order_id=replace_operation_id, # ID for this specific replace operation/request
             asset_identifier=asset_id, # Asset ID also part of ReplaceOrderRequestPayload
-            operation_specific_payload=operation_specific_payload, 
+            operation_specific_payload=operation_specific_payload,
             signer=self.user
         )
         signed_message.post_sign_timestamp = int(time.time() * 1_000_000_000) # Add timestamp
-        
+
         logger.debug(
             f"Sending Replace Order for original OrderID {original_order_id} (Asset {asset_id}): "
             f"New Qty={new_quantity}, New Price={new_price}, ReplaceOpID={replace_operation_id}"
@@ -430,7 +430,7 @@ class OrderBookClient:
                         f"Received 404 for {endpoint} (User: {self.user.pubkey()}, Asset: {asset_id}), "
                         f"but response body was not valid JSON. Body: {e.response.text[:200]}"
                     )
-            
+
             # If it's not the specific 404 we're handling (e.g. different status, different endpoint, or unexpected body for the 404), re-raise.
             raise e
 

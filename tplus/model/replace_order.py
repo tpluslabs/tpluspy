@@ -1,4 +1,4 @@
-from typing import Optional, Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, model_serializer
 
@@ -13,7 +13,7 @@ class ReplaceOrderDetails(BaseModel):
     new_quantity: Optional[int] = None
     book_quantity_decimals: Optional[int] = None # Assuming i8 maps to int
     book_price_decimals: Optional[int] = None # Assuming i8 maps to int
-    
+
     # Pydantic serializes Optional[None] to null by default.
     # If specific fields must be present even if null, they don't need exclude_none.
     # If fields should be omitted if None, model_dump(exclude_none=True) is used by caller.
@@ -42,4 +42,4 @@ class ReplaceOrderRequestPayload(BaseModel):
                 "asset_id": self.asset_id.model_dump(exclude_none=True),
                 "signature": self.signature,
             }
-        } 
+        }

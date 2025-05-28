@@ -1,12 +1,15 @@
 import time
-from typing import Union # Import Union
+from typing import Union  # Import Union
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.order import CreateOrderRequest # For Create operations
-from tplus.model.cancel_order import CancelOrderDataToSign, CancelOrderRequest # For Cancel operations
-from tplus.model.replace_order import ReplaceOrderRequestPayload # For Replace operations
+from tplus.model.cancel_order import (  # For Cancel operations
+    CancelOrderRequest,
+)
+from tplus.model.order import CreateOrderRequest  # For Create operations
+from tplus.model.replace_order import ReplaceOrderRequestPayload  # For Replace operations
 from tplus.model.signed_message import ObRequest, SignedMessage
 from tplus.utils.user import User
+
 # LimitOrderDetails and Order are no longer needed for dummy cancel creation here
 
 
@@ -24,7 +27,7 @@ def build_signed_message(
     order_id: str,
     asset_identifier: AssetIdentifier,
     # This payload can now be either for a create or a cancel operation
-    operation_specific_payload: Union[CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload], 
+    operation_specific_payload: Union[CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload],
     signer: User
 ) -> SignedMessage:
     """
@@ -34,7 +37,7 @@ def build_signed_message(
     Args:
         order_id: The order ID.
         asset_identifier: The asset identifier.
-        operation_specific_payload: The payload for the request (e.g., a signed limit order, 
+        operation_specific_payload: The payload for the request (e.g., a signed limit order,
                                     or a signed cancel request).
         signer: The user performing the action.
 
@@ -46,10 +49,10 @@ def build_signed_message(
         base_asset=asset_identifier,
         ob_request_payload=operation_specific_payload
     )
-    
+
     message = SignedMessage(
         payload=request_wrapper,
         user_id=signer.pubkey(), # This is the key for user identification on the SignedMessage wrapper
         post_sign_timestamp=time.time_ns()
     )
-    return message 
+    return message

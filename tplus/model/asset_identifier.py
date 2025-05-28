@@ -1,5 +1,6 @@
+from typing import Any
+
 from pydantic import RootModel, model_serializer, model_validator
-from typing import Any, Union
 
 
 class AssetIdentifier(RootModel[str]):

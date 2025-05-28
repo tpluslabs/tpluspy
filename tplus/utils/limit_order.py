@@ -1,5 +1,4 @@
 import time
-import uuid
 from typing import Optional
 
 from tplus.model.asset_identifier import AssetIdentifier
@@ -41,5 +40,5 @@ def create_limit_order_ob_request_payload(
 
     sign_payload_json = order.model_dump_json()
     signature_bytes = signer.sign(sign_payload_json)
-    
+
     return CreateOrderRequest(order=order, signature=list(signature_bytes))
