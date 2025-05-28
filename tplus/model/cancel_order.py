@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import List
+from pydantic import BaseModel, model_serializer
+from typing import List, Dict, Any
 
 from tplus.model.asset_identifier import AssetIdentifier
 
@@ -12,5 +12,10 @@ class CancelOrderDataToSign(BaseModel):
 
 class CancelOrderRequest(BaseModel):
     """ The payload for ObRequest representing a cancel order operation. """
-    data: CancelOrderDataToSign     # The actual data that was signed
-    signature: List[int]          # The signature over 'data' (serialized form) 
+    order_id: str
+
+    @model_serializer
+    def serialize_model(self) -> Dict[str, Dict[str, Any]]:
+        # This will ensure model_dump() returns {"CancelOrderRequest": {"order_id": self.order_id}}
+        # to match the Rust ObRequestPayload::CancelOrderRequest enum variant.
+        return {"CancelOrderRequest": {"order_id": self.order_id}} 

@@ -4,52 +4,27 @@ from typing import Union # Import Union
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.order import CreateOrderRequest # For Create operations
 from tplus.model.cancel_order import CancelOrderDataToSign, CancelOrderRequest # For Cancel operations
+from tplus.model.replace_order import ReplaceOrderRequestPayload # For Replace operations
 from tplus.model.signed_message import ObRequest, SignedMessage
 from tplus.utils.user import User
 # LimitOrderDetails and Order are no longer needed for dummy cancel creation here
 
 
 def create_cancel_order_ob_request_payload(
-    order_id: str, 
-    asset_identifier: AssetIdentifier,
-    signer: User
+    order_id: str
 ) -> CancelOrderRequest:
     """
     Creates the CancelOrderRequest payload for an ObRequest.
-    This involves creating the data to be signed, signing it, and packaging it.
-
-    Args:
-        order_id: The ID of the order to be cancelled.
-        asset_identifier: The asset identifier for the order.
-        signer: The user performing the cancellation.
-
-    Returns:
-        A CancelOrderRequest object containing the signed cancellation data.
+    This now only includes the order_id, matching the Rust struct.
     """
-    user_pubkey = signer.pubkey()
-    cancel_data_to_sign = CancelOrderDataToSign(
-        order_id=order_id,
-        asset_identifier=asset_identifier, # Assuming AssetIdentifier itself can be part of the signed payload
-                                        # If only string form is needed, adjust AssetIdentifier or use asset_identifier.value
-        user_id=user_pubkey, # Explicitly including user_id in the signed payload
-        cancel_timestamp_ns=time.time_ns()
-    )
-
-    # Serialize the data to be signed (Pydantic's model_dump_json is a good choice)
-    sign_payload_json = cancel_data_to_sign.model_dump_json()
-    signature_bytes = signer.sign(sign_payload_json)
-    
-    return CancelOrderRequest(
-        data=cancel_data_to_sign,
-        signature=list(signature_bytes)
-    )
+    return CancelOrderRequest(order_id=order_id)
 
 
 def build_signed_message(
     order_id: str,
     asset_identifier: AssetIdentifier,
     # This payload can now be either for a create or a cancel operation
-    operation_specific_payload: Union[CreateOrderRequest, CancelOrderRequest], 
+    operation_specific_payload: Union[CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload], 
     signer: User
 ) -> SignedMessage:
     """
