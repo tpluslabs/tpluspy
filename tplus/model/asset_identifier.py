@@ -10,9 +10,10 @@ class AssetIdentifier(RootModel[str]):
     e.g., {"Index": 12345} or {"Address": "SYMBOL@EXCHANGE"}.
     It can be initialized with a string or deserialized from the OMS dictionary format.
     """
+
     root: str
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _validate_input(cls, data: Any) -> Any:
         if isinstance(data, dict):
@@ -21,7 +22,9 @@ class AssetIdentifier(RootModel[str]):
             elif "Index" in data:
                 return str(data["Index"])
             else:
-                raise ValueError("Invalid dictionary for AssetIdentifier: must have 'Address' or 'Index' key")
+                raise ValueError(
+                    "Invalid dictionary for AssetIdentifier: must have 'Address' or 'Index' key"
+                )
         return data
 
     def __str__(self) -> str:
@@ -29,7 +32,7 @@ class AssetIdentifier(RootModel[str]):
 
     @model_serializer
     def serialize_model(self) -> dict[str, Any]:
-        if '@' in self.root:
+        if "@" in self.root:
             return {"Address": self.root}
         else:
             try:

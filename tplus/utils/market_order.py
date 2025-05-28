@@ -18,9 +18,7 @@ def create_market_order_ob_request_payload(
     side_normalized = "Sell" if side.lower() == "sell" else "Buy"
 
     details = MarketOrderDetails(
-        quantity=quantity,
-        fill_or_kill=fill_or_kill,
-        book_quantity_decimals=book_quantity_decimals
+        quantity=quantity, fill_or_kill=fill_or_kill, book_quantity_decimals=book_quantity_decimals
     )
     order = Order(
         signer=list(bytes.fromhex(signer.pubkey())),

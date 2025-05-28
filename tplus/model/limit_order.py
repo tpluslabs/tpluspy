@@ -6,7 +6,7 @@ from pydantic import BaseModel, model_serializer, model_validator
 class GTC(BaseModel):
     post_only: bool
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _unwrap_data(cls, data: Any) -> Any:
         if isinstance(data, dict) and "GTC" in data and len(data) == 1:
@@ -23,7 +23,7 @@ class GTD(BaseModel):
     post_only: bool
     timestamp_ns: int
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _unwrap_data(cls, data: Any) -> Any:
         if isinstance(data, dict) and "GTD" in data and len(data) == 1:
@@ -38,7 +38,7 @@ class GTD(BaseModel):
 class IOC(BaseModel):
     fill_or_kill: bool
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _unwrap_data(cls, data: Any) -> Any:
         if isinstance(data, dict) and "IOC" in data and len(data) == 1:
@@ -57,7 +57,7 @@ class LimitOrderDetails(BaseModel):
     book_quantity_decimals: int
     book_price_decimals: int
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _unwrap_data(cls, data: Any) -> Any:
         if isinstance(data, dict) and "Limit" in data and len(data) == 1:

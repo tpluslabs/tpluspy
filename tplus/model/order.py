@@ -118,11 +118,13 @@ class OrderReplacedEvent(BaseOrderEvent):
     event_type: Literal["REPLACED"]
     order_id: str  # The ID of the order that was replaced
     asset_id: AssetIdentifier
-    user_id: str   # Public key of the user whose order was replaced
+    user_id: str  # Public key of the user whose order was replaced
     new_quantity: int
     new_price: int
     # new_order_id: Optional[str] = None # If the replacement results in a new ID
     # replaced_timestamp_ns: Optional[int] = None # Timestamp of the replacement event
+
+
 # --- END ADD OrderReplacedEvent ---
 
 
@@ -146,12 +148,11 @@ def parse_order_event(data: dict[str, Any]) -> OrderEvent:
         logger.error(
             f"Invalid payload for event type {event_type_str_from_key}: Payload is not a dict. Payload: {actual_payload}"
         )
-        raise ValueError(f"Invalid payload for event type {event_type_str_from_key}: {actual_payload}")
+        raise ValueError(
+            f"Invalid payload for event type {event_type_str_from_key}: {actual_payload}"
+        )
 
-    model_data_for_parsing = {
-        "event_type": event_type_str_from_key.upper(),
-        **actual_payload
-    }
+    model_data_for_parsing = {"event_type": event_type_str_from_key.upper(), **actual_payload}
 
     try:
         adapter = TypeAdapter(OrderEvent)
@@ -161,7 +162,7 @@ def parse_order_event(data: dict[str, Any]) -> OrderEvent:
         logger.error(
             f"Error during TypeAdapter parsing for order event ({event_type_str_from_key.upper()}): {e}. "
             f"Data used for parsing: {model_data_for_parsing}",
-            exc_info=True
+            exc_info=True,
         )
         raise ValueError(
             f"Data integrity issue or unexpected structure for order event type {event_type_str_from_key.upper()} during TypeAdapter: {actual_payload}"

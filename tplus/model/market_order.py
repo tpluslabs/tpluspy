@@ -8,7 +8,7 @@ class MarketOrderDetails(BaseModel):
     fill_or_kill: bool
     book_quantity_decimals: int
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _unwrap_data(cls, data: Any) -> Any:
         if isinstance(data, dict) and "Market" in data and len(data) == 1:

@@ -16,7 +16,7 @@ def create_limit_order_ob_request_payload(
     book_price_decimals: int,
     asset_identifier: AssetIdentifier,
     order_id: str,
-    time_in_force: Optional[GTC | GTD | IOC] = None
+    time_in_force: Optional[GTC | GTD | IOC] = None,
 ) -> CreateOrderRequest:
     side_normalized = "Sell" if side.lower() == "sell" else "Buy"
 

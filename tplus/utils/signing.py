@@ -13,9 +13,7 @@ from tplus.utils.user import User
 # LimitOrderDetails and Order are no longer needed for dummy cancel creation here
 
 
-def create_cancel_order_ob_request_payload(
-    order_id: str
-) -> CancelOrderRequest:
+def create_cancel_order_ob_request_payload(order_id: str) -> CancelOrderRequest:
     """
     Creates the CancelOrderRequest payload for an ObRequest.
     This now only includes the order_id, matching the Rust struct.
@@ -27,8 +25,10 @@ def build_signed_message(
     order_id: str,
     asset_identifier: AssetIdentifier,
     # This payload can now be either for a create or a cancel operation
-    operation_specific_payload: Union[CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload],
-    signer: User
+    operation_specific_payload: Union[
+        CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload
+    ],
+    signer: User,
 ) -> SignedMessage:
     """
     Builds the common ObRequest and SignedMessage wrappers around an
@@ -47,12 +47,12 @@ def build_signed_message(
     request_wrapper = ObRequest(
         order_id=order_id,
         base_asset=asset_identifier,
-        ob_request_payload=operation_specific_payload
+        ob_request_payload=operation_specific_payload,
     )
 
     message = SignedMessage(
         payload=request_wrapper,
-        user_id=signer.pubkey(), # This is the key for user identification on the SignedMessage wrapper
-        post_sign_timestamp=time.time_ns()
+        user_id=signer.pubkey(),  # This is the key for user identification on the SignedMessage wrapper
+        post_sign_timestamp=time.time_ns(),
     )
     return message

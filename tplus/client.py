@@ -38,12 +38,7 @@ logger = logging.getLogger(__name__)
 class OrderBookClient:
     DEFAULT_TIMEOUT = 10.0  # Default request timeout
 
-    def __init__(
-        self,
-        user: User,
-        base_url: str,
-        timeout: float = DEFAULT_TIMEOUT
-    ):
+    def __init__(self, user: User, base_url: str, timeout: float = DEFAULT_TIMEOUT):
         self.user = user
         # Convert default_asset_id string to AssetIdentifier object upon initialization
         self.base_url = base_url.rstrip("/")
@@ -106,9 +101,7 @@ class OrderBookClient:
             raise ValueError(f"Invalid JSON received from API: {e}") from e
 
     # --- Async Market Creation Methods ---
-    async def create_market(
-        self, asset_id: Union[AssetIdentifier, str]
-    ) -> dict[str, Any]:
+    async def create_market(self, asset_id: Union[AssetIdentifier, str]) -> dict[str, Any]:
         """
         Create and send a market (async).
 
@@ -124,16 +117,12 @@ class OrderBookClient:
 
         message_dict = {"asset_id": asset_id.model_dump()}
 
-        logger.debug(
-            f"Creating Market for Asset {asset_id}"
-        )
+        logger.debug(f"Creating Market for Asset {asset_id}")
         # Use await for the async request
         return await self._request("POST", "/market/create", json_data=message_dict)
 
     # --- Async Get Market Methods ---
-    async def get_market(
-            self, asset_id: AssetIdentifier
-    ) -> Market:
+    async def get_market(self, asset_id: AssetIdentifier) -> Market:
         """
         Get a market (async).
 
@@ -150,7 +139,11 @@ class OrderBookClient:
 
     # --- Async Order Creation Methods ---
     async def create_market_order(
-        self, quantity: int, side: str, fill_or_kill: bool = False, asset_id: Optional[AssetIdentifier] = None
+        self,
+        quantity: int,
+        side: str,
+        fill_or_kill: bool = False,
+        asset_id: Optional[AssetIdentifier] = None,
     ) -> dict[str, Any]:
         order_id = str(uuid.uuid4())
         market = await self.get_market(asset_id)
@@ -162,14 +155,14 @@ class OrderBookClient:
             book_quantity_decimals=market.book_quantity_decimals,
             asset_identifier=asset_id,
             order_id=order_id,
-            fill_or_kill=fill_or_kill
+            fill_or_kill=fill_or_kill,
         )
 
         signed_message = build_signed_message(
             order_id=order_id,
             asset_identifier=asset_id,
             operation_specific_payload=ob_request_payload,
-            signer=self.user
+            signer=self.user,
         )
 
         logger.debug(
@@ -178,7 +171,12 @@ class OrderBookClient:
         return await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
 
     async def create_limit_order(
-        self, quantity: int, price: int, side: str, time_in_force: Optional[GTC|GTD|IOC] = None, asset_id: Optional[AssetIdentifier] = None
+        self,
+        quantity: int,
+        price: int,
+        side: str,
+        time_in_force: Optional[GTC | GTD | IOC] = None,
+        asset_id: Optional[AssetIdentifier] = None,
     ) -> dict[str, Any]:
         order_id = str(uuid.uuid4())
         market = await self.get_market(asset_id)
@@ -192,14 +190,14 @@ class OrderBookClient:
             book_price_decimals=market.book_price_decimals,
             asset_identifier=asset_id,
             order_id=order_id,
-            time_in_force=time_in_force
+            time_in_force=time_in_force,
         )
 
         signed_message = build_signed_message(
             order_id=order_id,
             asset_identifier=asset_id,
             operation_specific_payload=ob_request_payload,
-            signer=self.user
+            signer=self.user,
         )
 
         logger.debug(
@@ -211,21 +209,17 @@ class OrderBookClient:
         self, order_id: str, asset_id: Optional[AssetIdentifier] = None
     ) -> dict[str, Any]:
         # Use the new helper to create the specific cancel request payload
-        cancel_ob_request_payload = create_cancel_order_ob_request_payload(
-            order_id=order_id
-        )
+        cancel_ob_request_payload = create_cancel_order_ob_request_payload(order_id=order_id)
 
         signed_message = build_signed_message(
-            order_id=order_id, # order_id is also part of CancelOrderDataToSign
-            asset_identifier=asset_id, # asset_identifier is used here for the broader message
+            order_id=order_id,  # order_id is also part of CancelOrderDataToSign
+            asset_identifier=asset_id,  # asset_identifier is used here for the broader message
             operation_specific_payload=cancel_ob_request_payload,
-            signer=self.user
+            signer=self.user,
         )
-        signed_message.post_sign_timestamp = int(time.time() * 1_000_000_000) # Add timestamp
+        signed_message.post_sign_timestamp = int(time.time() * 1_000_000_000)  # Add timestamp
 
-        logger.debug(
-            f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}"
-        )
+        logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
         return await self._request(
             "DELETE", "/orders/cancel", json_data=signed_message.model_dump()
         )
@@ -252,7 +246,7 @@ class OrderBookClient:
         # This ID is for the replace operation itself, if needed for the ObRequest wrapper.
         # The actual order ID being replaced is inside ReplaceOrderDetails.
         replace_operation_id = str(uuid.uuid4())
-        market = await self.get_market(asset_id) # Fetch market details for decimals
+        market = await self.get_market(asset_id)  # Fetch market details for decimals
 
         # Use the new create_replace_order_ob_request_payload from replace_order.py
         # This payload will be of type ReplaceOrderRequestPayload
@@ -263,23 +257,25 @@ class OrderBookClient:
             new_price=new_price,
             new_quantity=new_quantity,
             book_price_decimals=market.book_price_decimals,
-            book_quantity_decimals=market.book_quantity_decimals
+            book_quantity_decimals=market.book_quantity_decimals,
         )
 
         signed_message = build_signed_message(
-            order_id=replace_operation_id, # ID for this specific replace operation/request
-            asset_identifier=asset_id, # Asset ID also part of ReplaceOrderRequestPayload
+            order_id=replace_operation_id,  # ID for this specific replace operation/request
+            asset_identifier=asset_id,  # Asset ID also part of ReplaceOrderRequestPayload
             operation_specific_payload=operation_specific_payload,
-            signer=self.user
+            signer=self.user,
         )
-        signed_message.post_sign_timestamp = int(time.time() * 1_000_000_000) # Add timestamp
+        signed_message.post_sign_timestamp = int(time.time() * 1_000_000_000)  # Add timestamp
 
         logger.debug(
             f"Sending Replace Order for original OrderID {original_order_id} (Asset {asset_id}): "
             f"New Qty={new_quantity}, New Price={new_price}, ReplaceOpID={replace_operation_id}"
         )
         # The Rust endpoint uses PATCH for replace
-        return await self._request("PATCH", "/orders/replace", json_data=signed_message.model_dump(exclude_none=True))
+        return await self._request(
+            "PATCH", "/orders/replace", json_data=signed_message.model_dump(exclude_none=True)
+        )
 
     # --- Parsing Methods (remain synchronous utility functions) ---
     def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:

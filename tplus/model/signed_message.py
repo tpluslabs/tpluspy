@@ -19,7 +19,10 @@ class ObRequest(BaseModel):
             "order_id": self.order_id,
             "base_asset": self.base_asset.model_dump(),
         }
-        if isinstance(self.ob_request_payload, (CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload)):
+        if isinstance(
+            self.ob_request_payload,
+            (CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload),
+        ):
             data["ob_request_payload"] = self.ob_request_payload.model_dump(exclude_none=False)
         else:
             raise TypeError(
