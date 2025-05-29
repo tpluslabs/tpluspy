@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import logging
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Union
 
-from pydantic import BaseModel, Field, ValidationError, model_serializer
+from pydantic import BaseModel, TypeAdapter, ValidationError, model_serializer
 
-from tplus.model.asset_identifier import IndexAsset
+from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
 from tplus.model.market_order import MarketOrderDetails
 
@@ -13,7 +15,7 @@ logger = logging.getLogger(__name__)
 class Order(BaseModel):
     signer: list[int]
     order_id: str
-    base_asset: IndexAsset
+    base_asset: AssetIdentifier
     details: LimitOrderDetails | MarketOrderDetails
     side: str
     creation_timestamp_ns: int
@@ -35,14 +37,15 @@ class CreateOrderRequest(BaseModel):
 # Represents the FLAT structure observed in API responses
 class OrderResponse(BaseModel):
     order_id: str
-    base_asset: IndexAsset
+    base_asset: AssetIdentifier
     side: str
-    limit_price: Optional[int]
+    limit_price: int | None
     quantity: int
     confirmed_filled_quantity: int
     pending_filled_quantity: int
-    good_until_timestamp_ns: Optional[int]
+    good_until_timestamp_ns: int | None
     timestamp_ns: int
+    canceled: bool | None = None
     # Add other fields if observed in raw responses
     # signer: Optional[list[int]] = None # Example if signer is sometimes present
 
@@ -81,14 +84,18 @@ class BaseOrderEvent(BaseModel):
 
 
 class OrderCreatedEvent(BaseOrderEvent):
-    event_type: Literal["CREATED"] = Field(default="CREATED")
-    order: Order
+    event_type: Literal["CREATED"]
+    user_order: Order
+    signature: list[int]
+    book_timestamp_ns: int
+    limit_overrides: Any | None = None
+    limit_overrides_signature: Any | None = None
 
 
 class OrderUpdatedEvent(BaseOrderEvent):
     """Represents updates like partial fills or status changes."""
 
-    event_type: Literal["UPDATED"] = Field(default="UPDATED")
+    event_type: Literal["UPDATED"]
     order_id: str
     # Include fields that can change, e.g.:
     status: str  # Example: FILLED, PARTIALLY_FILLED, CANCELLED
@@ -100,58 +107,63 @@ class OrderUpdatedEvent(BaseOrderEvent):
 
 
 class OrderCancelledEvent(BaseOrderEvent):
-    event_type: Literal["CANCELLED"] = Field(default="CANCELLED")
+    event_type: Literal["CANCELLED"]
     order_id: str
     reason: str  # Example: "UserRequest", "System", "Expired"
     cancel_timestamp_ns: int
 
 
+# --- ADD OrderReplacedEvent ---
+class OrderReplacedEvent(BaseOrderEvent):
+    event_type: Literal["REPLACED"]
+    order_id: str  # The ID of the order that was replaced
+    asset_id: AssetIdentifier
+    user_id: str  # Public key of the user whose order was replaced
+    new_quantity: int
+    new_price: int
+    # new_order_id: Optional[str] = None # If the replacement results in a new ID
+    # replaced_timestamp_ns: Optional[int] = None # Timestamp of the replacement event
+
+
+# --- END ADD OrderReplacedEvent ---
+
+
 # Union type for type hinting
-OrderEvent = Union[OrderCreatedEvent, OrderUpdatedEvent, OrderCancelledEvent]
+OrderEvent = Union[OrderCreatedEvent, OrderUpdatedEvent, OrderCancelledEvent, OrderReplacedEvent]
 
 
 def parse_order_event(data: dict[str, Any]) -> OrderEvent:
-    """Parses an order event dictionary from the WebSocket stream."""
-    event_type = data.get("event_type")
-    payload = data.get("payload", {})  # Assume payload contains the event data
+    """Parses an order event dictionary from the WebSocket stream.
+    Expects data in the format: {"EventTypeString": {event_payload_data}}
+    e.g., {"Created": {"user_order": ..., "signature": ...}}
+    """
+    if not data or len(data) != 1:
+        logger.error(f"Invalid order event structure: expected a single event key. Data: {data}")
+        raise ValueError(f"Invalid order event structure: expected a single event key, got {data}")
 
-    if not event_type or not isinstance(payload, dict):
-        raise ValueError(f"Invalid order event structure: {data}")
+    event_type_str_from_key = next(iter(data.keys()))
+    actual_payload = data[event_type_str_from_key]
+
+    if not isinstance(actual_payload, dict):
+        logger.error(
+            f"Invalid payload for event type {event_type_str_from_key}: Payload is not a dict. Payload: {actual_payload}"
+        )
+        raise ValueError(
+            f"Invalid payload for event type {event_type_str_from_key}: {actual_payload}"
+        )
+
+    model_data_for_parsing = {"event_type": event_type_str_from_key.upper(), **actual_payload}
 
     try:
-        if event_type == "CREATED":
-            # Assume payload is the raw order dictionary
-            # We need a way to parse a single order dict, let's reuse/adapt parse_orders logic
-            # For simplicity, let's assume parse_orders can handle a single dict or adapt it.
-            # Hacky approach: wrap in list and get first element
-            if not (parsed_order_list := parse_orders([payload])):
-                raise ValueError(f"Failed to parse order data in CREATED event: {payload}")
-            return OrderCreatedEvent(order=parsed_order_list[0])
-
-        elif event_type == "UPDATED":
-            # Assuming payload directly contains the fields for OrderUpdatedEvent
-            return OrderUpdatedEvent(
-                order_id=payload["order_id"],
-                status=payload["status"],
-                filled_quantity=int(payload["filled_quantity"]),
-                remaining_quantity=int(payload["remaining_quantity"]),
-                update_timestamp_ns=int(payload["update_timestamp_ns"]),
-                # Parse optional full order if present
-            )
-
-        elif event_type == "CANCELLED":
-            # Assuming payload directly contains the fields for OrderCancelledEvent
-            return OrderCancelledEvent(
-                order_id=payload["order_id"],
-                reason=payload["reason"],
-                cancel_timestamp_ns=int(payload["cancel_timestamp_ns"]),
-            )
-
-        else:
-            logger.warning(f"Received unknown order event type: {event_type}. Data: {data}")
-            # Option: return a generic event or raise an error
-            raise ValueError(f"Unknown order event type: {event_type}")
-
-    except (KeyError, ValueError, TypeError) as e:
-        logger.error(f"Error parsing order event ({event_type}): {e}. Data: {data}")
-        raise ValueError(f"Invalid data for order event type {event_type}: {data}") from e
+        adapter = TypeAdapter(OrderEvent)
+        parsed_event = adapter.validate_python(model_data_for_parsing)
+        return parsed_event
+    except Exception as e:
+        logger.error(
+            f"Error during TypeAdapter parsing for order event ({event_type_str_from_key.upper()}): {e}. "
+            f"Data used for parsing: {model_data_for_parsing}",
+            exc_info=True,
+        )
+        raise ValueError(
+            f"Data integrity issue or unexpected structure for order event type {event_type_str_from_key.upper()} during TypeAdapter: {actual_payload}"
+        ) from e

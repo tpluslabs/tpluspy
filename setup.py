@@ -20,6 +20,7 @@ setup(
     install_requires=[
         "ecdsa>=0.17",
         "httpx>=0.20",
+        "pycryptodome>=3.17.1",
     ],
     python_requires=">=3.10,<4",
     extras_require={

@@ -2,11 +2,11 @@ from typing import Any, Literal, Union
 
 from pydantic import BaseModel, Field
 
-from tplus.model.asset_identifier import IndexAsset
+from tplus.model.asset_identifier import AssetIdentifier
 
 
 class Trade(BaseModel):
-    asset_id: IndexAsset
+    asset_id: AssetIdentifier
     trade_id: int
     order_id: str
     price: float
@@ -20,7 +20,7 @@ class Trade(BaseModel):
 def parse_trades(data: list[dict]) -> list[Trade]:
     return [
         Trade(
-            asset_id=IndexAsset(**item["asset_id"]),
+            asset_id=AssetIdentifier(**item["asset_id"]),
             trade_id=item["trade_id"],
             order_id=item["order_id"],
             price=item["price"],
@@ -70,7 +70,7 @@ def parse_single_trade(item: dict[str, Any]) -> Trade:
     """Parses a single trade dictionary into a Trade object."""
     try:
         return Trade(
-            asset_id=IndexAsset(**item["asset_id"]),
+            asset_id=AssetIdentifier(**item["asset_id"]),
             trade_id=item["trade_id"],
             order_id=item["order_id"],
             price=float(item["price"]),
