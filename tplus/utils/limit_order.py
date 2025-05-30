@@ -44,12 +44,7 @@ def create_limit_order_ob_request_payload(
     return CreateOrderRequest(order=order, signature=list(signature_bytes))
 
 
-if __name__ == '__main__':
-    order = create_limit_order_ob_request_payload(100,
-                                                  50000,
-                                                  "Buy",
-                                                  User(),
-                                                  3,
-                                                  3,
-                                                  AssetIdentifier(root="200"),
-                                                  "zrhgiuzegf")
+if __name__ == "__main__":
+    order = create_limit_order_ob_request_payload(
+        100, 50000, "Buy", User(), 3, 3, AssetIdentifier(root="200"), "zrhgiuzegf"
+    )
