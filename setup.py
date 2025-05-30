@@ -21,6 +21,8 @@ setup(
         "ecdsa>=0.17",
         "httpx>=0.20",
         "pycryptodome>=3.17.1",
+        "pydantic>=2.10.4,<3",
+        "websockets>=13.1,<14",
     ],
     python_requires=">=3.10,<4",
     extras_require={
