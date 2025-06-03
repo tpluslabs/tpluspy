@@ -17,7 +17,7 @@ class Side(str, Enum):
     BUY = "Buy"
     SELL = "Sell"
     BID = "Buy"  # Alias for BUY (Side.BID is Side.BUY)
-    ASK = "Sell" # Alias for SELL (Side.ASK is Side.SELL)
+    ASK = "Sell"  # Alias for SELL (Side.ASK is Side.SELL)
 
     @classmethod
     def _missing_(cls, value: object) -> Any:
@@ -27,7 +27,7 @@ class Side(str, Enum):
                 return cls.BUY
             if val_lower == "ask":
                 return cls.SELL
-        return super()._missing_(value) # Delegate to default if not BID/ASK
+        return super()._missing_(value)  # Delegate to default if not BID/ASK
 
 
 class Order(BaseModel):
