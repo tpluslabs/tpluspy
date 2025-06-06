@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 # Copied from tpluslabs/tplus-contracts README.md.
 TPLUS_DEPLOYMENTS = {
     11155111: {
-        "Registry": "0x6DF956123aa80eBD5178d4d579c810ff352dF724",
-        "DepositVault": "0x8800A71ad5201F7F3Cc519A20C6cDf8c29297EA3",
+        "Registry": "0xD32DFD142A88E38233757DbE9d8681ac83D857d1",
+        "DepositVault": "0x8a54c3bC74854Dd908437f20f77a61FcC082AA3B",
     }
 }
 
