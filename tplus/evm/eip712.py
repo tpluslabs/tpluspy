@@ -1,13 +1,9 @@
 from eip712.messages import EIP712Message
 
-from tplus.evm.contracts import TPLUS_DEPLOYMENTS
-
 
 class Domain(EIP712Message):
     _name_ = "MyrtleWyckoff"
     _version_ = "1.0.0"
-    _chainId_ = 11155111
-    _verifyingContract_ = TPLUS_DEPLOYMENTS[11155111]["DepositVault"]
 
 
 class Order(Domain):

@@ -1,10 +1,13 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 from ape.exceptions import ContractNotFoundError, ProjectError
 from ape.utils.basemodel import ManagerAccessMixin
+from eth_pydantic_types.hex.bytes import HexBytes32
+from ape.types import AddressType
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.exceptions import ContractNotExists
+from tplus.evm.utils import address_to_bytes32
 
 if TYPE_CHECKING:
     from ape.api import AccountAPI
@@ -17,7 +20,11 @@ TPLUS_DEPLOYMENTS = {
     11155111: {
         "Registry": "0xD32DFD142A88E38233757DbE9d8681ac83D857d1",
         "DepositVault": "0x8a54c3bC74854Dd908437f20f77a61FcC082AA3B",
-    }
+    },
+    421614: {
+        "Registry": "0x75E435c12A0f07073dc35832F72D576dBcb9d05c",
+        "DepositVault": "0x47aEfEe8367C9bAC049B97D821E8Fcd1c75F7cD2",
+    },
 }
 
 
@@ -166,6 +173,13 @@ class Registry(TPlusContract):
             res.append(contract)
 
         return res
+
+    def set_asset(self, index: int, asset_address: Union[HexBytes32, AddressType], chain_id: int, max_deposit: int, sender=None) -> None:
+        if isinstance(asset_address, str) and len(asset_address) <= 42:
+            # Given EVM style address.
+            asset_address = address_to_bytes32(asset_address)
+
+        return self.contract.setAssetData(index, (asset_address, chain_id, max_deposit), sender=sender)
 
 
 class DepositVault(TPlusContract):
