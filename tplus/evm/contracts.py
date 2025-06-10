@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING, Optional, Union
 
 from ape.exceptions import ContractNotFoundError, ProjectError
+from ape.types import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes32
-from ape.types import AddressType
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.exceptions import ContractNotExists
@@ -174,12 +174,21 @@ class Registry(TPlusContract):
 
         return res
 
-    def set_asset(self, index: int, asset_address: Union[HexBytes32, AddressType], chain_id: int, max_deposit: int, sender=None) -> None:
+    def set_asset(
+        self,
+        index: int,
+        asset_address: Union[HexBytes32, AddressType],
+        chain_id: int,
+        max_deposit: int,
+        sender=None,
+    ) -> None:
         if isinstance(asset_address, str) and len(asset_address) <= 42:
             # Given EVM style address.
             asset_address = address_to_bytes32(asset_address)
 
-        return self.contract.setAssetData(index, (asset_address, chain_id, max_deposit), sender=sender)
+        return self.contract.setAssetData(
+            index, (asset_address, chain_id, max_deposit), sender=sender
+        )
 
 
 class DepositVault(TPlusContract):
