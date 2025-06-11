@@ -37,6 +37,7 @@ class Order(BaseModel):
     details: LimitOrderDetails | MarketOrderDetails
     side: Side
     creation_timestamp_ns: int
+    canceled: bool = False
 
 
 class CreateOrderRequest(BaseModel):
