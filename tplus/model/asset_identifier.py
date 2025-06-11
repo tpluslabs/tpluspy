@@ -23,11 +23,7 @@ class AssetIdentifier(RootModel[str]):
             if "Address" in data:
                 addr_data = data["Address"]
                 # Backend sends a dict with byte arrays for address and chain
-                if (
-                    isinstance(addr_data, dict)
-                    and "address" in addr_data
-                    and "chain" in addr_data
-                ):
+                if isinstance(addr_data, dict) and "address" in addr_data and "chain" in addr_data:
                     addr_bytes = bytes(addr_data["address"])
                     chain_bytes = bytes(addr_data["chain"])
                     addr_hex = addr_bytes.hex()
