@@ -14,7 +14,7 @@ class Trade(BaseModel):
     timestamp_ns: int
     is_maker: bool
     is_buyer: bool
-    confirmed: bool
+    status: Literal["Pending", "Confirmed"]
 
 
 def parse_trades(data: list[dict]) -> list[Trade]:

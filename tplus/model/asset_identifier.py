@@ -8,7 +8,7 @@ class AssetIdentifier(RootModel[str]):
     Represents an asset identifier, typically as a string (e.g., "SYMBOL@EXCHANGE" or a unique ID).
     This model serializes to the format expected by the OMS server,
     e.g., {"Index": 12345} or {"Address": {"address": [...], "chain": [...]}}.
-    It can be initialized with a user-friendly string like "0x...address@chain_name",
+    It can be initialized with a user-friendly string like "0x...address@42161" (chain as integer ID),
     a pre-formatted string like "hex_address@hex_chain", an index string like "12345",
     or deserialized from the OMS dictionary format.
     """
@@ -43,6 +43,25 @@ class AssetIdentifier(RootModel[str]):
                 raise ValueError(
                     "Invalid dictionary for AssetIdentifier: must have 'Address' or 'Index' key"
                 )
+
+        # Case 2: Input is a user-friendly string like "0x...address@chain_id"
+        if isinstance(data, str) and "@" in data:
+            address, chain_part = data.split("@", 1)
+
+            if address.startswith("0x"):
+                address = address[2:]
+
+            try:
+                # Try to interpret chain part as a integer chain_id and convert to hex
+                chain_id = int(chain_part)
+                # Use to_bytes to handle conversion to hex correctly, ensuring even length
+                num_bytes = ((chain_id.bit_length() + 7) // 8) or 1
+                chain_hex = chain_id.to_bytes(num_bytes, "big").hex()
+                return f"{address}@{chain_hex}"
+            except ValueError:
+                # If not a decimal, assume it's already a hex string.
+                # Return with address part normalized (no "0x" prefix).
+                return f"{address}@{chain_part}"
 
         # Fallback for Index as string ("12345") or other valid inputs
         return data
