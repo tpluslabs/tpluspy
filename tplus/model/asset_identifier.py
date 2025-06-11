@@ -8,7 +8,8 @@ class AssetIdentifier(RootModel[str]):
     Represents an asset identifier, typically as a string (e.g., "SYMBOL@EXCHANGE" or a unique ID).
     This model serializes to the format expected by the OMS server,
     e.g., {"Index": 12345} or {"Address": {"address": [...], "chain": [...]}}.
-    It can be initialized with a string ("hex_address@hex_chain" or "index_id")
+    It can be initialized with a user-friendly string like "0x...address@chain_name",
+    a pre-formatted string like "hex_address@hex_chain", an index string like "12345",
     or deserialized from the OMS dictionary format.
     """
 
@@ -17,29 +18,33 @@ class AssetIdentifier(RootModel[str]):
     @model_validator(mode="before")
     @classmethod
     def _validate_input(cls, data: Any) -> Any:
+        # Case 1: Input is a dictionary from the backend (e.g., from JSON deserialization)
         if isinstance(data, dict):
             if "Address" in data:
                 addr_data = data["Address"]
-                if isinstance(addr_data, dict) and "address" in addr_data and "chain" in addr_data:
-                    # Message from Rust server
+                # Backend sends a dict with byte arrays for address and chain
+                if (
+                    isinstance(addr_data, dict)
+                    and "address" in addr_data
+                    and "chain" in addr_data
+                ):
                     addr_bytes = bytes(addr_data["address"])
                     chain_bytes = bytes(addr_data["chain"])
-
-                    # Recreate string representation. The Rust Display impl hex-encodes the
-                    # entire byte arrays, including padding.
                     addr_hex = addr_bytes.hex()
                     chain_hex = chain_bytes.hex()
-
                     return f"{addr_hex}@{chain_hex}"
+                # This case seems ambiguous, but we'll pass it through.
                 elif isinstance(addr_data, str):
-                    # Already a string, e.g. from client code
                     return addr_data
+            # Backend sends an Index
             elif "Index" in data:
                 return str(data["Index"])
             else:
                 raise ValueError(
                     "Invalid dictionary for AssetIdentifier: must have 'Address' or 'Index' key"
                 )
+
+        # Fallback for Index as string ("12345") or other valid inputs
         return data
 
     def __str__(self) -> str:
