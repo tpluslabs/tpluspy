@@ -14,7 +14,7 @@ class Trade(BaseModel):
     timestamp_ns: int
     is_maker: bool
     is_buyer: bool
-    status: Literal["Pending", "Confirmed"]
+    status: Literal["Pending", "Confirmed", "Rollbacked"]
 
 
 def parse_trades(data: list[dict]) -> list[Trade]:
@@ -28,7 +28,7 @@ def parse_trades(data: list[dict]) -> list[Trade]:
             timestamp_ns=item["timestamp_ns"],
             is_maker=item["is_maker"],
             is_buyer=item["is_buyer"],
-            confirmed=item["confirmed"],
+            status=item["status"],
         )
         for item in data
     ]
