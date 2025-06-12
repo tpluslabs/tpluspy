@@ -16,6 +16,7 @@ class Trade(BaseModel):
     is_buyer: bool
     status: Literal["Pending", "Confirmed", "Rollbacked"]
 
+
 def parse_trades(data: list[dict]) -> list[Trade]:
     return [
         Trade(
