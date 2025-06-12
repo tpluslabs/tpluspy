@@ -24,13 +24,19 @@ class ClearingEngineClient(BaseClient):
         self,
         user: str,
         calldata: str,
-        asset_in: AssetIdentifier,
+        asset_in: str | AssetIdentifier,
         amount_in: int,
-        asset_out: AssetIdentifier,
+        asset_out: str | AssetIdentifier,
         amount_out: int,
         chain_id: int,
         signature: str,
     ):
+        if not isinstance(asset_in, AssetIdentifier):
+            asset_in = AssetIdentifier.model_validate(asset_in).model_dump()
+
+        if not isinstance(asset_out, AssetIdentifier):
+            asset_out = AssetIdentifier.model_validate(asset_out).model_dump()
+
         inner = {
             "tplus_user": user,
             "calldata": calldata,
