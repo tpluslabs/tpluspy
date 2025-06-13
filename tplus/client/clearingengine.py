@@ -3,8 +3,18 @@ from tplus.model.asset_identifier import AssetIdentifier
 
 
 class ClearingEngineClient(BaseClient):
-    async def get_decimals(self):
-        return await self._request("GET", "decimals")
+    async def get_decimals(self, asset_id: list[str | AssetIdentifier], chains: list[int]):
+        assets = []
+
+        for asset in asset_id:
+            if not isinstance(asset, AssetIdentifier):
+                asset = AssetIdentifier.model_validate(asset_id).model_dump()
+
+            assets.append(asset)
+
+        return await self._request(
+            "GET", "decimals", json_data={"assets": assets, "chains": chains}
+        )
 
     async def get_signatures(self, user: str):
         return await self._request("GET", f"settlement/signatures/{user}")
@@ -18,7 +28,9 @@ class ClearingEngineClient(BaseClient):
         )
 
     async def update_risk_parameters(self, registry_chain_id: int):
-        return self._request("POST", "params/update", json={"registry_chain_id": registry_chain_id})
+        return self._request(
+            "POST", "params/update", json_data={"registry_chain_id": registry_chain_id}
+        )
 
     async def init_settlement(
         self,
