@@ -126,7 +126,7 @@ class OrderUpdatedEvent(BaseOrderEvent):
 
 
 class OrderCancelledEvent(BaseOrderEvent):
-    event_type: Literal["CANCELLED"]
+    event_type: Literal["CANCELED"]
     order_id: str
     reason: str  # Example: "UserRequest", "System", "Expired"
     cancel_timestamp_ns: int
