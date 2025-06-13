@@ -1,6 +1,6 @@
 from tplus.client.base import BaseClient
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.settlement import TxSettlementRequest, BundleSettlementRequest
+from tplus.model.settlement import BundleSettlementRequest, TxSettlementRequest
 
 
 class ClearingEngineClient(BaseClient):

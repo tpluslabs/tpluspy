@@ -27,5 +27,5 @@ class BundleSettlementRequest(BaseModel):
 
 class SimBundleRequest(BaseModel):
     bundle: dict  # NOTE: Not using the model here so Ape isn't required.
-    user: str
+    user: list[int]
     bundle_id: int
