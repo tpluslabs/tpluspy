@@ -1,5 +1,6 @@
 from tplus.client.base import BaseClient
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.settlement import TxSettlementRequest, BundleSettlementRequest
 
 
 class ClearingEngineClient(BaseClient):
@@ -32,32 +33,18 @@ class ClearingEngineClient(BaseClient):
             "POST", "params/update", json_data={"registry_chain_id": registry_chain_id}
         )
 
-    async def init_settlement(
-        self,
-        user: str,
-        calldata: str,
-        asset_in: str | AssetIdentifier,
-        amount_in: int,
-        asset_out: str | AssetIdentifier,
-        amount_out: int,
-        chain_id: int,
-        signature: str,
-    ):
-        if not isinstance(asset_in, AssetIdentifier):
-            asset_in = AssetIdentifier.model_validate(asset_in).model_dump()
+    async def init_settlement(self, request: dict | TxSettlementRequest):
+        if isinstance(request, dict):
+            # Validate.
+            request = TxSettlementRequest.model_validate(request)
 
-        if not isinstance(asset_out, AssetIdentifier):
-            asset_out = AssetIdentifier.model_validate(asset_out).model_dump()
+        data = request.model_dump()
+        return await self._request("POST", "settlement/init", json_data=data)
 
-        inner = {
-            "tplus_user": user,
-            "calldata": calldata,
-            "asset_in": asset_in,
-            "amount_in": amount_in,
-            "asset_out": asset_out,
-            "amount_out": amount_out,
-            "chain_id": chain_id,
-        }
-        return await self._request(
-            "POST", "settlement/init", json_data={"inner": inner, "signature": signature}
-        )
+    async def init_bundle_settlement(self, request: dict | BundleSettlementRequest):
+        if isinstance(request, dict):
+            # Validate.
+            request = BundleSettlementRequest.model_validate(request)
+
+        json_data = request.model_dump(mode="json")
+        return await self._request("POST", "settlement/init-bundle", json_data=json_data)

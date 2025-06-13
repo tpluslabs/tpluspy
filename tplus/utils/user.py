@@ -18,6 +18,13 @@ class User:
     def pubkey(self) -> str:
         return self.vk.to_string().hex()
 
+    def pubkey_vec(self) -> list[str]:
+        key = self.pubkey()
+        if key.startswith("0x"):
+            hex_str = key[2:]
+
+        return [int(key[i : i + 2], 16) for i in range(0, len(key), 2)]
+
     def sign(self, payload: str):
         payload = payload.replace(" ", "")
         payload = payload.replace("\r", "")
