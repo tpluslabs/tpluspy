@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from tplus.model.asset_identifier import AssetIdentifier
+
 
 class OrderBook(BaseModel):
     asks: list[list[float]] = []  # List of [price, quantity]
@@ -18,7 +20,7 @@ class OrderBookDiff(BaseModel):
 
 # Model for individual Price Level Updates (Potentially for a different stream?)
 class PriceLevelUpdate(BaseModel):
-    asset_id: int
+    asset_id: AssetIdentifier
     side: Literal["Ask", "Bid"]
     price_level: float  # Assuming price is an integer
     quantity: float  # New quantity at this level (0 means level removed)
@@ -29,7 +31,7 @@ def parse_price_level_update(data: dict[str, Any]) -> PriceLevelUpdate:
     # Basic validation could be added here (e.g., check types, keys)
     try:
         return PriceLevelUpdate(
-            asset_id=int(data["asset_id"]),
+            asset_id=AssetIdentifier(data["asset_id"]),
             side=data["side"],  # Assuming 'Ask' or 'Bid'
             price_level=int(data["price_level"]),
             quantity=int(data["quantity"]),
