@@ -20,7 +20,7 @@ class Trade(BaseModel):
 def parse_trades(data: list[dict]) -> list[Trade]:
     return [
         Trade(
-            asset_id=AssetIdentifier(**item["asset_id"]),
+            asset_id=AssetIdentifier(item["asset_id"]),
             trade_id=item["trade_id"],
             order_id=item["order_id"],
             price=item["price"],
