@@ -1,5 +1,9 @@
+import os
+from functools import cached_property
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Union
 
+import yaml
 from ape.exceptions import ContractNotFoundError, ProjectError
 from ape.types import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
@@ -15,17 +19,35 @@ if TYPE_CHECKING:
     from ape.managers.project import Project
 
 
-# Copied from tpluslabs/tplus-contracts README.md.
-TPLUS_DEPLOYMENTS = {
-    11155111: {
-        "Registry": "0xD32DFD142A88E38233757DbE9d8681ac83D857d1",
-        "DepositVault": "0x8a54c3bC74854Dd908437f20f77a61FcC082AA3B",
-    },
-    421614: {
-        "Registry": "0x75E435c12A0f07073dc35832F72D576dBcb9d05c",
-        "DepositVault": "0x47aEfEe8367C9bAC049B97D821E8Fcd1c75F7cD2",
-    },
-}
+class TplusDeployments:
+    """
+    Reads the deployments from the ape-config file in the tplus-contracts
+    repo. This saves 1 place at least where we have to remember to update
+    new deployment addresses.
+    """
+    @cached_property
+    def deployments(self):
+        contracts_path = Path(
+            os.environ.get("TPLUS_CONTRACTS_PATH", "~/tplus/tplus-contracts")
+        ).expanduser()
+        file = contracts_path / "ape-config.yaml"
+        registered = yaml.safe_load(file.read_text())["deployments"]
+        result = {11155111: {}, 421614: {}}
+
+        for eco, net, chain in [("ethereum", "sepolia", 11155111), ("arbitrum", "sepolia", 421614)]:
+            for itm in registered[eco][net]:
+                result[chain][itm["contract_type"]] = itm["address"]
+
+        return result
+
+    def __getitem__(self, item):
+        return self.deployments[item]
+
+    def get(self, item, default=None):
+        return self.deployments.get(item, default=default)
+
+
+TPLUS_DEPLOYMENTS = TplusDeployments()
 
 
 class TPlusMixin(ManagerAccessMixin):
