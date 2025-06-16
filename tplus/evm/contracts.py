@@ -7,7 +7,7 @@ import yaml
 from ape.exceptions import ContractNotFoundError, ProjectError
 from ape.types import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
-from eth_pydantic_types.hex.bytes import HexBytes32
+from eth_pydantic_types.hex.bytes import HexBytes32, HexBytes
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.exceptions import ContractNotExists
@@ -181,7 +181,8 @@ class Registry(TPlusContract):
         res = []
 
         for itm in data:
-            address = self.network_manager.ethereum.decode_address(itm.assetAddress)
+            evm_address = HexBytes(itm.assetAddress)[:20]
+            address = self.network_manager.ethereum.decode_address(evm_address)
 
             # Attempt to look up native contract.
             try:
