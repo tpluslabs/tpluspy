@@ -29,7 +29,7 @@ class ClearingEngineClient(BaseClient):
         )
 
     async def update_risk_parameters(self, registry_chain_id: int):
-        return self._request(
+        return await self._request(
             "POST", "params/update", json_data={"registry_chain_id": registry_chain_id}
         )
 
