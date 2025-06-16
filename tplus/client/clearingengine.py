@@ -23,6 +23,10 @@ class ClearingEngineClient(BaseClient):
     async def get_assets(self):
         return await self._request("GET", "assets")
 
+    async def get_deposits(self, user: str, chain_id: int):
+        request = {"user": user, "chain_id": chain_id}
+        return await self._request("POST", "deposits/update", json_data=request)
+
     async def update_assets(self, registry_chain_id: int):
         return await self._request(
             "POST", "assets/update", json_data={"registry_chain_id": registry_chain_id}
@@ -32,6 +36,9 @@ class ClearingEngineClient(BaseClient):
         return await self._request(
             "POST", "params/update", json_data={"registry_chain_id": registry_chain_id}
         )
+
+    async def get_risk_parameters(self):
+        return await self._request("GET", "params")
 
     async def init_settlement(self, request: dict | TxSettlementRequest):
         if isinstance(request, dict):
