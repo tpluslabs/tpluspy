@@ -7,7 +7,7 @@ import yaml
 from ape.exceptions import ContractNotFoundError, ProjectError
 from ape.types import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
-from eth_pydantic_types.hex.bytes import HexBytes32, HexBytes
+from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.exceptions import ContractNotExists
@@ -25,6 +25,7 @@ class TplusDeployments:
     repo. This saves 1 place at least where we have to remember to update
     new deployment addresses.
     """
+
     @cached_property
     def deployments(self):
         contracts_path = Path(

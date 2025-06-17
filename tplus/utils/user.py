@@ -1,5 +1,7 @@
 from ecdsa import Ed25519, SigningKey
 
+from tplus.utils.hex import str_to_vec
+
 
 class User:
     def __init__(self, private_key_hex: str | None = None):
@@ -19,11 +21,7 @@ class User:
         return self.vk.to_string().hex()
 
     def pubkey_vec(self) -> list[str]:
-        key = self.pubkey()
-        if key.startswith("0x"):
-            key = key[2:]
-
-        return [int(key[i : i + 2], 16) for i in range(0, len(key), 2)]
+        return str_to_vec(self.pubkey())
 
     def sign(self, payload: str):
         payload = payload.replace(" ", "")
