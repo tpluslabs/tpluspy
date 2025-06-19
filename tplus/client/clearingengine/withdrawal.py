@@ -45,4 +45,4 @@ class WithdrawalClient(BaseClient):
             user (str): The user withdrawing.
             chain_id (int): The chain to request withdrawals for.
         """
-        await self._request("withdrawal/update", json_data={"user": user, "chain": chain_id})
+        await self._post("withdrawal/update", json_data={"user": user, "chain_id": chain_id})
