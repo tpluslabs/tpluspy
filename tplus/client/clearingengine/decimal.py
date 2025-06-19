@@ -7,7 +7,7 @@ class DecimalClient(BaseClient):
     APIs related to decimals.
     """
 
-    async def get_decimals(self, asset_id: list[str | AssetIdentifier], chains: list[int]) -> dict:
+    async def get(self, asset_id: list[str | AssetIdentifier], chains: list[int]) -> dict:
         """
         Get CE cached decimals for the given assets and chains.
 

@@ -50,12 +50,12 @@ class BaseClient:
     async def _get(
         self, endpoint: str, json_data: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
-        return self._request("GET", endpoint, json_data=json_data)
+        return await self._request("GET", endpoint, json_data=json_data)
 
     async def _post(
         self, endpoint: str, json_data: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
-        return self._request("POST", endpoint, json_data=json_data)
+        return await self._request("POST", endpoint, json_data=json_data)
 
     async def _request(
         self, method: str, endpoint: str, json_data: Optional[dict[str, Any]] = None
