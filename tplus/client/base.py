@@ -9,20 +9,53 @@ from tplus.utils.user import User
 
 
 class BaseClient:
+    """
+    Base client to use across T+ services.
+    """
+
     DEFAULT_TIMEOUT = 10.0  # Default request timeout
 
-    def __init__(self, user: User, base_url: str, timeout: float = DEFAULT_TIMEOUT):
+    def __init__(
+        self,
+        user: User,
+        base_url: str,
+        timeout: float = DEFAULT_TIMEOUT,
+        client: Optional[httpx.Client] = None,
+    ):
         self.user = user
         # Convert default_asset_id string to AssetIdentifier object upon initialization
         self.base_url = base_url.rstrip("/")
         self._parsed_base_url = urlparse(self.base_url)
-        self._client = httpx.AsyncClient(
+        self._client = client or httpx.AsyncClient(
             base_url=self.base_url,
             timeout=timeout,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
 
+    @classmethod
+    def from_client(cls, client: "BaseClient") -> "BaseClient":
+        """
+        Easy way to clone clients without initializing multiple AsyncClients.
+
+        Args:
+            client ("BaseClient"): The other client.
+
+        Returns:
+            A new client.
+        """
+        return cls(client.user, client.base_url, client=client._client)
+
     # --- Async HTTP Request Handling ---
+
+    async def _get(
+        self, endpoint: str, json_data: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        return self._request("GET", endpoint, json_data=json_data)
+
+    async def _post(
+        self, endpoint: str, json_data: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        return self._request("POST", endpoint, json_data=json_data)
 
     async def _request(
         self, method: str, endpoint: str, json_data: Optional[dict[str, Any]] = None
