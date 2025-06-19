@@ -9,7 +9,7 @@ class WithdrawalClient(BaseClient):
 
     def init_withdrawal(self, withdrawal: dict | WithdrawalRequest):
         """
-        Begin the steps of initializing a withdrawal. Once succcessful, can
+        Begin the steps of initializing a withdrawal. Once successful, can
         use ``.get_signatures()`` to fetch the resulting signatures for
         completing the withdrawal.
 
@@ -18,7 +18,7 @@ class WithdrawalClient(BaseClient):
         """
         if isinstance(withdrawal, dict):
             # Validate.
-            withdrawal = WithdrawalRequest.model_validate(dict)
+            withdrawal = WithdrawalRequest.model_validate(withdrawal)
 
         json_data = withdrawal.model_dump(mode="json")
         self._post("withdrawal/init", json_data=json_data)
@@ -43,6 +43,6 @@ class WithdrawalClient(BaseClient):
 
         Args:
             user (str): The user withdrawing.
-            chain (int): The chain to request withdrawals for.
+            chain_id (int): The chain to request withdrawals for.
         """
         await self._request("withdrawal/update", json_data={"user": user, "chain": chain_id})
