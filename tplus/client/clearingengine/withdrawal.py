@@ -7,7 +7,7 @@ class WithdrawalClient(BaseClient):
     APIs related to withdrawal.
     """
 
-    def init_withdrawal(self, withdrawal: dict | WithdrawalRequest):
+    async def init_withdrawal(self, withdrawal: dict | WithdrawalRequest):
         """
         Begin the steps of initializing a withdrawal. Once successful, can
         use ``.get_signatures()`` to fetch the resulting signatures for
@@ -21,7 +21,7 @@ class WithdrawalClient(BaseClient):
             withdrawal = WithdrawalRequest.model_validate(withdrawal)
 
         json_data = withdrawal.model_dump(mode="json")
-        self._post("withdrawal/init", json_data=json_data)
+        await self._post("withdrawal/init", json_data=json_data)
 
     async def get_signatures(self, user: str) -> dict:
         """
