@@ -23,8 +23,6 @@ To use the client, first initialize it with a `User` object (for signing request
 ```python
 import asyncio
 from tplus.client import OrderBookClient
-from tplus.model.asset_identifier import AssetIdentifier, IndexAsset
-from tplus.model.limit_order import GTC
 from tplus.utils.user import User
 
 API_BASE_URL = "http://127.0.0.1:8000/" # Replace with your API URL
@@ -32,7 +30,7 @@ user = User()
 
 async def run_client():
     # Use async context manager for automatic cleanup
-    async with OrderBookClient(user, base_url=API_BASE_URL) as client:
+    async with OrderBookClient(user, base_url=API_BASE_URL):
         print("Client initialized.")
         # ... use client methods ...
 
@@ -47,8 +45,9 @@ The client offers async methods for common REST endpoints:
 
 ```python
 # Get Order Book Snapshot for asset index 200
-from tplus.model.asset_identifier import IndexAsset
-example_asset = IndexAsset(Index=200)
+from tplus.model.asset_identifier import AssetIdentifier
+
+example_asset = AssetIdentifier(Index=200)
 orderbook = await client.get_orderbook_snapshot(example_asset)
 print(f"Snapshot Sequence: {orderbook.sequence_number}")
 
@@ -78,8 +77,8 @@ print(f"Inventory: {inventory}")
 
 ```python
 # Ensure example_asset is defined (e.g., from "Fetching Data" section)
-# from tplus.model.asset_identifier import IndexAsset # If not defined elsewhere
-# example_asset = IndexAsset(Index=200)
+from tplus.model.asset_identifier import AssetIdentifier
+example_asset = AssetIdentifier(200)
 
 # Create a Market for an asset (idempotent)
 market_creation_response = await client.create_market(asset_id=example_asset)
