@@ -3,6 +3,48 @@ from typing import Any
 from pydantic import RootModel, model_serializer, model_validator
 
 
+def _parse_asset_from_dict(data: dict) -> str:
+    if "Address" in data:
+        addr_data = data["Address"]
+
+        # Backend sends a dict with byte arrays for address and chain
+        if isinstance(addr_data, dict) and "address" in addr_data and "chain" in addr_data:
+            addr_bytes = bytes(addr_data["address"])
+            chain_bytes = bytes(addr_data["chain"])
+            addr_hex = addr_bytes.hex()
+            chain_hex = chain_bytes.hex()
+            return f"{addr_hex}@{chain_hex}"
+
+        # This case seems ambiguous, but we'll pass it through.
+        elif isinstance(addr_data, str):
+            return addr_data
+
+    # Backend sends an Index
+    elif "Index" in data:
+        return str(data["Index"])
+
+    raise ValueError("Invalid dictionary for AssetIdentifier: must have 'Address' or 'Index' key")
+
+
+def _parse_asset_from_str(data: str) -> str:
+    address, chain_part = data.split("@", 1)
+
+    if address.startswith("0x"):
+        address = address[2:]
+
+    try:
+        chain_id = int(chain_part)
+    except ValueError:
+        # If not a decimal, assume it's already a hex string.
+        # Return with address part normalized (no "0x" prefix).
+        return f"{address}@{chain_part}"
+
+    # Use to_bytes to handle conversion to hex correctly, ensuring even length.
+    num_bytes = ((chain_id.bit_length() + 7) // 8) or 1
+    chain_hex = chain_id.to_bytes(num_bytes, "big").hex()
+    return f"{address}@{chain_hex}"
+
+
 class AssetIdentifier(RootModel[str]):
     """
     Represents an asset identifier, typically as a string (e.g., "SYMBOL@EXCHANGE" or a unique ID).
@@ -20,44 +62,15 @@ class AssetIdentifier(RootModel[str]):
     def _validate_input(cls, data: Any) -> Any:
         # Case 1: Input is a dictionary from the backend (e.g., from JSON deserialization)
         if isinstance(data, dict):
-            if "Address" in data:
-                addr_data = data["Address"]
-                # Backend sends a dict with byte arrays for address and chain
-                if isinstance(addr_data, dict) and "address" in addr_data and "chain" in addr_data:
-                    addr_bytes = bytes(addr_data["address"])
-                    chain_bytes = bytes(addr_data["chain"])
-                    addr_hex = addr_bytes.hex()
-                    chain_hex = chain_bytes.hex()
-                    return f"{addr_hex}@{chain_hex}"
-                # This case seems ambiguous, but we'll pass it through.
-                elif isinstance(addr_data, str):
-                    return addr_data
-            # Backend sends an Index
-            elif "Index" in data:
-                return str(data["Index"])
-            else:
-                raise ValueError(
-                    "Invalid dictionary for AssetIdentifier: must have 'Address' or 'Index' key"
-                )
+            return _parse_asset_from_dict(data)
 
         # Case 2: Input is a user-friendly string like "0x...address@chain_id"
-        if isinstance(data, str) and "@" in data:
-            address, chain_part = data.split("@", 1)
+        elif isinstance(data, str) and "@" in data:
+            return _parse_asset_from_str(data)
 
-            if address.startswith("0x"):
-                address = address[2:]
-
-            try:
-                # Try to interpret chain part as a integer chain_id and convert to hex
-                chain_id = int(chain_part)
-                # Use to_bytes to handle conversion to hex correctly, ensuring even length
-                num_bytes = ((chain_id.bit_length() + 7) // 8) or 1
-                chain_hex = chain_id.to_bytes(num_bytes, "big").hex()
-                return f"{address}@{chain_hex}"
-            except ValueError:
-                # If not a decimal, assume it's already a hex string.
-                # Return with address part normalized (no "0x" prefix).
-                return f"{address}@{chain_part}"
+        elif isinstance(data, int):
+            # int means index.
+            return f"{data}"
 
         # Fallback for Index as string ("12345") or other valid inputs
         return data

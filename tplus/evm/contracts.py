@@ -11,7 +11,7 @@ from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.exceptions import ContractNotExists
-from tplus.evm.utils import address_to_bytes32
+from tplus.evm.utils import to_bytes32
 
 if TYPE_CHECKING:
     from ape.api import AccountAPI
@@ -208,7 +208,7 @@ class Registry(TPlusContract):
     ) -> None:
         if isinstance(asset_address, str) and len(asset_address) <= 42:
             # Given EVM style address.
-            asset_address = address_to_bytes32(asset_address)
+            asset_address = to_bytes32(asset_address)
 
         return self.contract.setAssetData(
             index, (asset_address, chain_id, max_deposit), sender=sender
