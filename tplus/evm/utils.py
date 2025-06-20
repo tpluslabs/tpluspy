@@ -1,7 +1,7 @@
 from ape.types import AddressType
 
 
-def address_to_bytes32(address: str | AddressType) -> bytes:
+def to_bytes32(address: str | AddressType) -> bytes:
     """
     In t+, address keys are typically bytes32 to be consistent across chain.
     Use this utility to convert EVM address types to bytes32 by right

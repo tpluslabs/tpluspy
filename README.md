@@ -191,14 +191,14 @@ Sign EIP-712 messages, such as settlements, using the `eip712` library.
 ```python
 from ape import accounts, convert, chain
 from tplus.evm.eip712 import Order
-from tplus.evm.utils import address_to_bytes32
+from tplus.evm.utils import to_bytes32
 from tplus.evm.contracts import vault
 
 # Load your Ethereum account for t+.
 tplus_user = accounts.load("tplus-account")
 
 # t+ user IDs are bytes32 padded ETH addresses.
-user_id = address_to_bytes32(tplus_user.address)
+user_id = to_bytes32(tplus_user.address)
 
 # Get the nonce from t+ or the contracts directly.
 nonce = vault.getDepositNonce(tplus_user)
