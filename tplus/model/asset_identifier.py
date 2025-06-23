@@ -48,11 +48,10 @@ def _parse_asset_from_str(data: str) -> str:
 class AssetIdentifier(RootModel[str]):
     """
     Represents an asset identifier, typically as a string (e.g., "SYMBOL@EXCHANGE" or a unique ID).
-    This model serializes to the format expected by the OMS server,
-    e.g., {"Index": 12345} or {"Address": {"address": [...], "chain": [...]}}.
     It can be initialized with a user-friendly string like "0x...address@42161" (chain as integer ID),
     a pre-formatted string like "hex_address@hex_chain", an index string like "12345",
-    or deserialized from the OMS dictionary format.
+    or deserialized from the OMS dictionary format
+    e.g., {"Index": 12345} or {"Address": {"address": [...], "chain": [...]}}.
     """
 
     root: str
