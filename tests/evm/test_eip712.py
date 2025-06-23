@@ -1,4 +1,9 @@
-from ape import convert
+import pytest
+
+try:
+    from ape import convert
+except ImportError:
+    pytest.skip("ape is not installed", allow_module_level=True)
 
 from tplus.evm.eip712 import Order
 from tplus.evm.utils import to_bytes32
