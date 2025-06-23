@@ -18,6 +18,7 @@ setup(
     url="https://github.com/tpluslabs/tpluspy",
     include_package_data=True,
     install_requires=[
+        "cryptography>=44.0.1",
         "ecdsa>=0.17",
         "httpx>=0.20",
         "pycryptodome>=3.17.1",
