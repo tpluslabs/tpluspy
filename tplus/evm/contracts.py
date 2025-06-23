@@ -207,8 +207,8 @@ class Registry(TPlusContract):
         sender=None,
     ) -> None:
         if isinstance(asset_address, str) and len(asset_address) <= 42:
-            # Given EVM style address.
-            asset_address = to_bytes32(asset_address)
+            # Given EVM style address. Store as right-padded address.
+            asset_address = to_bytes32(asset_address, pad="r")
 
         return self.contract.setAssetData(
             index, (asset_address, chain_id, max_deposit), sender=sender

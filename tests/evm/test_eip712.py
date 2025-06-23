@@ -1,4 +1,5 @@
 import pytest
+from hexbytes import HexBytes
 
 try:
     from ape import convert
@@ -6,7 +7,7 @@ except ImportError:
     pytest.skip("ape is not installed", allow_module_level=True)
 
 from tplus.evm.eip712 import Order
-from tplus.utils.bytes32 import to_bytes32
+from tplus.utils.user import User
 
 
 def test_settlement_order(signer):
@@ -18,7 +19,7 @@ def test_settlement_order(signer):
         amountOut=convert("1 ether", int),
         tokenIn="0x58372ab62269A52fA636aD7F200d93999595DCAF",
         amountIn=convert("1 ether", int),
-        user=to_bytes32(signer.address),
+        user=HexBytes(User().pubkey()),
         nonce=1,
         validUntil=1000000000,
     )

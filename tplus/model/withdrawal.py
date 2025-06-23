@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.utils.bytes32 import to_bytes32
 from tplus.utils.hex import str_to_vec
 
 if TYPE_CHECKING:
@@ -38,7 +37,7 @@ class WithdrawalRequest(BaseModel):
                     "tplus_user": tplus_user,
                     "asset": asset,
                     "amount": amount,
-                    "target": to_bytes32(target).hex(),
+                    "target": target,
                     "chain_id": chain_id,
                 },
                 "signature": [],
