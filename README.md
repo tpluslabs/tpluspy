@@ -191,7 +191,7 @@ Sign EIP-712 messages, such as settlements, using the `eip712` library.
 ```python
 from ape import accounts, convert, chain
 from tplus.evm.eip712 import Order
-from tplus.evm.utils import to_bytes32
+from tplus.utils.bytes32 import to_bytes32
 from tplus.evm.contracts import vault
 
 # Load your Ethereum account for t+.

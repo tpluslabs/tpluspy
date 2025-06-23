@@ -11,7 +11,7 @@ from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.exceptions import ContractNotExists
-from tplus.evm.utils import to_bytes32
+from tplus.utils.bytes32 import to_bytes32
 
 if TYPE_CHECKING:
     from ape.api import AccountAPI

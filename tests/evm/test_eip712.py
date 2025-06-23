@@ -6,7 +6,7 @@ except ImportError:
     pytest.skip("ape is not installed", allow_module_level=True)
 
 from tplus.evm.eip712 import Order
-from tplus.evm.utils import to_bytes32
+from tplus.utils.bytes32 import to_bytes32
 
 
 def test_settlement_order(signer):
