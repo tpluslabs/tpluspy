@@ -38,7 +38,7 @@ def create_limit_order_ob_request_payload(
         creation_timestamp_ns=time.time_ns(),
     )
 
-    sign_payload_json = order.model_dump_json()
+    sign_payload_json = order.signable_part()
     signature_bytes = signer.sign(sign_payload_json)
 
     return CreateOrderRequest(order=order, signature=list(signature_bytes))
@@ -48,3 +48,4 @@ if __name__ == "__main__":
     order = create_limit_order_ob_request_payload(
         100, 50000, "Buy", User(), 3, 3, AssetIdentifier(root="200"), "zrhgiuzegf"
     )
+    print(order.order.signable_part())

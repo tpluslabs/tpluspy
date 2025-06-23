@@ -39,6 +39,9 @@ class Order(BaseModel):
     creation_timestamp_ns: int
     canceled: bool = False
 
+    def signable_part(self) -> str:
+        return self.model_dump_json(exclude={"canceled"})
+
 
 class CreateOrderRequest(BaseModel):
     order: Order

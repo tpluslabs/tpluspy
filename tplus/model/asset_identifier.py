@@ -79,49 +79,5 @@ class AssetIdentifier(RootModel[str]):
         return str(self.root)
 
     @model_serializer
-    def serialize_model(self) -> dict[str, Any]:
-        """
-        Serializes the AssetIdentifier to the format expected by the Rust OMS.
-        - "12345" -> {"Index": 12345}
-        - "addr_hex@chain_hex" -> {"Address": {"address": [bytes...], "chain": [bytes...]}}
-        """
-        if "@" in self.root:
-            parts = self.root.split("@", 1)
-            if len(parts) != 2:
-                raise ValueError(f"Invalid Address format for AssetIdentifier: {self.root}")
-
-            address_hex, chain_hex = parts
-
-            try:
-                address_bytes = bytes.fromhex(address_hex)
-                chain_bytes = bytes.fromhex(chain_hex)
-            except ValueError as e:
-                raise ValueError(f"Invalid hex string in AssetIdentifier '{self.root}': {e}") from e
-
-            if len(address_bytes) > 32:
-                raise ValueError(
-                    f"Address part of AssetIdentifier is too long ({len(address_bytes)} > 32): {self.root}"
-                )
-            if len(chain_bytes) > 8:
-                raise ValueError(
-                    f"Chain part of AssetIdentifier is too long ({len(chain_bytes)} > 8): {self.root}"
-                )
-
-            # Pad with null bytes to match Rust struct size (32 for address, 8 for chain)
-            padded_address = address_bytes.ljust(32, b"\0")
-            padded_chain = chain_bytes.ljust(8, b"\0")
-
-            return {
-                "Address": {
-                    "address": list(padded_address),
-                    "chain": list(padded_chain),
-                }
-            }
-        else:
-            try:
-                return {"Index": int(self.root)}
-            except ValueError:
-                raise ValueError(
-                    f"AssetIdentifier root '{self.root}' is not a valid integer string for an Index type "
-                    f"and does not appear to be an Address type (missing '@')."
-                )
+    def serialize_model(self) -> str:
+        return self.root
