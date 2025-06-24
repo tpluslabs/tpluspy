@@ -14,6 +14,6 @@ class TestWithdrawal:
             chain_id=11155111,
         )
         withdrawal = WithdrawalRequest(inner=inner, signature=[])
-        actual = withdrawal.model_dump_json()
-        expected = '{"inner":{"tplus_user":[235,136,106,86,249,240,239,166,68,50,103,140,235,241,39,14,147,20,167,88,230,235,105,122,96,98,2,164,81,227,232,46],"asset":"62622E77D1349Face943C6e7D5c01C61465FE1dc@aa36a7","amount":100,"target":"0x62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","chain_id":11155111},"signature":[]}'
+        actual = withdrawal.inner.model_dump_json()
+        expected = '{"tplus_user":[235,136,106,86,249,240,239,166,68,50,103,140,235,241,39,14,147,20,167,88,230,235,105,122,96,98,2,164,81,227,232,46],"asset":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@aa36a700000000","amount":"0x64","target":"0x62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","chain_id":[0,0,0,0,0,170,54,167]}'
         assert actual == expected
