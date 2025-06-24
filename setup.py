@@ -24,7 +24,7 @@ setup(
         "pycryptodome>=3.17.1",
         "pydantic>=2.10.4,<3",
         "websockets>=13.1,<14",
-        "eth-pydantic-types>=2.0.0,<3",
+        "eth-pydantic-types>=2.0.1,<3",
     ],
     python_requires=">=3.10,<4",
     extras_require={
