@@ -22,10 +22,6 @@ class InnerWithdrawalRequest(BaseModel):
     def serialize_user(self, user):
         return to_vec(user)
 
-    @field_serializer("tplus_user", when_used="json")
-    def serialize_user(self, user):
-        return to_vec(user)
-
 
 class WithdrawalRequest(BaseModel):
     inner: InnerWithdrawalRequest
@@ -57,4 +53,9 @@ class WithdrawalRequest(BaseModel):
         return model
 
     def signing_payload(self) -> str:
-        return self.inner.model_dump_json(exclude_none=True).replace(" ", "").replace("\r", "").replace("\n", "")
+        return (
+            self.inner.model_dump_json(exclude_none=True)
+            .replace(" ", "")
+            .replace("\r", "")
+            .replace("\n", "")
+        )
