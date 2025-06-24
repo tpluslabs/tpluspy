@@ -72,7 +72,7 @@ class BaseClient:
                 url=relative_url,
                 json=json_data,
             )
-            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+
             # Handle cases where the response might be empty (e.g., 204 No Content)
             if response.status_code == 204:
                 return {}
@@ -80,14 +80,20 @@ class BaseClient:
             if not response.content:
                 return {}
 
-            # Parse JSON and handle if the result is None (e.g., API returned "null")
-            json_response = response.json()
-            if json_response is None:
-                logger.warning(
-                    f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary."
+            try:
+                # Parse JSON and handle if the result is None (e.g., API returned "null")
+                json_response = response.json()
+                if json_response is None:
+                    logger.warning(
+                        f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary."
+                    )
+                    return {}
+                return json_response
+            except Exception:
+                raise Exception(
+                    f"Invalid response from server - status_code={response.status_code}."
                 )
-                return {}
-            return json_response
+
         except httpx.TimeoutException as e:
             logger.error(f"Request timed out to {e.request.url!r}: {e}")
             raise
