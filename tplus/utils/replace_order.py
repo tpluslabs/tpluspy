@@ -52,7 +52,7 @@ def create_replace_order_ob_request_payload(
 
     return ReplaceOrderRequestPayload(
         request=replace_details,
-        user_id=signer.pubkey(),
+        user_id=signer.public_key,
         asset_id=asset_identifier,
         signature=list(signature_bytes),
     )

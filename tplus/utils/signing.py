@@ -52,7 +52,7 @@ def build_signed_message(
 
     message = SignedMessage(
         payload=request_wrapper,
-        user_id=signer.pubkey(),  # This is the key for user identification on the SignedMessage wrapper
+        user_id=signer.public_key,  # This is the key for user identification on the SignedMessage wrapper
         post_sign_timestamp=time.time_ns(),
     )
     return message

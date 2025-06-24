@@ -279,8 +279,8 @@ class OrderBookClient(BaseClient):
         Returns:
             A list of Trade objects.
         """
-        endpoint = f"/trades/user/{self.user.pubkey()}"
-        logger.debug(f"Getting Trades for user {self.user.pubkey()}")
+        endpoint = f"/trades/user/{self.user.public_key}"
+        logger.debug(f"Getting Trades for user {self.user.public_key}")
         # Use await for the async request
         response_data = await self._request("GET", endpoint)
         # Parsing remains synchronous
@@ -296,8 +296,8 @@ class OrderBookClient(BaseClient):
         Returns:
             A list of Trade objects.
         """
-        endpoint = f"/trades/user/{self.user.pubkey()}/{asset_id}"
-        logger.debug(f"Getting Trades for user {self.user.pubkey()}, asset {asset_id}")
+        endpoint = f"/trades/user/{self.user.public_key}/{asset_id}"
+        logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
         # Use await for the async request
         response_data = await self._request("GET", endpoint)
         # Parsing remains synchronous
@@ -310,8 +310,8 @@ class OrderBookClient(BaseClient):
         Returns:
             A tuple containing the list of parsed OrderResponse objects and the raw API response dictionary.
         """
-        endpoint = f"/orders/user/{self.user.pubkey()}"
-        logger.debug(f"Getting Orders for user {self.user.pubkey()}")
+        endpoint = f"/orders/user/{self.user.public_key}"
+        logger.debug(f"Getting Orders for user {self.user.public_key}")
         response_data = await self._request("GET", endpoint)
         parsed_orders = parse_orders(response_data)
         return parsed_orders, response_data
@@ -328,8 +328,8 @@ class OrderBookClient(BaseClient):
         Returns:
             A tuple containing the list of parsed OrderResponse objects and the raw API response dictionary.
         """
-        endpoint = f"/orders/user/{self.user.pubkey()}/{asset_id}"
-        logger.debug(f"Getting Orders for user {self.user.pubkey()}, asset {asset_id}")
+        endpoint = f"/orders/user/{self.user.public_key}/{asset_id}"
+        logger.debug(f"Getting Orders for user {self.user.public_key}, asset {asset_id}")
         try:
             response_data = await self._request("GET", endpoint)
         except httpx.HTTPStatusError as e:
@@ -340,20 +340,20 @@ class OrderBookClient(BaseClient):
                     # If the response is an empty list, it means no orders were found, which is a valid scenario.
                     if isinstance(content, list) and not content:
                         logger.debug(
-                            f"Received 404 with empty list for {endpoint} (User: {self.user.pubkey()}, Asset: {asset_id}). "
+                            f"Received 404 with empty list for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
                             f"This is expected if the user has no orders for this asset yet. Treating as success with no orders."
                         )
                         return [], {}  # Return empty list of orders and empty raw response
                     else:
                         # Log that it was a 404 for the right endpoint, but content wasn't an empty list
                         logger.warning(
-                            f"Received 404 for {endpoint} (User: {self.user.pubkey()}, Asset: {asset_id}), "
+                            f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "
                             f"but response body was not an empty list as expected for 'no orders'. Body: {e.response.text[:200]}"
                         )
                 except json.JSONDecodeError:
                     # Log that it was a 404 for the right endpoint, but content wasn't JSON
                     logger.warning(
-                        f"Received 404 for {endpoint} (User: {self.user.pubkey()}, Asset: {asset_id}), "
+                        f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "
                         f"but response body was not valid JSON. Body: {e.response.text[:200]}"
                     )
 
@@ -371,8 +371,8 @@ class OrderBookClient(BaseClient):
             The inventory data dictionary from the API.
             (Consider creating an Inventory model for parsing)
         """
-        endpoint = f"/inventory/user/{self.user.pubkey()}"
-        logger.debug(f"Getting Inventory for user {self.user.pubkey()}")
+        endpoint = f"/inventory/user/{self.user.public_key}"
+        logger.debug(f"Getting Inventory for user {self.user.public_key}")
         # Use await for the async request
         return await self._request("GET", endpoint)
 

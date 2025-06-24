@@ -6,7 +6,7 @@ class TestUser:
         expected = 32
 
         user = User()
-        pubkey = user.pubkey()
+        pubkey = user.public_key
         actual = len(bytes.fromhex(pubkey))
 
         assert actual == expected

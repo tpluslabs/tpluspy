@@ -21,7 +21,7 @@ def create_market_order_ob_request_payload(
         quantity=quantity, fill_or_kill=fill_or_kill, book_quantity_decimals=book_quantity_decimals
     )
     order = Order(
-        signer=list(bytes.fromhex(signer.pubkey())),
+        signer=list(bytes.fromhex(signer.public_key)),
         order_id=order_id,
         base_asset=asset_identifier,
         details=details,

@@ -198,7 +198,7 @@ from tplus.utils.user import UserManager
 tplus_user = accounts.load("tplus-account")
 
 # Load your t+ user (public key).
-user_id = UserManager.load("my_user").pubkey()
+user_id = UserManager.load("my_user").public_key
 
 # Get the nonce from t+ or the contracts directly.
 nonce = vault.getDepositNonce(tplus_user)

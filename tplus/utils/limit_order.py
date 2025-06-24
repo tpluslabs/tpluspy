@@ -30,7 +30,7 @@ def create_limit_order_ob_request_payload(
         book_price_decimals=book_price_decimals,
     )
     order = Order(
-        signer=list(bytes.fromhex(signer.pubkey())),
+        signer=list(bytes.fromhex(signer.public_key)),
         order_id=order_id,
         base_asset=asset_identifier,
         details=details,

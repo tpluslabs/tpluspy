@@ -1,3 +1,5 @@
+from functools import cached_property
+
 from ecdsa import Ed25519, SigningKey
 
 from tplus.utils.hex import str_to_vec
@@ -16,13 +18,23 @@ class User:
         self.vk = self.sk.verifying_key
 
     def __repr__(self) -> str:
-        return f"<User {self.pubkey()}>"
+        return f"<User {self.public_key}>"
 
+    @cached_property
+    def public_key(self) -> str:
+        return self.pubkey()
+
+    @cached_property
+    def public_key_vec(self) -> str:
+        return str_to_vec(self.public_key)
+
+    # Legacy: use `.public_key` (cached).
     def pubkey(self) -> str:
         return self.vk.to_string().hex()
 
+    # Legacy: use `.public_key_vec` (cached).
     def pubkey_vec(self) -> list[str]:
-        return str_to_vec(self.pubkey())
+        return str_to_vec(self.public_key)
 
     def sign(self, payload: str):
         payload = payload.replace(" ", "")
