@@ -25,12 +25,12 @@ import asyncio
 from tplus.client import OrderBookClient
 from tplus.utils.user import User
 
-API_BASE_URL = "http://127.0.0.1:8000/" # Replace with your API URL
+API_BASE_URL = "http://127.0.0.1:8000"  # Replace with your API URL
 user = User()
 
 async def run_client():
     # Use async context manager for automatic cleanup
-    async with OrderBookClient(user, base_url=API_BASE_URL):
+    async with OrderBookClient(user=user, base_url=API_BASE_URL) as client:
         print("Client initialized.")
         # ... use client methods ...
 
@@ -60,16 +60,15 @@ market_details = await client.get_market(example_asset)
 print(f"Market Details: Price Decimals={market_details.book_price_decimals}, Quantity Decimals={market_details.book_quantity_decimals}")
 
 # Get orders for the user
-user_id = user.pubkey()
-user_orders, _ = await client.get_user_orders(user_id)
+user_orders, _ = await client.get_user_orders()
 print(f"User Orders: {user_orders}")
 
 # Get trades for the user and asset
-user_asset_trades = await client.get_user_trades_for_asset(user_id, example_asset)
+user_asset_trades = await client.get_user_trades_for_asset(example_asset)
 print(f"User Asset Trades: {user_asset_trades}")
 
 # Get user inventory
-inventory = await client.get_user_inventory(user_id)
+inventory = await client.get_user_inventory()
 print(f"Inventory: {inventory}")
 ```
 
@@ -87,26 +86,27 @@ print(f"Market Creation Response: {market_creation_response}")
 # Create a Market Order for a specific asset
 market_response = await client.create_market_order(
     asset_id=example_asset,
-    quantity=10, # API expects integer quantity
+    quantity=10,  # integer quantity
     side="Buy",
-    fill_or_kill=False
+    fill_or_kill=False,
 )
 print(f"Market Order Response: {market_response}")
 
 # Create a Limit Order for a specific asset
-# from tplus.model.limit_order import GTC # Ensure GTC is imported
+# Good-Till-Cancelled limit order
+from tplus.model.limit_order import GTC
 limit_response = await client.create_limit_order(
     asset_id=example_asset,
-    quantity=5,  # API expects integer quantity
-    price=1000,  # API expects integer price
+    quantity=5,
+    price=1_000,
     side="Sell",
-    time_in_force=GTC() # Example: Good Till Cancelled (default if omitted)
+    time_in_force=GTC(),
 )
 print(f"Limit Order Response: {limit_response}")
 
 # Cancel an Order
 # Order ID should be obtained from an order creation response.
-order_id_to_cancel = "actual-order-id-from-api" # Replace with a real order ID
+order_id_to_cancel = "actual-order-id-from-api"  # Replace with a real order ID
 cancel_response = await client.cancel_order(
     order_id=order_id_to_cancel,
     asset_id=example_asset
@@ -115,7 +115,7 @@ print(f"Cancel Order Response: {cancel_response}")
 
 # Replace an Order
 # Original Order ID should be from an existing, open order.
-original_order_id_to_replace = "actual-original-order-id" # Replace with a real order ID
+original_order_id_to_replace = "actual-original-order-id"  # Replace with a real order ID
 replace_response = await client.replace_order(
     original_order_id=original_order_id_to_replace,
     asset_id=example_asset,
@@ -132,11 +132,11 @@ See `examples/rest_usage.py` for a runnable demonstration.
 The client provides async iterators to stream real-time data:
 
 ```python
-from tplus.model.asset_identifier import IndexAsset
+from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.orderbook import OrderBookDiff
 from tplus.model.trades import Trade
 
-example_asset = IndexAsset(Index=200)
+example_asset = AssetIdentifier(200)
 
 # Stream Order Book Diffs
 async for diff_update in client.stream_depth(example_asset):

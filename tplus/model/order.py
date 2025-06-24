@@ -4,7 +4,7 @@ import logging
 from enum import Enum
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel, TypeAdapter, ValidationError, model_serializer
+from pydantic import BaseModel, ValidationError, model_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 class Side(str, Enum):
     BUY = "Buy"
     SELL = "Sell"
-    BID = "Buy"  # Alias for BUY (Side.BID is Side.BUY)
-    ASK = "Sell"  # Alias for SELL (Side.ASK is Side.SELL)
+    BID = "Buy"  # Alias for BUY
+    ASK = "Sell"  # Alias for SELL
 
     @classmethod
     def _missing_(cls, value: object) -> Any:
@@ -27,7 +27,7 @@ class Side(str, Enum):
                 return cls.BUY
             if val_lower == "ask":
                 return cls.SELL
-        return super()._missing_(value)  # Delegate to default if not BID/ASK
+        return super()._missing_(value)
 
 
 class Order(BaseModel):
@@ -49,14 +49,10 @@ class CreateOrderRequest(BaseModel):
 
     @model_serializer
     def serialize_model(self) -> dict[str, dict[str, Any]]:
-        # Replicates the old {"CreateOrderRequest": {...}} structure
-        # Nested order will use its own (default) serializer
         request_data = {"order": self.order, "signature": self.signature}
         return {"CreateOrderRequest": request_data}
 
 
-# --- Model for Order Data Received from GET Requests ---
-# Represents the FLAT structure observed in API responses
 class OrderResponse(BaseModel):
     order_id: str
     base_asset: AssetIdentifier
@@ -68,14 +64,9 @@ class OrderResponse(BaseModel):
     good_until_timestamp_ns: int | None
     timestamp_ns: int
     canceled: bool | None = None
-    # Add other fields if observed in raw responses
-    # signer: Optional[list[int]] = None # Example if signer is sometimes present
 
 
 def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
-    """
-    Parses a list of order dictionaries (from GET API response) into OrderResponse objects.
-    """
     parsed_orders = []
     if not isinstance(orders_data, list):
         logger.error(f"Expected a list for orders_data, got {type(orders_data)}")
@@ -83,13 +74,11 @@ def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
 
     for order_dict in orders_data:
         try:
-            # Attempt to parse the dictionary directly into the flat OrderResponse model
             order_response = OrderResponse(**order_dict)
             parsed_orders.append(order_response)
         except ValidationError as e:
             logger.warning(f"Skipping order due to validation error: {e}. Data: {order_dict}")
         except Exception as e:
-            # Catch other potential errors during instantiation
             logger.warning(
                 f"Skipping order due to unexpected parsing error: {e}. Data: {order_dict}"
             )
@@ -97,10 +86,6 @@ def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
     return parsed_orders
 
 
-# --- WebSocket Order Events ---
-
-
-# Base class (optional, but can be useful)
 class BaseOrderEvent(BaseModel):
     event_type: str
 
@@ -115,77 +100,114 @@ class OrderCreatedEvent(BaseOrderEvent):
 
 
 class OrderUpdatedEvent(BaseOrderEvent):
-    """Represents updates like partial fills or status changes."""
-
     event_type: Literal["UPDATED"]
     order_id: str
-    # Include fields that can change, e.g.:
-    status: str  # Example: FILLED, PARTIALLY_FILLED, CANCELLED
+    status: str
     filled_quantity: int
     remaining_quantity: int
     update_timestamp_ns: int
-    # Optionally include the full updated order object if the stream sends it
-    # order: Order | None = None
 
 
 class OrderCancelledEvent(BaseOrderEvent):
     event_type: Literal["CANCELED"]
     order_id: str
-    reason: str  # Example: "UserRequest", "System", "Expired"
-    cancel_timestamp_ns: int
+    asset_id: AssetIdentifier
+    user_id: str
+    timestamp_ns: int
+    reason: str | None = None
 
 
-# --- ADD OrderReplacedEvent ---
 class OrderReplacedEvent(BaseOrderEvent):
     event_type: Literal["REPLACED"]
-    order_id: str  # The ID of the order that was replaced
+    order_id: str
     asset_id: AssetIdentifier
-    user_id: str  # Public key of the user whose order was replaced
+    user_id: str
     new_quantity: int
     new_price: int
-    # new_order_id: Optional[str] = None # If the replacement results in a new ID
-    # replaced_timestamp_ns: Optional[int] = None # Timestamp of the replacement event
 
 
-# --- END ADD OrderReplacedEvent ---
+class OrderCreateFailedEvent(BaseOrderEvent):
+    event_type: Literal["CREATEFAILED"]
+    order_id: str
+    reason: str | None = None
 
 
-# Union type for type hinting
-OrderEvent = Union[OrderCreatedEvent, OrderUpdatedEvent, OrderCancelledEvent, OrderReplacedEvent]
+class OrderReplaceFailedEvent(BaseOrderEvent):
+    event_type: Literal["REPLACEFAILED"]
+    order_id: str
+    reason: str | None = None
+
+
+class OrderCancelFailedEvent(BaseOrderEvent):
+    event_type: Literal["CANCELFAILED"]
+    order_id: str
+    reason: str | None = None
+
+
+OrderEvent = Union[
+    OrderCreatedEvent,
+    OrderUpdatedEvent,
+    OrderCancelledEvent,
+    OrderReplacedEvent,
+    OrderCreateFailedEvent,
+    OrderReplaceFailedEvent,
+    OrderCancelFailedEvent,
+]
+
+_EVENT_TYPE_MODEL_MAP: dict[str, type[BaseOrderEvent]] = {
+    "CREATED": OrderCreatedEvent,
+    "UPDATED": OrderUpdatedEvent,
+    "CANCELED": OrderCancelledEvent,
+    "REPLACED": OrderReplacedEvent,
+    "CREATEFAILED": OrderCreateFailedEvent,
+    "REPLACEFAILED": OrderReplaceFailedEvent,
+    "CANCELFAILED": OrderCancelFailedEvent,
+}
 
 
 def parse_order_event(data: dict[str, Any]) -> OrderEvent:
-    """Parses an order event dictionary from the WebSocket stream.
-    Expects data in the format: {"EventTypeString": {event_payload_data}}
-    e.g., {"Created": {"user_order": ..., "signature": ...}}
+    """
+    Parses an order event dictionary coming from the WebSocket stream.
+    The server sends events in the form:
+        {"Created": {<payload>}}, {"ReplaceFailed": {<payload>}}, ...
+    This helper will:
+    1. Extract the *single* event key.
+    2. Determine the appropriate Pydantic model (using an explicit mapping).
+    3. Instantiate and return the typed event object.
     """
     if not data or len(data) != 1:
-        logger.error(f"Invalid order event structure: expected a single event key. Data: {data}")
+        logger.error("Invalid order event structure: expected a single event key. Data: %s", data)
         raise ValueError(f"Invalid order event structure: expected a single event key, got {data}")
 
-    event_type_str_from_key = next(iter(data.keys()))
-    actual_payload = data[event_type_str_from_key]
+    event_type_key = next(iter(data.keys()))
+    payload = data[event_type_key]
 
-    if not isinstance(actual_payload, dict):
+    if not isinstance(payload, dict):
         logger.error(
-            f"Invalid payload for event type {event_type_str_from_key}: Payload is not a dict. Payload: {actual_payload}"
+            "Invalid payload for event type %s: expected dict, got %s",
+            event_type_key,
+            type(payload),
         )
-        raise ValueError(
-            f"Invalid payload for event type {event_type_str_from_key}: {actual_payload}"
-        )
+        raise ValueError(f"Invalid payload for event type {event_type_key}: {payload}")
 
-    model_data_for_parsing = {"event_type": event_type_str_from_key.upper(), **actual_payload}
+    event_type_upper = event_type_key.upper()
+    model_cls = _EVENT_TYPE_MODEL_MAP.get(event_type_upper)
+
+    if model_cls is None:
+        logger.error("Unrecognised order event type '%s'", event_type_key)
+        raise ValueError(f"Unknown order event type: {event_type_key}")
+
+    model_input = {"event_type": event_type_upper, **payload}
 
     try:
-        adapter = TypeAdapter(OrderEvent)
-        parsed_event = adapter.validate_python(model_data_for_parsing)
-        return parsed_event
-    except Exception as e:
+        return model_cls(**model_input)  # type: ignore[return-value]
+    except ValidationError as ve:
         logger.error(
-            f"Error during TypeAdapter parsing for order event ({event_type_str_from_key.upper()}): {e}. "
-            f"Data used for parsing: {model_data_for_parsing}",
+            "Validation error while parsing order event %s with model %s: %s. Payload: %s",
+            event_type_upper,
+            model_cls.__name__,
+            ve,
+            payload,
             exc_info=True,
         )
-        raise ValueError(
-            f"Data integrity issue or unexpected structure for order event type {event_type_str_from_key.upper()} during TypeAdapter: {actual_payload}"
-        ) from e
+        raise
