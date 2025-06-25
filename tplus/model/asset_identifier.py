@@ -76,6 +76,7 @@ class AssetIdentifier(RootModel[str]):
             return f"{data}"
 
         # Fallback for Index as string ("12345") or other valid inputs
+        # Also works for already validated AssetIdentifiers.
         return data
 
     def __str__(self) -> str:

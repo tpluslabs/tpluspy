@@ -13,12 +13,15 @@ from tplus.utils.user import load_user
 USERNAME = "az"
 CLEARING_ENGINE_HOST = "http://127.0.0.1:3032"
 CHAIN_ID = 11155111
+TOKEN = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
 
 
-async def deposit(blockchain_user, tplus_user, token, client):
-    # Deposit into vault and update it in the clearing engine.
+def deposit_to_chain(blockchain_user, tplus_user):
     with networks.ethereum.sepolia.use_provider("alchemy"):
         amount = 100
+        token = MockERC20.at(TOKEN)
+
+        # Ensure we have enough balance.
         balance = token.balanceOf(blockchain_user)
         if balance < amount:
             token.mint(blockchain_user, amount, sender=blockchain_user)
@@ -28,7 +31,7 @@ async def deposit(blockchain_user, tplus_user, token, client):
         vault.deposit(
             HexBytes(tplus_user.public_key),
             blockchain_user,
-            "0x62622E77D1349Face943C6e7D5c01C61465FE1dc",
+            TOKEN,
             amount,
             sender=blockchain_user,
         )
@@ -36,15 +39,10 @@ async def deposit(blockchain_user, tplus_user, token, client):
     # Wait a bit before trying to sync.
     time.sleep(10)
 
+
+async def deposit_to_ce(tplus_user, client):
     # Tell the CE to update deposit to ingest your new deposit.
     await client.deposits.update(tplus_user.public_key, CHAIN_ID)
-
-
-async def withdraw(blockchain_user, tplus_user, client, token):
-    with networks.ethereum.sepolia.use_provider("alchemy"):
-        vault.withdraw(
-            {"tokenAddress": token.address, "amount": 100},
-        )
 
 
 async def main():
@@ -54,12 +52,11 @@ async def main():
         f"Select your ETH account (chain={CHAIN_ID}) use to deposit to the vault contract"
     )
 
-    token = MockERC20.at("0x62622E77D1349Face943C6e7D5c01C61465FE1dc")
-
     # Connect to the t+ clearing engine.
     client = ClearingEngineClient(tplus_user, CLEARING_ENGINE_HOST)
 
-    await deposit(blockchain_user, tplus_user, token, client)
+    deposit_to_chain(blockchain_user, tplus_user)
+    await deposit_to_ce(tplus_user, client)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
 from typing import TYPE_CHECKING
 
 from eth_pydantic_types.hex import HexInt, HexStr32
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.types import ChainID
+from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
 from tplus.utils.hex import str_to_vec
 
@@ -13,15 +13,11 @@ if TYPE_CHECKING:
 
 
 class InnerWithdrawalRequest(BaseModel):
-    tplus_user: str
+    tplus_user: UserPublicKey
     asset: AssetIdentifier
     amount: HexInt
     target: HexStr32
     chain_id: ChainID
-
-    @field_serializer("tplus_user", when_used="json")
-    def serialize_vecs(self, user):
-        return str_to_vec(user, size=32)
 
 
 class WithdrawalRequest(BaseModel):
