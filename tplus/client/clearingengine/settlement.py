@@ -48,3 +48,25 @@ class SettlementClient(BaseClient):
 
         json_data = request.model_dump(mode="json")
         await self._post("settlement/init-bundle", json_data=json_data)
+
+    async def update(self, user: str, chain_id: int):
+        """
+        Request that the CE check the deposit vault for new settlements for
+        the given user.
+
+        Args:
+            user (str): The user pubkey key ID.
+            chain_id (int): The chain ID to check.
+        """
+        request = {"user": user, "chain_id": chain_id}
+        await self._post("settlement/update", json_data=request)
+
+    async def update_approved_settlers(self, chain_id: int):
+        """
+        Request that the CE check the deposit vault for new approved settlers.
+
+        Args:
+            chain_id (int): The chain ID to check.
+        """
+        request = {"chain_id": chain_id}
+        await self._post("settler/update", json_data=request)
