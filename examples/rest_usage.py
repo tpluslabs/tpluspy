@@ -82,7 +82,7 @@ async def main():
             logger.info("\n" + "=" * 20 + " GET Endpoints " + "=" * 20)
             await asyncio.sleep(1)
 
-            user_id = user.pubkey()
+            user_id = user.public_key
 
             # --- Get Orders (GET) ---
             logger.info(f"--- Getting Orders for user {user_id} ---")

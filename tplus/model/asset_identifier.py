@@ -32,16 +32,20 @@ def _parse_asset_from_str(data: str) -> str:
     if address.startswith("0x"):
         address = address[2:]
 
+    # Ensure address is 32 bytes (standard EVM uses 20, but we support multiple chains).
+    address = bytes.fromhex(address).ljust(32, b"\x00").hex()
+
     try:
         chain_id = int(chain_part)
     except ValueError:
         # If not a decimal, assume it's already a hex string.
         # Return with address part normalized (no "0x" prefix).
-        return f"{address}@{chain_part}"
+        chain_hex = bytes.fromhex(chain_part).ljust(8, b"\x00").hex()
 
-    # Use to_bytes to handle conversion to hex correctly, ensuring even length.
-    num_bytes = ((chain_id.bit_length() + 7) // 8) or 1
-    chain_hex = chain_id.to_bytes(num_bytes, "big").hex()
+    else:
+        num_bytes = ((chain_id.bit_length() + 7) // 8) or 1
+        chain_hex = chain_id.to_bytes(num_bytes, "big").ljust(8, b"\x00").hex()
+
     return f"{address}@{chain_hex}"
 
 
@@ -72,6 +76,7 @@ class AssetIdentifier(RootModel[str]):
             return f"{data}"
 
         # Fallback for Index as string ("12345") or other valid inputs
+        # Also works for already validated AssetIdentifiers.
         return data
 
     def __str__(self) -> str:

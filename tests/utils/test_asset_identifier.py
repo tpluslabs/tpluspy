@@ -10,7 +10,9 @@ class TestAssetIdentifier:
         # Note: `mode_dump()` calls our custom model serializer.
         data = model.model_dump()
 
-        expected = "0000000000000000000000000000000000000000@01"
+        expected = (
+            "0000000000000000000000000000000000000000000000000000000000000000@0100000000000000"
+        )
         assert data == expected
 
     def test_index_str_full_circle(self):
