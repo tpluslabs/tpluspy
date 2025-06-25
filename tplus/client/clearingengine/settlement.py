@@ -69,4 +69,13 @@ class SettlementClient(BaseClient):
             chain_id (int): The chain ID to check.
         """
         request = {"chain_id": chain_id}
-        await self._post("settler/update", json_data=request)
+        await self._post("settlers/update", json_data=request)
+
+    async def get_approved_settlers(self, chain_id: int) -> list[str]:
+        """
+        Request that the CE check the deposit vault for new approved settlers.
+
+        Args:
+            chain_id (int): The chain ID to check.
+        """
+        return await self._get(f"settlers/{chain_id}")
