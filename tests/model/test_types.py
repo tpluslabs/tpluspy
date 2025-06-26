@@ -2,6 +2,7 @@ import pytest
 from pydantic import BaseModel
 
 from tplus.model.types import ChainID, UserPublicKey
+from tplus.utils.user import User
 
 
 class TestChainID:
@@ -84,3 +85,11 @@ class TestUserPublicKey:
             model_json
             == '{"user":[235,136,106,86,249,240,239,166,68,50,103,140,235,241,39,14,147,20,167,88,230,235,105,122,96,98,2,164,81,227,232,46]}'
         )
+
+    def test_validate_user_for_key(self):
+        class MyModel(BaseModel):
+            user: UserPublicKey
+
+        user = User()
+        model = MyModel(user=user)
+        assert model.user == user.public_key

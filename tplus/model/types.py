@@ -11,11 +11,22 @@ class UserPublicKey(str):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, value, handler=None):
-        schema = no_info_before_validator_function(
-            lambda v: validate_hex_str(v, size=32, pad_right=True), str_schema()
-        )
+        schema = no_info_before_validator_function(cls.__validate_user__, str_schema())
         schema["serialization"] = int_vec_serializer(size=32)
         return schema
+
+    @classmethod
+    def __validate_user__(cls, value):
+        if isinstance(value, (str, int, bytes, list)):
+            return validate_hex_str(value, size=32, pad_right=True)
+
+        from tplus.utils.user import User
+
+        if isinstance(value, User):
+            return value.public_key
+
+        # Let pydantic try to handle it.
+        return value
 
 
 def validate_hex_str(value, size: int | None = None, pad_right: bool = False) -> str:
