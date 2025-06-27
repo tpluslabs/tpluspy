@@ -29,7 +29,7 @@ def create_market_order_ob_request_payload(
         creation_timestamp_ns=time.time_ns(),
     )
 
-    sign_payload_json = order.model_dump_json()
+    sign_payload_json = order.signable_part()
     signature_bytes = signer.sign(sign_payload_json)
 
     return CreateOrderRequest(order=order, signature=list(signature_bytes))
