@@ -40,11 +40,11 @@ def _parse_asset_from_str(data: str) -> str:
     except ValueError:
         # If not a decimal, assume it's already a hex string.
         # Return with address part normalized (no "0x" prefix).
-        chain_hex = bytes.fromhex(chain_part).ljust(8, b"\x00").hex()
+        chain_hex = bytes.fromhex(chain_part).rjust(8, b"\x00").hex()
 
     else:
         num_bytes = ((chain_id.bit_length() + 7) // 8) or 1
-        chain_hex = chain_id.to_bytes(num_bytes, "big").ljust(8, b"\x00").hex()
+        chain_hex = chain_id.to_bytes(num_bytes, "big").rjust(8, b"\x00").hex()
 
     return f"{address}@{chain_hex}"
 
