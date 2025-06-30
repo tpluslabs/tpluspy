@@ -22,5 +22,5 @@ class TestTxSettlementRequest:
         }
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.inner.model_dump_json()
-        expected = '{"tplus_user":[235,136,106,86,249,240,239,166,68,50,103,140,235,241,39,14,147,20,167,88,230,235,105,122,96,98,2,164,81,227,232,46],"calldata":[],"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@aa36a70000000000","amount_in":"0x64","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@aa36a70000000000","amount_out":"0x64","chain_id":[0,0,0,0,0,170,54,167]}'
+        expected = '{"tplus_user":[235,136,106,86,249,240,239,166,68,50,103,140,235,241,39,14,147,20,167,88,230,235,105,122,96,98,2,164,81,227,232,46],"calldata":[],"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7","amount_in":"0x64","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@0000000000aa36a7","amount_out":"0x64","chain_id":[0,0,0,0,0,170,54,167]}'
         assert actual == expected
