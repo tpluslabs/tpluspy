@@ -5,6 +5,7 @@ from tplus.client.clearingengine.assetregistry import AssetRegistryClient
 from tplus.client.clearingengine.decimal import DecimalClient
 from tplus.client.clearingengine.deposit import DepositClient
 from tplus.client.clearingengine.settlement import SettlementClient
+from tplus.client.clearingengine.vault import VaultClient
 from tplus.client.clearingengine.withdrawal import WithdrawalClient
 
 
@@ -48,3 +49,10 @@ class ClearingEngineClient(BaseClient):
         APIs related to withdrawals.
         """
         return WithdrawalClient.from_client(self)
+
+    @cached_property
+    def vault(self) -> VaultClient:
+        """
+        APIs related to vaults.
+        """
+        return VaultClient.from_client(self)
