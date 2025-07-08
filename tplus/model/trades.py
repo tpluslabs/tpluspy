@@ -8,13 +8,31 @@ from tplus.model.asset_identifier import AssetIdentifier
 class Trade(BaseModel):
     asset_id: AssetIdentifier
     trade_id: int
-    order_id: str
-    price: float
+    order_id: str = ""  # Optional for basic trades
+    price: float  # Stored as float for convenience, comes as string from API
     quantity: float
     timestamp_ns: int
-    is_maker: bool
-    is_buyer: bool
+    buyer_is_maker: bool = Field(..., description="True if the buyer was the maker")
+    status: Literal["Pending", "Confirmed", "Rollbacked"] = "Confirmed"
+
+
+class UserTrade(BaseModel):
+    """User-specific trade data with comprehensive order and execution details."""
+
+    asset_id: AssetIdentifier
+    trade_id: int
+    order_id: str
+    price: float  # Stored as float for convenience, comes as string from API
+    quantity: float
+    timestamp_ns: int
+    is_maker: bool = Field(..., description="True if this user was the maker")
+    is_buyer: bool = Field(..., description="True if this user was the buyer")
     status: Literal["Pending", "Confirmed", "Rollbacked"]
+
+    @property
+    def buyer_is_maker(self) -> bool:
+        """Derived field for compatibility - True if buyer was maker."""
+        return self.is_buyer and self.is_maker
 
 
 def parse_trades(data: list[dict]) -> list[Trade]:
@@ -22,19 +40,33 @@ def parse_trades(data: list[dict]) -> list[Trade]:
         Trade(
             asset_id=AssetIdentifier(item["asset_id"]),
             trade_id=item["trade_id"],
-            order_id=item["order_id"],
-            price=item["price"],
-            quantity=item["quantity"],
-            timestamp_ns=item["timestamp_ns"],
-            is_maker=item["is_maker"],
-            is_buyer=item["is_buyer"],
-            status=item["status"],
+            order_id=item.get("order_id", ""),
+            price=float(item["price"]),
+            quantity=float(item["quantity"]),
+            timestamp_ns=int(item["timestamp_ns"]),
+            buyer_is_maker=item.get("buyer_is_maker", item.get("is_maker", False)),
+            status=item.get("status", "Confirmed"),
         )
         for item in data
     ]
 
 
-# --- WebSocket Trade Events ---
+def parse_user_trades(data: list[dict]) -> list[UserTrade]:
+    """Parse user trade data into UserTrade objects."""
+    return [
+        UserTrade(
+            asset_id=AssetIdentifier(item["asset_id"]),
+            trade_id=item["trade_id"],
+            order_id=item["order_id"],
+            price=float(item["price"]),
+            quantity=float(item["quantity"]),
+            timestamp_ns=int(item["timestamp_ns"]),
+            is_maker=bool(item["is_maker"]),
+            is_buyer=bool(item["is_buyer"]),
+            status=item["status"],
+        )
+        for item in data
+    ]
 
 
 class BaseTradeEvent(BaseModel):
@@ -45,44 +77,56 @@ class TradePendingEvent(BaseTradeEvent):
     """Represents a trade that has occurred but is awaiting final confirmation."""
 
     event_type: Literal["PENDING"] = Field(default="PENDING")
-    # Include fields available at the pending stage
     order_id: str
     match_id: str  # Or some identifier for the match
     price: float
     quantity: int
     timestamp_ns: int
-    # Maybe asset_id, buyer/seller info if available
 
 
 class TradeConfirmedEvent(BaseTradeEvent):
     """Represents a finalized trade."""
 
     event_type: Literal["CONFIRMED"] = Field(default="CONFIRMED")
-    trade: Trade  # The fully confirmed trade details
+    trade: Trade
 
 
-# Union type for type hinting
 TradeEvent = Union[TradePendingEvent, TradeConfirmedEvent]
 
 
-# Helper to parse a single trade dict (similar to parse_trades but for one)
 def parse_single_trade(item: dict[str, Any]) -> Trade:
     """Parses a single trade dictionary into a Trade object."""
     try:
         return Trade(
-            asset_id=AssetIdentifier(**item["asset_id"]),
+            asset_id=AssetIdentifier(item["asset_id"]),
+            trade_id=item["trade_id"],
+            order_id=item.get("order_id", ""),
+            price=float(item["price"]),
+            quantity=float(item["quantity"]),
+            timestamp_ns=int(item["timestamp_ns"]),
+            buyer_is_maker=bool(item.get("buyer_is_maker", item.get("is_maker", False))),
+            status=item.get("status", "Confirmed"),
+        )
+    except (KeyError, ValueError, TypeError) as e:
+        raise ValueError(f"Invalid single trade data: {item}") from e
+
+
+def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
+    """Parses a single user trade dictionary into a UserTrade object."""
+    try:
+        return UserTrade(
+            asset_id=AssetIdentifier(item["asset_id"]),
             trade_id=item["trade_id"],
             order_id=item["order_id"],
             price=float(item["price"]),
-            quantity=int(item["quantity"]),
+            quantity=float(item["quantity"]),
             timestamp_ns=int(item["timestamp_ns"]),
             is_maker=bool(item["is_maker"]),
             is_buyer=bool(item["is_buyer"]),
-            confirmed=bool(item["confirmed"]),
+            status=item["status"],
         )
     except (KeyError, ValueError, TypeError) as e:
-        # Add logging if desired
-        raise ValueError(f"Invalid single trade data: {item}") from e
+        raise ValueError(f"Invalid user trade data: {item}") from e
 
 
 def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
@@ -95,7 +139,6 @@ def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
 
     try:
         if event_type == "PENDING":
-            # Assuming payload directly contains the fields for TradePendingEvent
             return TradePendingEvent(
                 order_id=payload["order_id"],
                 match_id=payload["match_id"],
@@ -105,14 +148,11 @@ def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
             )
 
         elif event_type == "CONFIRMED":
-            # Assume payload is the raw trade dictionary
             parsed_trade = parse_single_trade(payload)
             return TradeConfirmedEvent(trade=parsed_trade)
 
         else:
-            # Add logging
             raise ValueError(f"Unknown trade event type: {event_type}")
 
     except (KeyError, ValueError, TypeError) as e:
-        # Add logging
         raise ValueError(f"Invalid data for trade event type {event_type}: {data}") from e

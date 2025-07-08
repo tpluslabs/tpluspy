@@ -16,7 +16,15 @@ from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
 from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
 from tplus.model.orderbook import OrderBook, OrderBookDiff
-from tplus.model.trades import Trade, TradeEvent, parse_trade_event, parse_trades
+from tplus.model.trades import (
+    Trade,
+    TradeEvent,
+    UserTrade,
+    parse_single_trade,
+    parse_single_user_trade,
+    parse_trade_event,
+    parse_trades,
+)
 from tplus.utils.limit_order import create_limit_order_ob_request_payload
 from tplus.utils.market_order import create_market_order_ob_request_payload
 from tplus.utils.replace_order import create_replace_order_ob_request_payload
@@ -24,6 +32,24 @@ from tplus.utils.signing import build_signed_message, create_cancel_order_ob_req
 
 
 class OrderBookClient(BaseClient):
+    """Client for HTTP + WebSocket interactions with the OMS.
+
+    Extra keyword-arguments for the underlying ``websockets.connect`` call can
+    be supplied via *websocket_kwargs*; this lets tests tweak
+    ``close_timeout`` (and other knobs) without modifying global defaults.
+    """
+
+    def __init__(
+        self,
+        user: "User",
+        *,
+        base_url: str | None = None,
+        websocket_kwargs: Optional[dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(user, base_url=base_url)
+        # Store kwargs to forward into websockets.connect – default is empty dict.
+        self._ws_kwargs: dict[str, Any] = websocket_kwargs or {}
+
     async def create_market(self, asset_id: Union[AssetIdentifier, str]) -> dict[str, Any]:
         """
         Create and send a market (async).
@@ -170,6 +196,14 @@ class OrderBookClient(BaseClient):
         """
         return parse_trades(trades_data)
 
+    def parse_user_trades(self, trades_data: list[dict[str, Any]]) -> list[UserTrade]:
+        """
+        Parse user trade data into UserTrade objects.
+        """
+        from tplus.model.trades import parse_user_trades
+
+        return parse_user_trades(trades_data)
+
     async def get_orderbook_snapshot(self, asset_id: AssetIdentifier) -> OrderBook:
         """
         Get a snapshot of the order book for a given asset (async).
@@ -200,23 +234,23 @@ class OrderBookClient(BaseClient):
         logger.debug(f"Getting Klines for asset {asset_id}")
         return await self._request("GET", endpoint)
 
-    async def get_user_trades(self) -> list[Trade]:
+    async def get_user_trades(self) -> list[UserTrade]:
         """
         Get all trades for the authenticated user (async).
         """
         endpoint = f"/trades/user/{self.user.public_key}"
         logger.debug(f"Getting Trades for user {self.user.public_key}")
         response_data = await self._request("GET", endpoint)
-        return self.parse_trades(response_data)
+        return self.parse_user_trades(response_data)
 
-    async def get_user_trades_for_asset(self, asset_id: AssetIdentifier) -> list[Trade]:
+    async def get_user_trades_for_asset(self, asset_id: AssetIdentifier) -> list[UserTrade]:
         """
         Get trades for a specific asset for the authenticated user (async).
         """
         endpoint = f"/trades/user/{self.user.public_key}/{asset_id}"
         logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
         response_data = await self._request("GET", endpoint)
-        return self.parse_trades(response_data)
+        return self.parse_user_trades(response_data)
 
     async def get_user_orders(self) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
@@ -299,7 +333,7 @@ class OrderBookClient(BaseClient):
         """
         ws_url = self._get_websocket_url(path)
         logger.debug("Connecting to %s stream: %s", path, ws_url)
-        async with websockets.connect(ws_url) as websocket:
+        async with websockets.connect(ws_url, **self._ws_kwargs) as websocket:
             async for message in websocket:
                 try:
                     data = json.loads(message)
@@ -344,7 +378,7 @@ class OrderBookClient(BaseClient):
         """
         Stream only confirmed/finalized trades.
         """
-        async for trade in self._stream_ws("/trades", lambda d: Trade(**d)):
+        async for trade in self._stream_ws("/trades", parse_single_trade):
             yield trade
 
     async def stream_all_trades(self) -> AsyncIterator[TradeEvent]:
@@ -369,6 +403,20 @@ class OrderBookClient(BaseClient):
         path = f"/klines/diff/{asset_id}"
         async for kline in self._stream_ws(path, parse_kline_update):
             yield kline
+
+    async def stream_user_trades(self, user_id: Optional[str] = None) -> AsyncIterator[UserTrade]:
+        """
+        Stream trade events for a specific user.
+        Returns UserTrade objects containing order_id, side, maker/taker info, and other trade details.
+
+        Args:
+            user_id: User identifier. If None, uses the authenticated user's public key.
+        """
+        if user_id is None:
+            user_id = self.user.public_key
+        path = f"/trades/user/{user_id}"
+        async for trade in self._stream_ws(path, parse_single_user_trade):
+            yield trade
 
     async def close(self) -> None:
         """
