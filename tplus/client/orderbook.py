@@ -16,7 +16,15 @@ from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
 from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
 from tplus.model.orderbook import OrderBook, OrderBookDiff
-from tplus.model.trades import Trade, TradeEvent, UserTrade, parse_trade_event, parse_trades, parse_single_trade, parse_single_user_trade
+from tplus.model.trades import (
+    Trade,
+    TradeEvent,
+    UserTrade,
+    parse_single_trade,
+    parse_single_user_trade,
+    parse_trade_event,
+    parse_trades,
+)
 from tplus.utils.limit_order import create_limit_order_ob_request_payload
 from tplus.utils.market_order import create_market_order_ob_request_payload
 from tplus.utils.replace_order import create_replace_order_ob_request_payload
@@ -193,6 +201,7 @@ class OrderBookClient(BaseClient):
         Parse user trade data into UserTrade objects.
         """
         from tplus.model.trades import parse_user_trades
+
         return parse_user_trades(trades_data)
 
     async def get_orderbook_snapshot(self, asset_id: AssetIdentifier) -> OrderBook:
@@ -399,7 +408,7 @@ class OrderBookClient(BaseClient):
         """
         Stream trade events for a specific user.
         Returns UserTrade objects containing order_id, side, maker/taker info, and other trade details.
-        
+
         Args:
             user_id: User identifier. If None, uses the authenticated user's public key.
         """

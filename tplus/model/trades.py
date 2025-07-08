@@ -18,6 +18,7 @@ class Trade(BaseModel):
 
 class UserTrade(BaseModel):
     """User-specific trade data with comprehensive order and execution details."""
+
     asset_id: AssetIdentifier
     trade_id: int
     order_id: str
@@ -74,6 +75,7 @@ class BaseTradeEvent(BaseModel):
 
 class TradePendingEvent(BaseTradeEvent):
     """Represents a trade that has occurred but is awaiting final confirmation."""
+
     event_type: Literal["PENDING"] = Field(default="PENDING")
     order_id: str
     match_id: str  # Or some identifier for the match
@@ -84,6 +86,7 @@ class TradePendingEvent(BaseTradeEvent):
 
 class TradeConfirmedEvent(BaseTradeEvent):
     """Represents a finalized trade."""
+
     event_type: Literal["CONFIRMED"] = Field(default="CONFIRMED")
     trade: Trade
 
