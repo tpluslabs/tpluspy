@@ -24,6 +24,24 @@ from tplus.utils.signing import build_signed_message, create_cancel_order_ob_req
 
 
 class OrderBookClient(BaseClient):
+    """Client for HTTP + WebSocket interactions with the OMS.
+
+    Extra keyword-arguments for the underlying ``websockets.connect`` call can
+    be supplied via *websocket_kwargs*; this lets tests tweak
+    ``close_timeout`` (and other knobs) without modifying global defaults.
+    """
+
+    def __init__(
+        self,
+        user: "User",
+        *,
+        base_url: str | None = None,
+        websocket_kwargs: Optional[dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(user, base_url=base_url)
+        # Store kwargs to forward into websockets.connect – default is empty dict.
+        self._ws_kwargs: dict[str, Any] = websocket_kwargs or {}
+
     async def create_market(self, asset_id: Union[AssetIdentifier, str]) -> dict[str, Any]:
         """
         Create and send a market (async).
@@ -306,7 +324,7 @@ class OrderBookClient(BaseClient):
         """
         ws_url = self._get_websocket_url(path)
         logger.debug("Connecting to %s stream: %s", path, ws_url)
-        async with websockets.connect(ws_url) as websocket:
+        async with websockets.connect(ws_url, **self._ws_kwargs) as websocket:
             async for message in websocket:
                 try:
                     data = json.loads(message)
