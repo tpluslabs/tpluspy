@@ -43,16 +43,10 @@ class BundleSettlementRequest(BaseModel):
     Bundle settlement request.
     """
 
-    inner: list["InnerBundleSettlementRequest"]
+    inner: "InnerBundleSettlementRequest"
     """
     The inner part of the request (signature fields).
     Allows multiple settlements, unlike ``TxSettlementRequest``.
-    """
-
-    bundle: "SimBundleRequest"
-    """
-    The MEV EVM standard bundle that fulfills the settlement (requires verification
-    via mev_simBundle RPC).
     """
 
     signature: list[int]
@@ -60,18 +54,11 @@ class BundleSettlementRequest(BaseModel):
     The settler's signature from signing the necessary data (mostly from ``.inner``).
     """
 
-    user: UserPublicKey
-    """
-    The settler.
-    """
-
-    chain_id: int
-    """
-    The chain ID of the deposit vault settling on.
-    """
+    def signing_payload(self) -> str:
+        return self.inner.signing_payload()
 
 
-class BaseInnerSettlementRequest(BaseModel):
+class BaseSettlement(BaseModel):
     """
     The shared fields for all inner settlement requests.
     """
@@ -82,33 +69,66 @@ class BaseInnerSettlementRequest(BaseModel):
     amount_out: HexInt
 
 
-class InnerSettlementRequest(BaseInnerSettlementRequest):
+class InnerSettlementRequest(BaseSettlement):
     """
     Atomic settlement inner request. Additionally, contains calldata for an on-chain
     settlement callback.
     """
 
+    tplus_user: UserPublicKey
     calldata: list[HexInt]
     chain_id: ChainID
 
-    def signing_payload(self, settler: UserPublicKey) -> str:
+    def signing_payload(self) -> str:
         base_data = self.model_dump(mode="json", exclude_none=True)
+
+        user = base_data.pop("tplus_user")
         calldata = base_data.pop("calldata", [])
+        chain_id = base_data.pop("chain_id", None)
 
         # NOTE: The order here matters!
         payload = {
-            "tplus_user": str_to_vec(settler),
+            "tplus_user": user,
             "calldata": calldata,
             **base_data,
+            "chain_id": chain_id,
         }
 
         return json.dumps(payload).replace(" ", "").replace("\r", "").replace("\n", "")
 
 
-class InnerBundleSettlementRequest(BaseInnerSettlementRequest):
+class InnerBundleSettlementRequest(BaseModel):
     """
     Bundle settlement inner request. Does not contain any additional fields.
     """
+
+    settlements: list[BaseSettlement]
+    """
+    All settlement included in the transaction bundle.
+    """
+
+    bundle: "SimBundleRequest"
+    """
+    The bundle that gets sent to the blockchain client process.
+    """
+
+    chain_id: ChainID
+    """
+    The chain settling on.
+    """
+
+    tplus_user: UserPublicKey
+    """
+    The settler.
+    """
+
+    def signing_payload(self) -> str:
+        return (
+            self.model_dump_json(exclude_none=True)
+            .replace(" ", "")
+            .replace("\r", "")
+            .replace("\n", "")
+        )
 
 
 class SimBundleRequest(BaseModel):
