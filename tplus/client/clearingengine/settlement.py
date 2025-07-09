@@ -19,7 +19,7 @@ class SettlementClient(BaseClient):
             # Validate.
             request = TxSettlementRequest.model_validate(request)
 
-        data = request.model_dump()
+        data = request.model_dump(mode="json")
         await self._post("settlement/init", json_data=data)
 
     async def get_signatures(self, user: str) -> dict:
