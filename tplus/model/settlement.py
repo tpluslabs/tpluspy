@@ -10,21 +10,46 @@ class TxSettlementRequest(BaseModel):
     signature: list[int]
 
 
-class InnerSettlementRequest(BaseModel):
+class BaseInnerSettlementRequest(BaseModel):
     tplus_user: UserPublicKey
-    calldata: list[int]
+    """
+    The settler.
+    """
+
     asset_in: AssetIdentifier
     amount_in: HexInt
     asset_out: AssetIdentifier
     amount_out: HexInt
+
     chain_id: ChainID
+    """
+    The chain ID of the settlement (can settle cross-chain).
+    """
+
+
+class InnerSettlementRequest(BaseModel):
+    """
+    Inner settlement request part of atomic settlement.
+    """
+
+    calldata: list[HexInt]
+
+
+class InnerBundleSettlementRequest(BaseInnerSettlementRequest):
+    """
+    Inner settlement request part of bundle settlement.
+    """
 
 
 class BundleSettlementRequest(BaseModel):
-    inner: list["InnerSettlementRequest"]
+    inner: list["InnerBundleSettlementRequest"]
     bundle: "SimBundleRequest"
     signature: list[int]
+
     chain_id: ChainID
+    """
+    The chain ID of the deposit vault settling on.
+    """
 
 
 class SimBundleRequest(BaseModel):
