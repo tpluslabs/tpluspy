@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
