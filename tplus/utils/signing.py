@@ -18,7 +18,7 @@ def create_cancel_order_ob_request_payload(
     This now only includes the order_id, matching the Rust struct.
     """
     cancel = CancelOrder(
-        order_id=order_id, asset_identifier=asset_identifier, signer=signer.pubkey()
+        order_id=order_id, asset_id=asset_identifier, signer=list(bytes.fromhex(signer.public_key))
     )
     sign_payload_json = cancel.model_dump_json()
     compact_sign_payload_json = (
@@ -26,5 +26,5 @@ def create_cancel_order_ob_request_payload(
     )
     signature_bytes = signer.sign(compact_sign_payload_json)
     return CancelOrderRequest(
-        cancel=cancel, signature=signature_bytes, post_sign_timestamp=time.time_ns()
+        cancel=cancel, signature=list(signature_bytes), post_sign_timestamp=time.time_ns()
     )
