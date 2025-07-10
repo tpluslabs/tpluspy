@@ -46,10 +46,15 @@ class Order(BaseModel):
 class CreateOrderRequest(BaseModel):
     order: Order
     signature: list[int]
+    post_sign_timestamp: int
 
     @model_serializer
     def serialize_model(self) -> dict[str, dict[str, Any]]:
-        request_data = {"order": self.order, "signature": self.signature}
+        request_data = {
+            "order": self.order,
+            "signature": self.signature,
+            "post_sign_timestamp": self.post_sign_timestamp,
+        }
         return {"CreateOrderRequest": request_data}
 
 
