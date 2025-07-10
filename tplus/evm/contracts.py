@@ -27,7 +27,7 @@ class TplusDeployments:
     """
 
     @cached_property
-    def deployments(self):
+    def deployments(self) -> dict:
         contracts_path = Path(
             os.environ.get("TPLUS_CONTRACTS_PATH", "~/tplus/tplus-contracts")
         ).expanduser()
@@ -86,6 +86,7 @@ class TPlusContract(TPlusMixin):
         self._deployments: dict[int, ContractInstance] = {}
         self._name = name
         self._default_deployer = default_deployer
+        self._chain_id = None
 
     def __repr__(self) -> str:
         return f"<{self._name}>"
@@ -128,6 +129,9 @@ class TPlusContract(TPlusMixin):
 
         raise ValueError(f"Cannot deploy '{self._name}' - No default deployer configured.")
 
+    def set_chain(self, chain_id: int):
+        self._chain_id = chain_id
+
     def get_contract(self, chain_id: int | None = None) -> "ContractInstance":
         """
         Load a contact instance for the given chain ID. Defaults to currently
@@ -140,7 +144,7 @@ class TPlusContract(TPlusMixin):
         Returns:
             ContractInstance
         """
-        chain_id = chain_id or self.chain_manager.chain_id
+        chain_id = chain_id or self._chain_id or self.chain_manager.chain_id
         if chain_id in self._deployments:
             # Get previously cached instance.
             return self._deployments[chain_id]
