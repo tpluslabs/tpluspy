@@ -35,12 +35,19 @@ class WithdrawalRequest(BaseModel):
     def create_signed(
         cls,
         tplus_user: str,
-        asset: AssetIdentifier,
+        asset: AssetIdentifier | str,
         amount: int,
         target: str,
         chain_id: int,
         signer: "User",
     ) -> "WithdrawalRequest":
+        if not isinstance(asset, AssetIdentifier):
+            if asset.startswith("0x") and "@" not in asset:
+                # Helper to automatically include the chain.
+                asset = f"{asset}@{chain_id}"
+
+            asset = AssetIdentifier.model_validate(asset)
+
         inner = InnerWithdrawalRequest(
             tplus_user=tplus_user,
             asset=asset,
