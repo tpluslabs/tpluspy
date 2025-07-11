@@ -1,5 +1,4 @@
 import json
-import time  # For timestamps on signed messages
 import uuid  # For generating order_ids
 from collections.abc import AsyncIterator
 from typing import Any, Callable, Optional, Union
@@ -28,7 +27,7 @@ from tplus.model.trades import (
 from tplus.utils.limit_order import create_limit_order_ob_request_payload
 from tplus.utils.market_order import create_market_order_ob_request_payload
 from tplus.utils.replace_order import create_replace_order_ob_request_payload
-from tplus.utils.signing import build_signed_message, create_cancel_order_ob_request_payload
+from tplus.utils.signing import create_cancel_order_ob_request_payload
 
 
 class OrderBookClient(BaseClient):
@@ -113,7 +112,7 @@ class OrderBookClient(BaseClient):
         """
         order_id = str(uuid.uuid4())
         market = await self.get_market(asset_id)
-        ob_request_payload = create_limit_order_ob_request_payload(
+        signed_message = create_limit_order_ob_request_payload(
             quantity=quantity,
             price=price,
             side=side,
@@ -124,31 +123,18 @@ class OrderBookClient(BaseClient):
             order_id=order_id,
             time_in_force=time_in_force,
         )
-        signed_message = build_signed_message(
-            order_id=order_id,
-            asset_identifier=asset_id,
-            operation_specific_payload=ob_request_payload,
-            signer=self.user,
-        )
         logger.debug(
             f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
         )
         return await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
 
-    async def cancel_order(
-        self, order_id: str, asset_id: Optional[AssetIdentifier] = None
-    ) -> dict[str, Any]:
+    async def cancel_order(self, order_id: str, asset_id: AssetIdentifier) -> dict[str, Any]:
         """
         Cancel an order (async).
         """
-        cancel_ob_request_payload = create_cancel_order_ob_request_payload(order_id=order_id)
-        signed_message = build_signed_message(
-            order_id=order_id,
-            asset_identifier=asset_id,
-            operation_specific_payload=cancel_ob_request_payload,
-            signer=self.user,
+        signed_message = create_cancel_order_ob_request_payload(
+            order_id=order_id, asset_identifier=asset_id, signer=self.user
         )
-        signed_message.post_sign_timestamp = int(time.time() * 1_000_000_000)
         logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
         return await self._request(
             "DELETE", "/orders/cancel", json_data=signed_message.model_dump()
@@ -166,7 +152,7 @@ class OrderBookClient(BaseClient):
         """
         replace_operation_id = str(uuid.uuid4())
         market = await self.get_market(asset_id)
-        operation_specific_payload = create_replace_order_ob_request_payload(
+        signed_message = create_replace_order_ob_request_payload(
             original_order_id=original_order_id,
             asset_identifier=asset_id,
             signer=self.user,
@@ -175,13 +161,6 @@ class OrderBookClient(BaseClient):
             book_price_decimals=market.book_price_decimals,
             book_quantity_decimals=market.book_quantity_decimals,
         )
-        signed_message = build_signed_message(
-            order_id=replace_operation_id,
-            asset_identifier=asset_id,
-            operation_specific_payload=operation_specific_payload,
-            signer=self.user,
-        )
-        signed_message.post_sign_timestamp = int(time.time() * 1_000_000_000)
         logger.debug(
             f"Sending Replace Order for original OrderID {original_order_id} (Asset {asset_id}): "
             f"New Qty={new_quantity}, New Price={new_price}, ReplaceOpID={replace_operation_id}"
