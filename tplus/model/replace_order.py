@@ -39,11 +39,9 @@ class ReplaceOrderRequestPayload(BaseModel):
         # This structure should match how CreateOrderRequest and CancelOrderRequest are serialized
         # for the ObRequestPayload enum in Rust, e.g., {"ReplaceOrderRequest": {...}}
         return {
-            "ReplaceOrderRequest": {
-                "request": self.request.model_dump(exclude_none=True),
-                "signer": self.user_id,  # Added user_id to serialization
-                "asset_id": self.asset_id.model_dump(exclude_none=True),
-                "signature": self.signature,
-                "post_sign_timestamp": self.post_sign_timestamp,
-            }
+            "request": self.request.model_dump(exclude_none=True),
+            "signer": self.user_id,  # Added user_id to serialization
+            "asset_id": self.asset_id.model_dump(exclude_none=True),
+            "signature": self.signature,
+            "post_sign_timestamp": self.post_sign_timestamp,
         }

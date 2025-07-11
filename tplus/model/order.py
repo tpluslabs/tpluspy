@@ -4,7 +4,7 @@ import logging
 from enum import Enum
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel, ValidationError, model_serializer
+from pydantic import BaseModel, ValidationError
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
