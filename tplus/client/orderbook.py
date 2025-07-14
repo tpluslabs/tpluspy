@@ -419,6 +419,14 @@ class OrderBookClient(BaseClient):
         async for trade in self._stream_ws(path, parse_single_user_trade):
             yield trade
 
+    async def stream_user_trades(self, user_id: Optional[str] = None) -> AsyncIterator[UserTrade]:
+        """
+        [DEPRECATED] Use stream_user_trade_events or stream_user_finalized_trades instead.
+        This method streams finalized (confirmed) trades for a specific user.
+        """
+        async for trade in self.stream_user_finalized_trades(user_id=user_id):
+            yield trade
+
     async def close(self) -> None:
         """
         Closes the underlying httpx async client.
