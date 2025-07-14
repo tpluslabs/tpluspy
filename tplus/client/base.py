@@ -1,8 +1,10 @@
 import json
-from typing import Any, Optional
+from collections.abc import AsyncIterator
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 import httpx
+import websockets
 
 from tplus.logger import logger
 from tplus.utils.user import User
@@ -13,7 +15,7 @@ class BaseClient:
     Base client to use across T+ services.
     """
 
-    DEFAULT_TIMEOUT = 10.0  # Default request timeout
+    DEFAULT_TIMEOUT = 10.0
 
     def __init__(
         self,
@@ -21,9 +23,9 @@ class BaseClient:
         base_url: str,
         timeout: float = DEFAULT_TIMEOUT,
         client: Optional[httpx.Client] = None,
+        websocket_kwargs: Optional[dict[str, Any]] = None,
     ):
         self.user = user
-        # Convert default_asset_id string to AssetIdentifier object upon initialization
         self.base_url = base_url.rstrip("/")
         self._parsed_base_url = urlparse(self.base_url)
         self._client = client or httpx.AsyncClient(
@@ -31,21 +33,20 @@ class BaseClient:
             timeout=timeout,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
+        self._ws_kwargs: dict[str, Any] = websocket_kwargs or {}
+
+        import asyncio
+
+        self._auth_lock: asyncio.Lock = asyncio.Lock()
+        self._auth_token: Optional[str] = None
+        self._auth_expiry_ns: int = 0
 
     @classmethod
     def from_client(cls, client: "BaseClient") -> "BaseClient":
         """
         Easy way to clone clients without initializing multiple AsyncClients.
-
-        Args:
-            client ("BaseClient"): The other client.
-
-        Returns:
-            A new client.
         """
         return cls(client.user, client.base_url, client=client._client)
-
-    # --- Async HTTP Request Handling ---
 
     async def _get(
         self, endpoint: str, json_data: Optional[dict[str, Any]] = None
@@ -60,28 +61,33 @@ class BaseClient:
     async def _request(
         self, method: str, endpoint: str, json_data: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
-        """Internal method to handle asynchronous REST API requests."""
         relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+
+        if not relative_url.startswith("/nonce") and not relative_url.startswith("/auth"):
+            await self._ensure_auth()
+
         try:
-            # Log the request payload if present
             if json_data:
                 logger.debug(f"Request to {method} {relative_url} with payload: {json_data}")
-            # Use await for the async client request
+            request_headers = self._get_auth_headers()
+            if request_headers:
+                merged_headers = {**self._client.headers, **request_headers}
+            else:
+                merged_headers = None
+
             response = await self._client.request(
                 method=method,
                 url=relative_url,
                 json=json_data,
+                headers=merged_headers,
             )
 
-            # Handle cases where the response might be empty (e.g., 204 No Content)
             if response.status_code == 204:
                 return {}
-            # Response body might be empty even on 200 OK for some APIs
             if not response.content:
                 return {}
 
             try:
-                # Parse JSON and handle if the result is None (e.g., API returned "null")
                 json_response = response.json()
                 if json_response is None:
                     logger.warning(
@@ -112,3 +118,112 @@ class BaseClient:
                 f"Failed to decode JSON response from {response.request.url!r}. Status: {response.status_code}. Content: {response.text[:100]}..."
             )
             raise ValueError(f"Invalid JSON received from API: {e}") from e
+
+    async def _ensure_auth(self) -> None:
+        import time
+
+        safety_margin_ns = 60 * 1_000_000_000
+        if self._auth_token and (time.time_ns() + safety_margin_ns) < self._auth_expiry_ns:
+            return
+
+        async with self._auth_lock:
+            if self._auth_token and (time.time_ns() + safety_margin_ns) < self._auth_expiry_ns:
+                return
+
+            await self._authenticate()
+
+    def _get_auth_headers(self) -> dict[str, str]:
+        if not self._auth_token:
+            return {}
+        return {
+            "Authorization": f"Bearer {self._auth_token}",
+            "User-Id": self.user.public_key,
+        }
+
+    async def _authenticate(self) -> None:
+        nonce_endpoint = f"/nonce/{self.user.public_key}"
+        nonce_resp = await self._client.get(nonce_endpoint)
+        nonce_data = nonce_resp.json() if hasattr(nonce_resp, "json") else nonce_resp
+        nonce_value = nonce_data["value"] if isinstance(nonce_data, dict) else nonce_data
+
+        signature_bytes = self.user.sign(nonce_value)
+        signature_array = list(signature_bytes)
+
+        logger.debug(f"AUTH DEBUG: nonce={nonce_value} (len={len(nonce_value)})")
+        logger.debug(f"AUTH DEBUG: signature={signature_array[:8]}... (len={len(signature_array)})")
+
+        auth_payload = {
+            "user_id": self.user.public_key,
+            "nonce": nonce_value,
+            "signature": signature_array,
+        }
+
+        token_resp = await self._client.post("/auth", json=auth_payload)
+        token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
+
+        logger.debug(
+            f"AUTH DEBUG: token={token_json.get('token')} expires={token_json.get('expiry_ns')}"
+        )
+
+        self._auth_token = token_json["token"]
+        self._auth_expiry_ns = int(token_json["expiry_ns"])
+
+    async def _ws_auth_headers(self) -> dict[str, str]:
+        await self._ensure_auth()
+        return self._get_auth_headers()
+
+    def _get_websocket_url(self, path: str) -> str:
+        from urllib.parse import urlunparse
+
+        scheme = "wss" if self._parsed_base_url.scheme == "https" else "ws"
+        netloc = self._parsed_base_url.netloc
+        ws_path = path if path.startswith("/") else f"/{path}"
+        return urlunparse((scheme, netloc, ws_path, "", "", ""))
+
+    CONTROL_MESSAGE_TYPES: set[str] = {
+        "subscriptions",
+        "ping",
+        "pong",
+    }
+
+    async def _stream_ws(
+        self,
+        path: str,
+        parser: Callable[[Any], Any],
+        *,
+        control_handler: Callable[[dict[str, Any]], None] | None = None,
+    ) -> AsyncIterator[Any]:
+        ws_url = self._get_websocket_url(path)
+        logger.debug("Connecting to %s stream: %s", path, ws_url)
+        auth_headers = await self._ws_auth_headers()
+        ws_kwargs = dict(self._ws_kwargs)
+        if "extra_headers" in ws_kwargs and ws_kwargs["extra_headers"]:
+            caller_headers = ws_kwargs.pop("extra_headers")
+            if isinstance(caller_headers, dict):
+                caller_headers.update(auth_headers)
+                ws_kwargs["extra_headers"] = caller_headers
+            else:
+                ws_kwargs["extra_headers"] = list(auth_headers.items()) + list(caller_headers)
+        else:
+            ws_kwargs["extra_headers"] = auth_headers
+
+        async with websockets.connect(ws_url, **ws_kwargs) as websocket:
+            async for message in websocket:
+                try:
+                    data = json.loads(message)
+                    if isinstance(data, dict) and data.get("type") in self.CONTROL_MESSAGE_TYPES:
+                        if control_handler is not None:
+                            control_handler(data)
+                        continue
+                    yield parser(data)
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Received non-JSON message on %s stream: %s…", path, message[:100]
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Error processing message from %s stream: %s. Message: %s…",
+                        path,
+                        e,
+                        message[:100],
+                    )
