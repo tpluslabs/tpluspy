@@ -383,18 +383,48 @@ class OrderBookClient(BaseClient):
         async for kline in self._stream_ws(path, parse_kline_update):
             yield kline
 
-    async def stream_user_trades(self, user_id: Optional[str] = None) -> AsyncIterator[UserTrade]:
+    async def stream_user_trade_events(
+        self, user_id: Optional[str] = None
+    ) -> AsyncIterator[UserTrade]:
         """
-        Stream trade events for a specific user.
-        Returns UserTrade objects containing order_id, side, maker/taker info, and other trade details.
+        Stream **all** trade events (``Pending``, ``Confirmed``, ``Rollbacked``) for a specific user.
 
         Args:
-            user_id: User identifier. If None, uses the authenticated user's public key.
+            user_id: Optional explicit user identifier.  If not provided, the authenticated user's
+                public key is used.
+        Yields:
+            :class:`tplus.model.trades.UserTrade` objects with detailed order-side information.
+        """
+        if user_id is None:
+            user_id = self.user.public_key
+        path = f"/trades/user/events/{user_id}"
+        async for trade in self._stream_ws(path, parse_single_user_trade):
+            yield trade
+
+    async def stream_user_finalized_trades(
+        self, user_id: Optional[str] = None
+    ) -> AsyncIterator[UserTrade]:
+        """
+        Stream **finalized** (confirmed) trades for a specific user.
+
+        Args:
+            user_id: Optional explicit user identifier.  If not provided, the authenticated user's
+                public key is used.
+        Yields:
+            :class:`tplus.model.trades.UserTrade` instances containing only confirmed trades.
         """
         if user_id is None:
             user_id = self.user.public_key
         path = f"/trades/user/{user_id}"
         async for trade in self._stream_ws(path, parse_single_user_trade):
+            yield trade
+
+    async def stream_user_trades(self, user_id: Optional[str] = None) -> AsyncIterator[UserTrade]:
+        """
+        [DEPRECATED] Use stream_user_trade_events or stream_user_finalized_trades instead.
+        This method streams finalized (confirmed) trades for a specific user.
+        """
+        async for trade in self.stream_user_finalized_trades(user_id=user_id):
             yield trade
 
     async def close(self) -> None:
