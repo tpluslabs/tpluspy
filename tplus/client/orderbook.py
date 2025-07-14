@@ -1,11 +1,9 @@
 import json
 import uuid  # For generating order_ids
 from collections.abc import AsyncIterator
-from typing import Any, Callable, Optional, Union
-from urllib.parse import urlunparse
+from typing import Any, Optional, Union
 
 import httpx
-import websockets
 
 from tplus.client.base import BaseClient
 from tplus.logger import logger
@@ -45,9 +43,7 @@ class OrderBookClient(BaseClient):
         base_url: str | None = None,
         websocket_kwargs: Optional[dict[str, Any]] = None,
     ) -> None:
-        super().__init__(user, base_url=base_url)
-        # Store kwargs to forward into websockets.connect – default is empty dict.
-        self._ws_kwargs: dict[str, Any] = websocket_kwargs or {}
+        super().__init__(user, base_url=base_url, websocket_kwargs=websocket_kwargs)
 
     async def create_market(self, asset_id: Union[AssetIdentifier, str]) -> dict[str, Any]:
         """
@@ -88,16 +84,12 @@ class OrderBookClient(BaseClient):
             order_id=order_id,
             fill_or_kill=fill_or_kill,
         )
-        signed_message = build_signed_message(
-            order_id=order_id,
-            asset_identifier=asset_id,
-            operation_specific_payload=ob_request_payload,
-            signer=self.user,
-        )
         logger.debug(
             f"Sending Market Order (Asset {asset_id}): Qty={quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
         )
-        return await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
+        return await self._request(
+            "POST", "/orders/create", json_data=ob_request_payload.model_dump()
+        )
 
     async def create_limit_order(
         self,
@@ -283,68 +275,6 @@ class OrderBookClient(BaseClient):
         endpoint = f"/inventory/user/{self.user.public_key}"
         logger.debug(f"Getting Inventory for user {self.user.public_key}")
         return await self._request("GET", endpoint)
-
-    def _get_websocket_url(self, path: str) -> str:
-        """
-        Constructs the WebSocket URL from the base HTTP URL.
-        """
-        scheme = "wss" if self._parsed_base_url.scheme == "https" else "ws"
-        netloc = self._parsed_base_url.netloc
-        ws_path = path if path.startswith("/") else f"/{path}"
-        return urlunparse((scheme, netloc, ws_path, "", "", ""))
-
-    # WebSocket control-message types recognized across all streams.
-    CONTROL_MESSAGE_TYPES: set[str] = {
-        "subscriptions",
-        "ping",
-        "pong",
-    }
-
-    async def _stream_ws(
-        self,
-        path: str,
-        parser: Callable[[Any], Any],
-        *,
-        control_handler: Callable[[dict[str, Any]], None] | None = None,
-    ) -> AsyncIterator[Any]:
-        """
-        Connects to a WebSocket path, filters out control messages, and yields parsed payloads.
-        """
-        ws_url = self._get_websocket_url(path)
-        logger.debug("Connecting to %s stream: %s", path, ws_url)
-        async with websockets.connect(ws_url, **self._ws_kwargs) as websocket:
-            async for message in websocket:
-                try:
-                    data = json.loads(message)
-                    if isinstance(data, dict) and data.get("type") in self.CONTROL_MESSAGE_TYPES:
-                        logger.debug(
-                            "Control message on %s stream: type=%s, payload=%s",
-                            path,
-                            data.get("type"),
-                            data,
-                        )
-                        if control_handler is not None:
-                            try:
-                                control_handler(data)
-                            except Exception as handler_err:
-                                logger.warning(
-                                    "Control-handler for %s raised %s – ignoring.",
-                                    path,
-                                    handler_err,
-                                )
-                        continue
-                    yield parser(data)
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Received non-JSON message on %s stream: %s…", path, message[:100]
-                    )
-                except Exception as e:
-                    logger.error(
-                        "Error processing message from %s stream: %s. Message: %s…",
-                        path,
-                        e,
-                        message[:100],
-                    )
 
     async def stream_orders(self) -> AsyncIterator[OrderEvent]:
         """
