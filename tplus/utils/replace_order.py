@@ -55,4 +55,5 @@ def create_replace_order_ob_request_payload(
         user_id=signer.public_key,
         asset_id=asset_identifier,
         signature=list(signature_bytes),
+        post_sign_timestamp=time.time_ns(),
     )

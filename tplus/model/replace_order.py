@@ -31,6 +31,7 @@ class ReplaceOrderRequestPayload(BaseModel):
     user_id: str  # Added user_id field
     asset_id: AssetIdentifier  # Asset aidentifier for the order being replaced
     signature: list[int]  # Signature of the 'request' (ReplaceOrderDetails)
+    post_sign_timestamp: int
 
     @model_serializer
     def serialize_model(self) -> dict[str, Any]:
@@ -38,10 +39,9 @@ class ReplaceOrderRequestPayload(BaseModel):
         # This structure should match how CreateOrderRequest and CancelOrderRequest are serialized
         # for the ObRequestPayload enum in Rust, e.g., {"ReplaceOrderRequest": {...}}
         return {
-            "ReplaceOrderRequest": {
-                "request": self.request.model_dump(exclude_none=True),
-                "user_id": self.user_id,  # Added user_id to serialization
-                "asset_id": self.asset_id.model_dump(exclude_none=True),
-                "signature": self.signature,
-            }
+            "request": self.request.model_dump(exclude_none=True),
+            "signer": self.user_id,  # Added user_id to serialization
+            "asset_id": self.asset_id.model_dump(exclude_none=True),
+            "signature": self.signature,
+            "post_sign_timestamp": self.post_sign_timestamp,
         }

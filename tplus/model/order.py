@@ -4,7 +4,7 @@ import logging
 from enum import Enum
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel, ValidationError, model_serializer
+from pydantic import BaseModel, ValidationError
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
@@ -46,11 +46,7 @@ class Order(BaseModel):
 class CreateOrderRequest(BaseModel):
     order: Order
     signature: list[int]
-
-    @model_serializer
-    def serialize_model(self) -> dict[str, dict[str, Any]]:
-        request_data = {"order": self.order, "signature": self.signature}
-        return {"CreateOrderRequest": request_data}
+    post_sign_timestamp: int
 
 
 class OrderResponse(BaseModel):
