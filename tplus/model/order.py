@@ -65,7 +65,7 @@ class OrderResponse(BaseModel):
 def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
     parsed_orders = []
     if not isinstance(orders_data, list):
-        logger.error(f"Expected a list for orders_data, got {type(orders_data)}")
+        logger.error(f"Expected a list for orders_data, got {type(orders_data)} | {orders_data}")
         return []
 
     for order_dict in orders_data:
