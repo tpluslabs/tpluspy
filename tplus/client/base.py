@@ -82,6 +82,30 @@ class BaseClient:
                 headers=merged_headers,
             )
 
+            # If we receive an HTTP 401/403, the auth token may have expired. Refresh the
+            # credentials **once** and retry the request automatically. This keeps the
+            # higher-level client APIs unaware of token lifetimes and greatly simplifies
+            # consumer code.
+            if response.status_code in {401, 403} and not relative_url.startswith("/auth"):
+                logger.info(
+                    "Received %s for %s – refreshing auth token and retrying once.",
+                    response.status_code,
+                    relative_url,
+                )
+
+                # Force re-authentication and rebuild the auth headers (inside the same
+                # lock to avoid a thundering herd when many coroutines hit expiry at the
+                # same time).
+                await self._authenticate()
+                retry_headers = {**self._client.headers, **self._get_auth_headers()}
+
+                response = await self._client.request(
+                    method=method,
+                    url=relative_url,
+                    json=json_data,
+                    headers=retry_headers,
+                )
+
             if response.status_code == 204:
                 return {}
             if not response.content:
@@ -160,6 +184,8 @@ class BaseClient:
 
         token_resp = await self._client.post("/auth", json=auth_payload)
         token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
+
+        logger.info(f"Full authentication response from server: {token_json}")
 
         logger.debug(
             f"AUTH DEBUG: token={token_json.get('token')} expires={token_json.get('expiry_ns')}"

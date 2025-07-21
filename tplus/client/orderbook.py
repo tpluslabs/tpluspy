@@ -65,8 +65,9 @@ class OrderBookClient(BaseClient):
 
     async def create_market_order(
         self,
-        quantity: int,
         side: str,
+        base_quantity: Optional[int] = None,
+        quote_quantity: Optional[int] = None,
         fill_or_kill: bool = False,
         asset_id: Optional[AssetIdentifier] = None,
     ) -> dict[str, Any]:
@@ -76,16 +77,17 @@ class OrderBookClient(BaseClient):
         order_id = str(uuid.uuid4())
         market = await self.get_market(asset_id)
         ob_request_payload = create_market_order_ob_request_payload(
-            quantity=quantity,
             side=side,
             signer=self.user,
             book_quantity_decimals=market.book_quantity_decimals,
             asset_identifier=asset_id,
             order_id=order_id,
+            base_quantity=base_quantity,
+            quote_quantity=quote_quantity,
             fill_or_kill=fill_or_kill,
         )
         logger.debug(
-            f"Sending Market Order (Asset {asset_id}): Qty={quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
+            f"Sending Market Order (Asset {asset_id}): BaseQty={base_quantity}, QuoteQty={quote_quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
         )
         return await self._request(
             "POST", "/orders/create", json_data=ob_request_payload.model_dump()
@@ -230,6 +232,18 @@ class OrderBookClient(BaseClient):
         endpoint = f"/orders/user/{self.user.public_key}"
         logger.debug(f"Getting Orders for user {self.user.public_key}")
         response_data = await self._request("GET", endpoint)
+
+        if isinstance(response_data, dict) and "error" in response_data:
+            logger.error(
+                f"Received error when fetching user orders: {response_data['error']}. Check authentication."
+            )
+            return [], {}
+        if not isinstance(response_data, list):
+            logger.error(
+                f"Unexpected response type when fetching user orders. Expected list, got {type(response_data).__name__}. Data: {response_data}"
+            )
+            return [], {}
+
         parsed_orders = parse_orders(response_data)
         return parsed_orders, response_data
 
@@ -244,6 +258,18 @@ class OrderBookClient(BaseClient):
         logger.debug(f"Getting Orders for user {self.user.public_key}, asset {asset_id}")
         try:
             response_data = await self._request("GET", endpoint)
+
+            if isinstance(response_data, dict) and "error" in response_data:
+                logger.error(
+                    f"Received error when fetching orders for book {asset_id}: {response_data['error']}"
+                )
+                return [], {}
+            if not isinstance(response_data, list):
+                logger.error(
+                    f"Unexpected response type for book orders {asset_id}. Expected list, got {type(response_data).__name__}."
+                )
+                return [], {}
+
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404 and e.request.url.path == endpoint:
                 try:
@@ -265,6 +291,7 @@ class OrderBookClient(BaseClient):
                         f"but response body was not valid JSON. Body: {e.response.text[:200]}"
                     )
             raise e
+
         parsed_orders = parse_orders(response_data)
         return parsed_orders, response_data
 
