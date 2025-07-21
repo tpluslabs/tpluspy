@@ -32,9 +32,10 @@ async def main() -> None:
     logger.info("User B pk=%s", user_b.public_key)
     logger.info("Connecting to OMS at %s", API_BASE_URL)
 
-    async with OrderBookClient(user_a, base_url=API_BASE_URL) as client_a, \
-               OrderBookClient(user_b, base_url=API_BASE_URL) as client_b:
-
+    async with (
+        OrderBookClient(user_a, base_url=API_BASE_URL) as client_a,
+        OrderBookClient(user_b, base_url=API_BASE_URL) as client_b,
+    ):
         # -------------------------------------------------------------------
         # Ensure the market exists (idempotent – returns 409 if already there)
         # -------------------------------------------------------------------
@@ -48,11 +49,13 @@ async def main() -> None:
         market = await client_a.get_market(asset_id)
         qty_decimals = market.book_quantity_decimals
         price_decimals = market.book_price_decimals
-        logger.info("Market config – qty_decimals=%s price_decimals=%s", qty_decimals, price_decimals)
+        logger.info(
+            "Market config – qty_decimals=%s price_decimals=%s", qty_decimals, price_decimals
+        )
 
         # Helper lambdas to convert human-readable amounts to on-chain integers
-        to_qty_units = lambda qty: int(qty * (10 ** qty_decimals))  # noqa: E731
-        to_price_units = lambda price: int(price * (10 ** price_decimals))  # noqa: E731
+        to_qty_units = lambda qty: int(qty * (10**qty_decimals))  # noqa: E731
+        to_price_units = lambda price: int(price * (10**price_decimals))  # noqa: E731
 
         # -------------------------------------------------------------------
         # 1) USER A places a LIMIT SELL at a fixed price
@@ -92,4 +95,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Interrupted by user – exiting.") 
+        logger.info("Interrupted by user – exiting.")
