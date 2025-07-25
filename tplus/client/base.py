@@ -32,7 +32,7 @@ class BaseClient:
             base_url=self.base_url,
             timeout=timeout,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
-            verify=False  # TODO remove that for production
+            verify=False,  # TODO remove that for production
         )
         self._ws_kwargs: dict[str, Any] = websocket_kwargs or {}
 

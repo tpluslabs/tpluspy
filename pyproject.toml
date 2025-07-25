@@ -110,6 +110,8 @@ ignore = [
     "TC003",    # Move standard library import into type-checking block
     "TC006",    # Add quotes to type expression in `typing.cast()`
     "UP028",    # Replace yield over for loop with yield from
+
+    "S501",     # ADD IT LATER
 ]
 
 [tool.ruff.lint.pydocstyle]
