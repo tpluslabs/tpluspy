@@ -1,4 +1,5 @@
 import json
+import ssl
 from collections.abc import AsyncIterator
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
@@ -234,7 +235,12 @@ class BaseClient:
         else:
             ws_kwargs["extra_headers"] = auth_headers
 
-        async with websockets.connect(ws_url, **ws_kwargs) as websocket:
+        # TODO Remove this when we have a real SSL certificate (or make it configurable)
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        async with websockets.connect(ws_url, **ws_kwargs, ssl=ssl_context) as websocket:
             async for message in websocket:
                 try:
                     data = json.loads(message)
