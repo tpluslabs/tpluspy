@@ -187,8 +187,6 @@ class BaseClient:
         token_resp = await self._client.post("/auth", json=auth_payload)
         token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
 
-        logger.info(f"Full authentication response from server: {token_json}")
-
         logger.debug(
             f"AUTH DEBUG: token={token_json.get('token')} expires={token_json.get('expiry_ns')}"
         )
