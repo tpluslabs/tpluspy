@@ -1,8 +1,8 @@
-from tplus.client.base import BaseClient
+from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 
 
-class VaultClient(BaseClient):
+class VaultClient(BaseClearingEngineClient):
     """
     APIs related to vaults.
     """

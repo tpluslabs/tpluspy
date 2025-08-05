@@ -1,7 +1,7 @@
 from functools import cached_property
 
-from tplus.client.base import BaseClient
 from tplus.client.clearingengine.assetregistry import AssetRegistryClient
+from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.client.clearingengine.decimal import DecimalClient
 from tplus.client.clearingengine.deposit import DepositClient
 from tplus.client.clearingengine.settlement import SettlementClient
@@ -9,7 +9,7 @@ from tplus.client.clearingengine.vault import VaultClient
 from tplus.client.clearingengine.withdrawal import WithdrawalClient
 
 
-class ClearingEngineClient(BaseClient):
+class ClearingEngineClient(BaseClearingEngineClient):
     """
     APIs targeting the clearing engine ("CE") directly. Most of the APIs are
     permission-less; however some require signing, such as settlements and withdrawal flows.

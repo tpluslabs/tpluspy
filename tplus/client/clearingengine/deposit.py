@@ -1,7 +1,7 @@
-from tplus.client.base import BaseClient
+from tplus.client.clearingengine.base import BaseClearingEngineClient
 
 
-class DepositClient(BaseClient):
+class DepositClient(BaseClearingEngineClient):
     """
     APIs related to deposits.
     """
