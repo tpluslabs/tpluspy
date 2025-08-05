@@ -12,59 +12,6 @@ if TYPE_CHECKING:
     from tplus.utils.user import User
 
 
-class TxSettlementRequest(BaseModel):
-    """
-    Atomic settlement request.
-    """
-
-    inner: "InnerSettlementRequest"
-    """
-    The inner part of the request (signature fields).
-    """
-
-    signature: list[int]
-    """
-    The settler's signature from signing the necessary data (mostly from ``.inner``).
-    """
-
-    @classmethod
-    def create_signed(
-        cls, inner: "InnerSettlementRequest", signer: "User"
-    ) -> "TxSettlementRequest":
-        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
-        return cls(inner=inner, signature=signature)
-
-    def signing_payload(self) -> str:
-        return self.inner.signing_payload()
-
-
-class BundleSettlementRequest(BaseModel):
-    """
-    Bundle settlement request.
-    """
-
-    inner: "InnerBundleSettlementRequest"
-    """
-    The inner part of the request (signature fields).
-    Allows multiple settlements, unlike ``TxSettlementRequest``.
-    """
-
-    signature: list[int]
-    """
-    The settler's signature from signing the necessary data (mostly from ``.inner``).
-    """
-
-    @classmethod
-    def create_signed(
-        cls, inner: "InnerBundleSettlementRequest", signer: "User"
-    ) -> "BundleSettlementRequest":
-        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
-        return cls(inner=inner, signature=signature)
-
-    def signing_payload(self) -> str:
-        return self.inner.signing_payload()
-
-
 class BaseSettlement(BaseModel):
     """
     The shared fields for all inner settlement requests.
@@ -102,6 +49,62 @@ class InnerSettlementRequest(BaseSettlement):
         }
 
         return json.dumps(payload).replace(" ", "").replace("\r", "").replace("\n", "")
+
+
+class TxSettlementRequest(BaseModel):
+    """
+    Atomic settlement request.
+    """
+
+    inner: InnerSettlementRequest
+    """
+    The inner part of the request (signature fields).
+    """
+
+    signature: list[int]
+    """
+    The settler's signature from signing the necessary data (mostly from ``.inner``).
+    """
+
+    @classmethod
+    def create_signed(
+        cls, inner: InnerSettlementRequest | dict, signer: "User"
+    ) -> "TxSettlementRequest":
+        if isinstance(inner, dict):
+            inner = InnerSettlementRequest.model_validate(inner)
+
+        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
+        return cls(inner=inner, signature=signature)
+
+    def signing_payload(self) -> str:
+        return self.inner.signing_payload()
+
+
+class BundleSettlementRequest(BaseModel):
+    """
+    Bundle settlement request.
+    """
+
+    inner: "InnerBundleSettlementRequest"
+    """
+    The inner part of the request (signature fields).
+    Allows multiple settlements, unlike ``TxSettlementRequest``.
+    """
+
+    signature: list[int]
+    """
+    The settler's signature from signing the necessary data (mostly from ``.inner``).
+    """
+
+    @classmethod
+    def create_signed(
+        cls, inner: "InnerBundleSettlementRequest", signer: "User"
+    ) -> "BundleSettlementRequest":
+        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
+        return cls(inner=inner, signature=signature)
+
+    def signing_payload(self) -> str:
+        return self.inner.signing_payload()
 
 
 class InnerBundleSettlementRequest(BaseModel):
