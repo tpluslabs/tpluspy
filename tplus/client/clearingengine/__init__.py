@@ -15,6 +15,8 @@ class ClearingEngineClient(BaseClearingEngineClient):
     permission-less; however some require signing, such as settlements and withdrawal flows.
     """
 
+    AUTH = False
+
     @cached_property
     def settlements(self) -> SettlementClient:
         """
