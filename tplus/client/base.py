@@ -169,6 +169,7 @@ class BaseClient:
     async def _authenticate(self) -> None:
         nonce_endpoint = f"/nonce/{self.user.public_key}"
         nonce_resp = await self._client.get(nonce_endpoint)
+        nonce_resp.raise_for_status()
         nonce_data = nonce_resp.json() if hasattr(nonce_resp, "json") else nonce_resp
         nonce_value = nonce_data["value"] if isinstance(nonce_data, dict) else nonce_data
 
