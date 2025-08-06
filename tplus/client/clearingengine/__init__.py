@@ -51,7 +51,7 @@ class ClearingEngineClient(BaseClearingEngineClient):
         return WithdrawalClient.from_client(self)
 
     @cached_property
-    def vault(self) -> VaultClient:
+    def vaults(self) -> VaultClient:
         """
         APIs related to vaults.
         """

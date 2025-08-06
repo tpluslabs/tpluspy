@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from getpass import getpass
 from pathlib import Path
 
 from ecdsa import Ed25519, SigningKey
@@ -38,20 +39,20 @@ class UserManager:
     def generate(self, name: str, password=None) -> "User":
         path = self.get_non_existing_path(name)
         sk = SigningKey.generate(curve=Ed25519)
-        password = password or input(f"Enter new password for '{name}': ")
+        password = password or getpass(f"Enter new password for '{name}': ")
         _store(path, password, sk.privkey.private_key)
         return User(private_key=sk.privkey.private_key)
 
     def load(self, name: str, password=None) -> "User":
         path = self._get_existing_path(name)
-        password = password or input(f"Enter existing password for '{name}': ")
+        password = password or getpass(f"Enter existing password for '{name}': ")
         private_key = decrypt_keyfile(password, path)
         return User(private_key=private_key)
 
     def add(self, name: str, private_key: str | bytes, password=None) -> "User":
         path = self.get_non_existing_path(name)
         private_key_bytes = privkey_to_bytes(private_key)
-        password = password or input(f"Enter new password for '{name}': ")
+        password = password or getpass(f"Enter new password for '{name}': ")
         _store(path, password, private_key_bytes)
         return User(private_key=private_key_bytes)
 
