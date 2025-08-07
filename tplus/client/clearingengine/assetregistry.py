@@ -1,7 +1,7 @@
-from tplus.client.base import BaseClient
+from tplus.client.clearingengine.base import BaseClearingEngineClient
 
 
-class AssetRegistryClient(BaseClient):
+class AssetRegistryClient(BaseClearingEngineClient):
     """
     Clearing engine APIs related to assets.
     """

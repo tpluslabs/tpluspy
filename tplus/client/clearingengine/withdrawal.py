@@ -1,8 +1,8 @@
-from tplus.client.base import BaseClient
+from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.withdrawal import WithdrawalRequest
 
 
-class WithdrawalClient(BaseClient):
+class WithdrawalClient(BaseClearingEngineClient):
     """
     APIs related to withdrawal.
     """

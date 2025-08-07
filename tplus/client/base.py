@@ -17,6 +17,7 @@ class BaseClient:
     """
 
     DEFAULT_TIMEOUT = 10.0
+    AUTH = True
 
     def __init__(
         self,
@@ -65,7 +66,9 @@ class BaseClient:
     ) -> dict[str, Any]:
         relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
 
-        if not relative_url.startswith("/nonce") and not relative_url.startswith("/auth"):
+        if self.AUTH and (
+            not relative_url.startswith("/nonce") and not relative_url.startswith("/auth")
+        ):
             await self._ensure_auth()
 
         try:
@@ -120,7 +123,9 @@ class BaseClient:
                         f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary."
                     )
                     return {}
-                return json_response
+
+                return json_response or {}
+
             except Exception:
                 raise Exception(
                     f"Invalid response from server - status_code={response.status_code}."
@@ -186,6 +191,7 @@ class BaseClient:
         }
 
         token_resp = await self._client.post("/auth", json=auth_payload)
+        token_resp.raise_for_status()
         token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
 
         logger.info(f"Full authentication response from server: {token_json}")
@@ -198,7 +204,9 @@ class BaseClient:
         self._auth_expiry_ns = int(token_json["expiry_ns"])
 
     async def _ws_auth_headers(self) -> dict[str, str]:
-        await self._ensure_auth()
+        if self.AUTH:
+            await self._ensure_auth()
+
         return self._get_auth_headers()
 
     def _get_websocket_url(self, path: str) -> str:

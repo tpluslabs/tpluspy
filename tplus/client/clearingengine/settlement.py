@@ -1,8 +1,8 @@
-from tplus.client.base import BaseClient
+from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.settlement import BundleSettlementRequest, TxSettlementRequest
 
 
-class SettlementClient(BaseClient):
+class SettlementClient(BaseClearingEngineClient):
     """
     Clearing engine APIs related to settlements.
     """
