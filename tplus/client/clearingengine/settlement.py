@@ -7,8 +7,6 @@ class SettlementClient(BaseClearingEngineClient):
     Clearing engine APIs related to settlements.
     """
 
-    AUTH = False
-
     async def init_settlement(self, request: dict | TxSettlementRequest):
         """
         Initialize a transaction (atomic) based settlement. This begins the process

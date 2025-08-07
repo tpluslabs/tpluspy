@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from getpass import getpass
 from pathlib import Path
+from typing import Optional
 
 from ecdsa import Ed25519, SigningKey
 
@@ -21,9 +22,10 @@ class UserManager:
 
     def __init__(self):
         self._data_folder = Path.home() / ".tplus" / "users"
+        self._default_user = None
 
     @property
-    def usernames(self) -> str:
+    def usernames(self) -> Iterator[str]:
         if not self._data_folder.is_dir():
             return
 
@@ -48,6 +50,19 @@ class UserManager:
         password = password or getpass(f"Enter existing password for '{name}': ")
         private_key = decrypt_keyfile(password, path)
         return User(private_key=private_key)
+
+    def load_default(self, password=None) -> Optional["User"]:
+        if name := self._default_user:
+            return self.load(name, password=password)
+
+        # Use the first one, if there are any.
+        if username := next(self.usernames, None):
+            return self.load(username, password=password)
+
+        return None
+
+    def set_default(self, name: str) -> None:
+        self._default_user = name
 
     def add(self, name: str, private_key: str | bytes, password=None) -> "User":
         path = self.get_non_existing_path(name)
