@@ -26,7 +26,7 @@ class VaultClient(BaseClearingEngineClient):
         request = {"asset_id": asset_id, "chain_id": chain_id}
         await self._post("vault/balance/update", json_data=request)
 
-    async def get_vaults(self) -> dict:
+    async def get(self) -> dict:
         """
         Get all registered vaults.
         """
