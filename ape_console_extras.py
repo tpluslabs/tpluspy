@@ -7,7 +7,25 @@ from tplus.evm.contracts import registry, vault
 
 
 def ape_init_extras():
-    return {
+    res = {
         "vault": vault,
         "registry": registry,
     }
+
+    try:
+        from ape import chain
+
+        from tplus.client import ClearingEngineClient
+        from tplus.utils.user import load_user
+
+        if chain.provider.network.is_dev:
+            if tplus_user := load_user():
+                clearing_engine = ClearingEngineClient(tplus_user, "http://127.0.0.1:3032")
+                res["clearing_engine"] = clearing_engine
+                res["tplus_user"] = tplus_user
+
+    except Exception as err:
+        # Don't let this nonsense crash the session.
+        print(f"Error from loading ape console extras: {err}")
+
+    return res

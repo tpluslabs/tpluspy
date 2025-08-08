@@ -19,6 +19,14 @@ if TYPE_CHECKING:
     from ape.managers.project import Project
 
 
+CHAIN_MAP = {
+    1: "ethereum:mainnet",
+    11155111: "ethereum:sepolia",
+    42161: "arbitrum:mainnet",
+    421614: "arbitrum:sepolia",
+}
+
+
 class TplusDeployments:
     """
     Reads the deployments from the ape-config file in the tplus-contracts
@@ -218,10 +226,56 @@ class Registry(TPlusContract):
             index, (asset_address, chain_id, max_deposit), sender=sender
         )
 
+    def add_vault(self, address: AddressType, chain_id: int | None = None, **kwargs):
+        if not isinstance(address, str):
+            # Allow ENS or certain classes to work.
+            address = self.conversion_manager.convert(address, AddressType)
+
+        chain_id = self.chain_manager.chain_id if chain_id is None else chain_id
+        return self.contract.addVault(address, chain_id, **kwargs)
+
+    def get_vaults(self) -> list[tuple[AddressType, int]]:
+        return [(r.vaultAddress, r.chain) for r in self.contract.getVaults()]
+
+    def get_evm_vaults(self) -> list[tuple[AddressType, int]]:
+        result = []
+        for res in self.get_vaults():
+            addr = res[0]
+            if addr[20:] == b"\x00" * 12:
+                addr_bytes = addr[:20]
+                addr_str = f"0x{addr_bytes.hex()}"
+
+                # Checksum it.
+                checksummed_addr = self.network_manager.ethereum.decode_address(addr_str)
+
+                result.append((checksummed_addr, res[1]))
+
+        return result
+
 
 class DepositVault(TPlusContract):
-    def __init__(self):
+    def __init__(self, chain_id: int | None = None) -> None:
         super().__init__("DepositVault")
+        self._chain_id = chain_id
+
+    def __getattr__(self, attr_name: str):
+        if self._chain_id is None or attr_name in ("address",) or attr_name.startswith("_"):
+            return super().__getattr__(attr_name)
+
+        # Verify chain first.
+        connected_chain = self.chain_manager.chain_id
+        if connected_chain != self._chain_id:
+            # Try to connect.
+            if choice := CHAIN_MAP.get(connected_chain):
+                with self.network_manager.parse_network_choice(choice):
+                    # Run on this network.
+                    return super().__getattribute__(attr_name)
+
+            raise AttributeError(
+                "Please connect to this vault's chain first. `with ape.networks...`."
+            )
+
+        return super().__getattr__(attr_name)
 
 
 registry = Registry()
