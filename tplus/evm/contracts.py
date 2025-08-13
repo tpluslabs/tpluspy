@@ -65,9 +65,9 @@ class TplusDeployments:
                 elif not (chain_id := NETWORK_MAP.get(ecosystem, {}).get(network)):
                     continue
 
-                assumed_latest = deployments[-1]
-                result.setdefault(chain_id, {})
-                result[chain_id][assumed_latest["contract_type"]] = assumed_latest["address"]
+                for deployment in deployments:
+                    result.setdefault(chain_id, {})
+                    result[chain_id][deployment["contract_type"]] = deployment["address"]
 
         return result
 
