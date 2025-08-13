@@ -7,12 +7,11 @@ class VaultClient(BaseClearingEngineClient):
     APIs related to vaults.
     """
 
-    async def update(self, registry_chain_id: int):
+    async def update(self):
         """
         Request that the CE check the registry contract for new registered vaults.
         """
-        request = {"registry_chain_id": registry_chain_id}
-        await self._post("vaults/update", request)
+        await self._post("vaults/update")
 
     async def update_balance(self, asset_id: AssetIdentifier | str, chain_id: int):
         """

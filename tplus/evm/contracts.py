@@ -65,9 +65,9 @@ class TplusDeployments:
                 elif not (chain_id := NETWORK_MAP.get(ecosystem, {}).get(network)):
                     continue
 
-                assumed_latest = deployments[-1]
-                result.setdefault(chain_id, {})
-                result[chain_id][assumed_latest["contract_type"]] = assumed_latest["address"]
+                for deployment in deployments:
+                    result.setdefault(chain_id, {})
+                    result[chain_id][deployment["contract_type"]] = deployment["address"]
 
         return result
 
@@ -180,11 +180,11 @@ class TPlusContract(TPlusMixin):
             return self._deployments[chain_id]
 
         try:
-            addresses = TPLUS_DEPLOYMENTS[chain_id]
+            address = TPLUS_DEPLOYMENTS[chain_id][self._name]
         except KeyError:
             raise ContractNotExists(f"{self._name} not deployed on chain '{chain_id}'.")
 
-        contract_container = self._contract_container.at(addresses[self._name])
+        contract_container = self._contract_container.at(address)
 
         # Cache for next time.
         self._deployments[chain_id] = contract_container
