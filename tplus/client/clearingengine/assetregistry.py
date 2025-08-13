@@ -24,20 +24,14 @@ class AssetRegistryClient(BaseClearingEngineClient):
         """
         return await self._get("params")
 
-    async def update(self, registry_chain_id: int):
+    async def update(self):
         """
         Request that the clearing engine updates its registered assets for the given registry chain.
-
-        Args:
-            registry_chain_id (int): The chain ID of the T+ registry to use.
         """
-        await self._post("assets/update", json_data={"registry_chain_id": registry_chain_id})
+        await self._post("assets/update")
 
-    async def update_risk_parameters(self, registry_chain_id: int):
+    async def update_risk_parameters(self):
         """
         Request that the clearing engine updates its registered risk parameters.
-
-        Args:
-            registry_chain_id (int): The chain ID of the T+ registry to use.
         """
-        await self._post("params/update", json_data={"registry_chain_id": registry_chain_id})
+        await self._post("params/update")
