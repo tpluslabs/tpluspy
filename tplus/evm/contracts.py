@@ -25,6 +25,16 @@ CHAIN_MAP = {
     42161: "arbitrum:mainnet",
     421614: "arbitrum:sepolia",
 }
+NETWORK_MAP = {
+    "ethereum": {
+        "mainnet": 1,
+        "sepolia": 11155111,
+    },
+    "arbitrum": {
+        "mainnet": 42161,
+        "sepolia": 421614,
+    },
+}
 
 
 class TplusDeployments:
@@ -40,17 +50,24 @@ class TplusDeployments:
             os.environ.get("TPLUS_CONTRACTS_PATH", "~/tplus/tplus-contracts")
         ).expanduser()
         file = contracts_path / "ape-config.yaml"
-        registered = yaml.safe_load(file.read_text())["deployments"]
-        result = {11155111: {}, 1: {}, 421614: {}, 42161: {}}
 
-        for eco, net, chain in [
-            ("ethereum", "sepolia", 11155111),
-            ("ethereum", "mainnet", 1),
-            ("arbitrum", "sepolia", 421614),
-            ("arbitrum", "mainnet", 42161),
-        ]:
-            for itm in registered[eco][net]:
-                result[chain][itm["contract_type"]] = itm["address"]
+        if not file.is_file():
+            return {}
+
+        registered = yaml.safe_load(file.read_text())["deployments"]
+        result = {}
+
+        for ecosystem, network_deployments in registered.items():
+            for network, deployments in network_deployments.items():
+                if len(deployments) == 0:
+                    continue
+
+                elif not (chain_id := NETWORK_MAP.get(ecosystem, {}).get(network)):
+                    continue
+
+                assumed_latest = deployments[-1]
+                result.setdefault(chain_id, {})
+                result[chain_id][assumed_latest["contract_type"]] = assumed_latest["address"]
 
         return result
 
