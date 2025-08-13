@@ -41,9 +41,14 @@ class TplusDeployments:
         ).expanduser()
         file = contracts_path / "ape-config.yaml"
         registered = yaml.safe_load(file.read_text())["deployments"]
-        result = {11155111: {}, 421614: {}}
+        result = {11155111: {}, 1: {}, 421614: {}, 42161: {}}
 
-        for eco, net, chain in [("ethereum", "sepolia", 11155111), ("arbitrum", "sepolia", 421614)]:
+        for eco, net, chain in [
+            ("ethereum", "sepolia", 11155111),
+            ("ethereum", "mainnet", 1),
+            ("arbitrum", "sepolia", 421614),
+            ("arbitrum", "mainnet", 42161),
+        ]:
             for itm in registered[eco][net]:
                 result[chain][itm["contract_type"]] = itm["address"]
 
