@@ -17,7 +17,6 @@ async def init_settlement(client, tplus_user):
     settlement = {
         "inner": {
             "tplus_user": tplus_user.public_key,
-            "calldata": [],
             "asset_in": AssetIdentifier(f"{ASSET_IN}@{CHAIN_ID}"),
             "amount_in": 100,
             "asset_out": AssetIdentifier(f"{ASSET_OUT}@{CHAIN_ID}"),

@@ -25,25 +25,21 @@ class BaseSettlement(BaseModel):
 
 class InnerSettlementRequest(BaseSettlement):
     """
-    Atomic settlement inner request. Additionally, contains calldata for an on-chain
-    settlement callback.
+    Atomic settlement inner request.
     """
 
     tplus_user: UserPublicKey
-    calldata: list[HexInt]
     chain_id: ChainID
 
     def signing_payload(self) -> str:
         base_data = self.model_dump(mode="json", exclude_none=True)
 
         user = base_data.pop("tplus_user")
-        calldata = base_data.pop("calldata", [])
         chain_id = base_data.pop("chain_id", None)
 
         # NOTE: The order here matters!
         payload = {
             "tplus_user": user,
-            "calldata": calldata,
             **base_data,
             "chain_id": chain_id,
         }

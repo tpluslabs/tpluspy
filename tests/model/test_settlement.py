@@ -17,7 +17,6 @@ class TestTxSettlementRequest:
     def settlement(self, user):
         return {
             "tplus_user": user.public_key,
-            "calldata": [],
             **get_base_settlement_data(),
             "chain_id": CHAIN_ID,
         }
@@ -29,7 +28,7 @@ class TestTxSettlementRequest:
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
         expected_user = f"{to_vec(user.public_key)}".replace(" ", "")
-        expected = f'{{"tplus_user":{expected_user},"calldata":[],"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7","amount_in":"0x64","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@0000000000aa36a7","amount_out":"0x64","chain_id":[0,0,0,0,0,170,54,167]}}'
+        expected = f'{{"tplus_user":{expected_user},"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7","amount_in":"0x64","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@0000000000aa36a7","amount_out":"0x64","chain_id":[0,0,0,0,0,170,54,167]}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
