@@ -1,5 +1,6 @@
 from functools import cached_property
 
+from tplus.client.clearingengine.admin import AdminClient
 from tplus.client.clearingengine.assetregistry import AssetRegistryClient
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.client.clearingengine.decimal import DecimalClient
@@ -56,3 +57,10 @@ class ClearingEngineClient(BaseClearingEngineClient):
         APIs related to vaults.
         """
         return VaultClient.from_client(self)
+
+    @cached_property
+    def admin(self) -> AdminClient:
+        """
+        APIs related to the admin clearing-engine.
+        """
+        return AdminClient.from_client(self)
