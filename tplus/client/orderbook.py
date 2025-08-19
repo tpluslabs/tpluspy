@@ -123,7 +123,7 @@ class OrderBookClient(BaseClient):
             order_id=order_id,
             time_in_force=time_in_force,
         )
-        logger.debug(
+        self.logger.debug(
             f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
         )
         return await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
