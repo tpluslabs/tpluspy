@@ -27,7 +27,7 @@ class BaseClient:
         timeout: float = DEFAULT_TIMEOUT,
         client: Optional[httpx.Client] = None,
         websocket_kwargs: Optional[dict[str, Any]] = None,
-        log_level: Optional[int] = logging.INFO,
+        log_level: int = logging.INFO,
     ):
         self.user = user
         self.base_url = base_url.rstrip("/")
@@ -45,7 +45,7 @@ class BaseClient:
         self._auth_lock: asyncio.Lock = asyncio.Lock()
         self._auth_token: Optional[str] = None
         self._auth_expiry_ns: int = 0
-        self.logger = get_logger(log_level)
+        self.logger = get_logger(log_level=log_level)
 
     @classmethod
     def from_client(cls, client: "BaseClient") -> "BaseClient":
