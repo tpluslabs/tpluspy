@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid  # For generating order_ids
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -6,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 import httpx
 
 from tplus.client.base import BaseClient
-from tplus.logger import logger
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
@@ -45,8 +45,11 @@ class OrderBookClient(BaseClient):
         *,
         base_url: str | None = None,
         websocket_kwargs: Optional[dict[str, Any]] = None,
+        log_level: int = logging.INFO,
     ) -> None:
-        super().__init__(user, base_url=base_url, websocket_kwargs=websocket_kwargs)
+        super().__init__(
+            user, base_url=base_url, websocket_kwargs=websocket_kwargs, log_level=log_level
+        )
 
     async def create_market(self, asset_id: Union[AssetIdentifier, str]) -> dict[str, Any]:
         """
@@ -55,7 +58,7 @@ class OrderBookClient(BaseClient):
         if isinstance(asset_id, str):
             asset_id = AssetIdentifier(asset_id)
         message_dict = {"asset_id": asset_id.model_dump()}
-        logger.debug(f"Creating Market for Asset {asset_id}")
+        self.logger.debug(f"Creating Market for Asset {asset_id}")
         return await self._request("POST", "/market/create", json_data=message_dict)
 
     async def get_market(self, asset_id: AssetIdentifier) -> Market:
@@ -89,7 +92,7 @@ class OrderBookClient(BaseClient):
             quote_quantity=quote_quantity,
             fill_or_kill=fill_or_kill,
         )
-        logger.debug(
+        self.logger.debug(
             f"Sending Market Order (Asset {asset_id}): BaseQty={base_quantity}, QuoteQty={quote_quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
         )
         return await self._request(
@@ -132,7 +135,7 @@ class OrderBookClient(BaseClient):
         signed_message = create_cancel_order_ob_request_payload(
             order_id=order_id, asset_identifier=asset_id, signer=self.user
         )
-        logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
+        self.logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
         return await self._request(
             "DELETE", "/orders/cancel", json_data=signed_message.model_dump()
         )
@@ -158,7 +161,7 @@ class OrderBookClient(BaseClient):
             book_price_decimals=market.book_price_decimals,
             book_quantity_decimals=market.book_quantity_decimals,
         )
-        logger.debug(
+        self.logger.debug(
             f"Sending Replace Order for original OrderID {original_order_id} (Asset {asset_id}): "
             f"New Qty={new_quantity}, New Price={new_price}, ReplaceOpID={replace_operation_id}"
         )
@@ -185,17 +188,19 @@ class OrderBookClient(BaseClient):
         Get a snapshot of the order book for a given asset (async).
         """
         endpoint = f"/marketdepth/{asset_id}"
-        logger.debug(f"Getting Order Book Snapshot for asset {asset_id}")
+        self.logger.debug(f"Getting Order Book Snapshot for asset {asset_id}")
         response = await self._request("GET", endpoint)
         if not isinstance(response, dict):
-            logger.error(f"Received non-dictionary response for order book snapshot: {response}")
+            self.logger.error(
+                f"Received non-dictionary response for order book snapshot: {response}"
+            )
             raise ValueError(
                 f"Invalid API response for order book snapshot: expected a dictionary, got {type(response).__name__}"
             )
         try:
             return OrderBook(**response)
         except TypeError as e:
-            logger.error(
+            self.logger.error(
                 f"Failed to parse order book snapshot response dict into OrderBook object: {e}. Response dict: {response}"
             )
             raise ValueError(
@@ -207,7 +212,7 @@ class OrderBookClient(BaseClient):
         Get K-line (candlestick) data for a given asset (async).
         """
         endpoint = f"/klines/{asset_id}"
-        logger.debug(f"Getting Klines for asset {asset_id}")
+        self.logger.debug(f"Getting Klines for asset {asset_id}")
         return await self._request("GET", endpoint)
 
     async def get_user_trades(self) -> list[UserTrade]:
@@ -215,7 +220,7 @@ class OrderBookClient(BaseClient):
         Get all trades for the authenticated user (async).
         """
         endpoint = f"/trades/user/{self.user.public_key}"
-        logger.debug(f"Getting Trades for user {self.user.public_key}")
+        self.logger.debug(f"Getting Trades for user {self.user.public_key}")
         response_data = await self._request("GET", endpoint)
         return self.parse_user_trades(response_data)
 
@@ -224,7 +229,7 @@ class OrderBookClient(BaseClient):
         Get trades for a specific asset for the authenticated user (async).
         """
         endpoint = f"/trades/user/{self.user.public_key}/{asset_id}"
-        logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
+        self.logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
         response_data = await self._request("GET", endpoint)
         return self.parse_user_trades(response_data)
 
@@ -233,16 +238,16 @@ class OrderBookClient(BaseClient):
         Get all orders for the authenticated user (async).
         """
         endpoint = f"/orders/user/{self.user.public_key}"
-        logger.debug(f"Getting Orders for user {self.user.public_key}")
+        self.logger.debug(f"Getting Orders for user {self.user.public_key}")
         response_data = await self._request("GET", endpoint)
 
         if isinstance(response_data, dict) and "error" in response_data:
-            logger.error(
+            self.logger.error(
                 f"Received error when fetching user orders: {response_data['error']}. Check authentication."
             )
             return [], {}
         if not isinstance(response_data, list):
-            logger.error(
+            self.logger.error(
                 f"Unexpected response type when fetching user orders. Expected list, got {type(response_data).__name__}. Data: {response_data}"
             )
             return [], {}
@@ -258,17 +263,17 @@ class OrderBookClient(BaseClient):
         Handles 404 with empty list as "no orders" gracefully.
         """
         endpoint = f"/orders/user/{self.user.public_key}/{asset_id}"
-        logger.debug(f"Getting Orders for user {self.user.public_key}, asset {asset_id}")
+        self.logger.debug(f"Getting Orders for user {self.user.public_key}, asset {asset_id}")
         try:
             response_data = await self._request("GET", endpoint)
 
             if isinstance(response_data, dict) and "error" in response_data:
-                logger.error(
+                self.logger.error(
                     f"Received error when fetching orders for book {asset_id}: {response_data['error']}"
                 )
                 return [], {}
             if not isinstance(response_data, list):
-                logger.error(
+                self.logger.error(
                     f"Unexpected response type for book orders {asset_id}. Expected list, got {type(response_data).__name__}."
                 )
                 return [], {}
@@ -278,18 +283,18 @@ class OrderBookClient(BaseClient):
                 try:
                     content = e.response.json()
                     if isinstance(content, list) and not content:
-                        logger.debug(
+                        self.logger.debug(
                             f"Received 404 with empty list for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
                             f"This is expected if the user has no orders for this asset yet. Treating as success with no orders."
                         )
                         return [], {}
                     else:
-                        logger.warning(
+                        self.logger.warning(
                             f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "
                             f"but response body was not an empty list as expected for 'no orders'. Body: {e.response.text[:200]}"
                         )
                 except json.JSONDecodeError:
-                    logger.warning(
+                    self.logger.warning(
                         f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "
                         f"but response body was not valid JSON. Body: {e.response.text[:200]}"
                     )
@@ -303,7 +308,7 @@ class OrderBookClient(BaseClient):
         Get inventory for the authenticated user (async).
         """
         endpoint = f"/inventory/user/{self.user.public_key}"
-        logger.debug(f"Getting Inventory for user {self.user.public_key}")
+        self.logger.debug(f"Getting Inventory for user {self.user.public_key}")
         return await self._request("GET", endpoint)
 
     async def stream_orders(self) -> AsyncIterator[OrderEvent]:
@@ -391,7 +396,7 @@ class OrderBookClient(BaseClient):
         """
         Closes the underlying httpx async client.
         """
-        logger.debug("Closing async HTTP client.")
+        self.logger.debug("Closing async HTTP client.")
         await self._client.aclose()
 
     async def __aenter__(self):

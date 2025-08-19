@@ -1,4 +1,5 @@
 import json
+import logging
 import ssl
 from collections.abc import AsyncIterator
 from typing import Any, Callable, Optional
@@ -7,7 +8,7 @@ from urllib.parse import urlparse
 import httpx
 import websockets
 
-from tplus.logger import logger
+from tplus.logger import get_logger
 from tplus.utils.user import User
 
 
@@ -26,6 +27,7 @@ class BaseClient:
         timeout: float = DEFAULT_TIMEOUT,
         client: Optional[httpx.Client] = None,
         websocket_kwargs: Optional[dict[str, Any]] = None,
+        log_level: int = logging.INFO,
     ):
         self.user = user
         self.base_url = base_url.rstrip("/")
@@ -43,6 +45,7 @@ class BaseClient:
         self._auth_lock: asyncio.Lock = asyncio.Lock()
         self._auth_token: Optional[str] = None
         self._auth_expiry_ns: int = 0
+        self.logger = get_logger(log_level=log_level)
 
     @classmethod
     def from_client(cls, client: "BaseClient") -> "BaseClient":
@@ -73,7 +76,7 @@ class BaseClient:
 
         try:
             if json_data:
-                logger.debug(f"Request to {method} {relative_url} with payload: {json_data}")
+                self.logger.debug(f"Request to {method} {relative_url} with payload: {json_data}")
             request_headers = self._get_auth_headers()
             if request_headers:
                 merged_headers = {**self._client.headers, **request_headers}
@@ -92,7 +95,7 @@ class BaseClient:
             # higher-level client APIs unaware of token lifetimes and greatly simplifies
             # consumer code.
             if response.status_code in {401, 403} and not relative_url.startswith("/auth"):
-                logger.info(
+                self.logger.info(
                     "Received %s for %s – refreshing auth token and retrying once.",
                     response.status_code,
                     relative_url,
@@ -119,7 +122,7 @@ class BaseClient:
             try:
                 json_response = response.json()
                 if json_response is None:
-                    logger.warning(
+                    self.logger.warning(
                         f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary."
                     )
                     return {}
@@ -132,20 +135,20 @@ class BaseClient:
                 )
 
         except httpx.TimeoutException as e:
-            logger.error(f"Request timed out to {e.request.url!r}: {e}")
+            self.logger.error(f"Request timed out to {e.request.url!r}: {e}")
             raise
         except httpx.RequestError as e:
-            logger.error(
+            self.logger.error(
                 f"An error occurred while requesting {e.request.url!r}: {type(e).__name__} - {e}"
             )
             raise
         except httpx.HTTPStatusError as e:
-            logger.error(
+            self.logger.error(
                 f"HTTP error {e.response.status_code} while requesting {e.request.url!r}: {e.response.text}"
             )
             raise
         except json.JSONDecodeError as e:
-            logger.error(
+            self.logger.error(
                 f"Failed to decode JSON response from {response.request.url!r}. Status: {response.status_code}. Content: {response.text[:100]}..."
             )
             raise ValueError(f"Invalid JSON received from API: {e}") from e
@@ -181,8 +184,10 @@ class BaseClient:
         signature_bytes = self.user.sign(nonce_value)
         signature_array = list(signature_bytes)
 
-        logger.debug(f"AUTH DEBUG: nonce={nonce_value} (len={len(nonce_value)})")
-        logger.debug(f"AUTH DEBUG: signature={signature_array[:8]}... (len={len(signature_array)})")
+        self.logger.debug(f"AUTH DEBUG: nonce={nonce_value} (len={len(nonce_value)})")
+        self.logger.debug(
+            f"AUTH DEBUG: signature={signature_array[:8]}... (len={len(signature_array)})"
+        )
 
         auth_payload = {
             "user_id": self.user.public_key,
@@ -194,9 +199,9 @@ class BaseClient:
         token_resp.raise_for_status()
         token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
 
-        logger.info(f"Full authentication response from server: {token_json}")
+        self.logger.info(f"Full authentication response from server: {token_json}")
 
-        logger.debug(
+        self.logger.debug(
             f"AUTH DEBUG: token={token_json.get('token')} expires={token_json.get('expiry_ns')}"
         )
 
@@ -231,7 +236,7 @@ class BaseClient:
         control_handler: Callable[[dict[str, Any]], None] | None = None,
     ) -> AsyncIterator[Any]:
         ws_url = self._get_websocket_url(path)
-        logger.debug("Connecting to %s stream: %s", path, ws_url)
+        self.logger.debug("Connecting to %s stream: %s", path, ws_url)
         auth_headers = await self._ws_auth_headers()
         ws_kwargs = dict(self._ws_kwargs)
         if "extra_headers" in ws_kwargs and ws_kwargs["extra_headers"]:
@@ -259,11 +264,11 @@ class BaseClient:
                         continue
                     yield parser(data)
                 except json.JSONDecodeError:
-                    logger.warning(
+                    self.logger.warning(
                         "Received non-JSON message on %s stream: %s…", path, message[:100]
                     )
                 except Exception as e:
-                    logger.error(
+                    self.logger.error(
                         "Error processing message from %s stream: %s. Message: %s…",
                         path,
                         e,
