@@ -1,7 +1,7 @@
 import json
 import uuid  # For generating order_ids
 from collections.abc import AsyncIterator
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import httpx
 
@@ -26,6 +26,9 @@ from tplus.utils.limit_order import create_limit_order_ob_request_payload
 from tplus.utils.market_order import create_market_order_ob_request_payload
 from tplus.utils.replace_order import create_replace_order_ob_request_payload
 from tplus.utils.signing import create_cancel_order_ob_request_payload
+
+if TYPE_CHECKING:
+    from tplus.utils.user import User
 
 
 class OrderBookClient(BaseClient):
