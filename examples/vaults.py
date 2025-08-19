@@ -11,7 +11,7 @@ CLEARING_ENGINE_HOST = "http://127.0.0.1:3032"
 async def main():
     tplus_user = load_user(USERNAME)
     client = ClearingEngineClient(tplus_user, CLEARING_ENGINE_HOST)
-    vault_addresses = await client.vaults.get_vaults()
+    vault_addresses = await client.vaults.get()
     pprint(vault_addresses)
 
     await client.vaults.update(11155111)
