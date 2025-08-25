@@ -127,7 +127,7 @@ class BaseClient:
                     )
                     return {}
 
-                return json_response or {}
+                return json_response
 
             except Exception:
                 raise Exception(

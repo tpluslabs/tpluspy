@@ -46,3 +46,12 @@ class WithdrawalClient(BaseClearingEngineClient):
             chain_id (int): The chain to request withdrawals for.
         """
         await self._post("withdrawal/update", json_data={"user": user, "chain_id": chain_id})
+
+    async def get_queued(self, user: str) -> list[WithdrawalRequest]:
+        """
+        Get a user's queued withdrawals.
+
+        Args:
+            user (str): The user withdrawing.
+        """
+        return await self._get(f"withdrawal/queue/{user}")
