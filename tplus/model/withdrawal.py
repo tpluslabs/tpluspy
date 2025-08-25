@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from eth_pydantic_types.hex import HexInt, HexStr32
+from eth_pydantic_types.hex import HexInt
 from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
@@ -15,7 +15,6 @@ class InnerWithdrawalRequest(BaseModel):
     tplus_user: UserPublicKey
     asset: AssetIdentifier
     amount: HexInt
-    target: HexStr32
     chain_id: ChainID
 
     def signing_payload(self) -> str:
@@ -37,7 +36,6 @@ class WithdrawalRequest(BaseModel):
         tplus_user: str,
         asset: AssetIdentifier | str,
         amount: int,
-        target: str,
         chain_id: int,
         signer: "User",
     ) -> "WithdrawalRequest":
@@ -52,7 +50,6 @@ class WithdrawalRequest(BaseModel):
             tplus_user=tplus_user,
             asset=asset,
             amount=amount,
-            target=target,
             chain_id=chain_id,
         )
         signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
