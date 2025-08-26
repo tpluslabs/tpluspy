@@ -61,14 +61,15 @@ class SettlementClient(BaseClearingEngineClient):
         request = {"user": user, "chain_id": chain_id}
         await self._post("settlement/update", json_data=request)
 
-    async def update_approved_settlers(self, chain_id: int):
+    async def update_approved_settlers(self, chain_id: int, vault_address: str):
         """
         Request that the CE check the deposit vault for new approved settlers.
 
         Args:
             chain_id (int): The chain ID to check.
+            vault_address (str): The vault address to check.
         """
-        request = {"chain_id": chain_id}
+        request = {"chain_id": chain_id, "vault_address": vault_address}
         await self._post("settlers/update", json_data=request)
 
     async def get_approved_settlers(self, chain_id: int) -> list[str]:
