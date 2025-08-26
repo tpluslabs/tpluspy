@@ -9,10 +9,10 @@ class TestChainID:
     @pytest.mark.parametrize(
         "value",
         [
-            11155111,
-            "0xaA36A7",
-            (11155111).to_bytes(8, "big"),
-            [0, 0, 0, 0, 0, 170, 54, 167],
+            42161,
+            "0xa4b1",
+            (42161).to_bytes(8, "big"),
+            [0, 0, 0, 0, 0, 0, 164, 177],
         ],
     )
     def test_chain_id(self, value):
@@ -20,11 +20,11 @@ class TestChainID:
             chain_id: ChainID
 
         model = MyModel(chain_id=value)
-        assert model.chain_id == 11155111
+        assert model.chain_id == 42161
 
         # Show it serializes back to equivalent of rust's [u8; 8].
         model_json = model.model_dump_json()
-        assert model_json == '{"chain_id":[0,0,0,0,0,170,54,167]}'
+        assert model_json == '{"chain_id":[0,0,0,0,0,0,164,177]}'
 
 
 class TestUserPublicKey:

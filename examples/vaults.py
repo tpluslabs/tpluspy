@@ -14,7 +14,7 @@ async def main():
     vault_addresses = await client.vaults.get()
     pprint(vault_addresses)
 
-    await client.vaults.update(11155111)
+    await client.vaults.update()
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ class TestAssetIdentifier:
         Shows it automatically pads and utilizes an asset address str.
         """
         raw_str = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
         )
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
@@ -22,11 +22,11 @@ class TestAssetIdentifier:
         """
         Shows it automatically pads and utilizes an asset address str.
         """
-        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@0000000000aa36a7"
+        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000a4b1"
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
         expected = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
         )
         assert actual == expected
 
@@ -34,11 +34,11 @@ class TestAssetIdentifier:
         """
         Shows it automatically pads and utilizes an asset address str.
         """
-        raw_str = "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@aa36a7"
+        raw_str = "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@a4b1"
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
         expected = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
         )
         assert actual == expected
 
@@ -46,11 +46,11 @@ class TestAssetIdentifier:
         """
         Shows it automatically pads and utilizes an asset address str.
         """
-        raw_str = "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@11155111"
+        raw_str = "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@42161"
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
         expected = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
         )
         assert actual == expected
 
@@ -58,11 +58,11 @@ class TestAssetIdentifier:
         """
         Shows it automatically pads and utilizes an asset address str.
         """
-        raw_str = "62622e77d1349face943c6e7d5c01c61465fe1dc@11155111"
+        raw_str = "62622e77d1349face943c6e7d5c01c61465fe1dc@42161"
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
         expected = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
         )
         assert actual == expected
 
@@ -70,10 +70,10 @@ class TestAssetIdentifier:
         """
         Shows it automatically pads and utilizes an asset address str.
         """
-        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@aa36a7"
+        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1"
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
         expected = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@0000000000aa36a7"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
         )
         assert actual == expected

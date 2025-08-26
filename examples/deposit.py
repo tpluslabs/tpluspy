@@ -12,7 +12,7 @@ from tplus.utils.user import load_user
 
 USERNAME = "az"
 CLEARING_ENGINE_HOST = "http://127.0.0.1:3032"
-CHAIN_ID = 11155111
+CHAIN_ID = 42161
 TOKEN = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
 
 
