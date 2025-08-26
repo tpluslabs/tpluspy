@@ -75,7 +75,7 @@ class TplusDeployments:
         return self.deployments[item]
 
     def get(self, item, default=None):
-        return self.deployments.get(item, default=default)
+        return self.deployments.get(item, default)
 
 
 TPLUS_DEPLOYMENTS = TplusDeployments()
