@@ -16,9 +16,9 @@ async def init_settlement(client, tplus_user):
     inner = {
         "tplus_user": tplus_user.public_key,
         "asset_in": AssetIdentifier(f"{ASSET_IN}@{CHAIN_ID}"),
-        "amount_in": 100,
+        "amount_in": 11478827000000000000,
         "asset_out": AssetIdentifier(f"{ASSET_OUT}@{CHAIN_ID}"),
-        "amount_out": 100,
+        "amount_out": 2500000000000000,
         "chain_id": CHAIN_ID,
     }
     settlement = TxSettlementRequest.create_signed(inner, tplus_user)

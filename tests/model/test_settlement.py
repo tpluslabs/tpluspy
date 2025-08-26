@@ -28,7 +28,7 @@ class TestTxSettlementRequest:
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
         expected_user = f"{to_vec(user.public_key)}".replace(" ", "")
-        expected = f'{{"tplus_user":{expected_user},"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1","amount_in":"0x64","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1","amount_out":"0x64","chain_id":[0,0,0,0,0,0,164,177]}}'
+        expected = f'{{"tplus_user":{expected_user},"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1","amount_in":"0x9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1","amount_out":"0x8e1bc9bf04000","chain_id":[0,0,0,0,0,0,164,177]}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
@@ -54,14 +54,14 @@ class TestBundleSettlementRequest:
         settlement = BundleSettlementRequest(inner=inner, signature=[])
         actual = settlement.signing_payload()
         expected_user = f"{to_vec(user.public_key)}".replace(" ", "")
-        expected = f'{{"settlements":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1","amount_in":"0x64","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1","amount_out":"0x64"}}],"bundle":{{"bundle":{{}},"bundle_id":0}},"chain_id":[0,0,0,0,0,0,164,177],"tplus_user":{expected_user}}}'
+        expected = f'{{"settlements":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1","amount_in":"0x9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1","amount_out":"0x8e1bc9bf04000"}}],"bundle":{{"bundle":{{}},"bundle_id":0}},"chain_id":[0,0,0,0,0,0,164,177],"tplus_user":{expected_user}}}'
         assert actual == expected
 
 
 def get_base_settlement_data() -> dict:
     return {
         "asset_in": AssetIdentifier(f"{ASSET_IN}@{CHAIN_ID}"),
-        "amount_in": 100,
+        "amount_in": 11478827000000000000,
         "asset_out": AssetIdentifier(f"{ASSET_OUT}@{CHAIN_ID}"),
-        "amount_out": 100,
+        "amount_out": 2500000000000000,
     }
