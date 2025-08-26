@@ -24,6 +24,10 @@ def ape_init_extras():
                 res["clearing_engine"] = clearing_engine
                 res["tplus_user"] = tplus_user
 
+        else:
+            res["load_user"] = load_user
+            res["ClearingEngineClient"] = ClearingEngineClient
+
     except Exception as err:
         # Don't let this nonsense crash the session.
         print(f"Error from loading ape console extras: {err}")
