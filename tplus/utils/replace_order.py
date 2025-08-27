@@ -39,7 +39,7 @@ def create_replace_order_ob_request_payload(
     # Sign the ReplaceOrderDetails part
     # The Rust equivalent is ReplaceOrder::signable_part -> serde_json::to_string without spaces
     sign_payload_json = replace_details.model_dump_json(
-        exclude_none=True
+        exclude_none=False
     )  # Ensure compact like server
 
     # Server does: payload.replace(" ", "").replace("\r", "").replace("\n", "") before signing
