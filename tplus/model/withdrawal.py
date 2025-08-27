@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from eth_pydantic_types.hex import HexInt
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.types import ChainID, UserPublicKey
@@ -24,6 +24,10 @@ class InnerWithdrawalRequest(BaseModel):
             .replace("\r", "")
             .replace("\n", "")
         )
+
+    @field_serializer("amount")
+    def serialize_amount(self, value: HexInt) -> str:
+        return hex(value)[2:]
 
 
 class WithdrawalRequest(BaseModel):

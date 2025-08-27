@@ -51,3 +51,28 @@ def _validate_vec_size(val: list[int], size: int | None, pad_right: bool = False
 def _pad_vec(vec: list[int], pad_amount: int, pad_right: bool = False) -> list[int]:
     padding = [0] * pad_amount
     return vec + padding if pad_right else padding + vec
+
+
+def to_hex(val, prefix: bool = False) -> str:
+    if isinstance(val, str):
+        return _str_to_hex(val, prefix=prefix)
+
+    elif isinstance(val, int):
+        return _str_to_hex(hex(val), prefix=prefix)
+
+    elif isinstance(val, bytes):
+        return _str_to_hex(val.hex(), prefix=prefix)
+
+    raise TypeError(f"{type(val)} cannot be converted to hex.")
+
+
+def _str_to_hex(val: str, prefix: bool = False) -> str:
+    return (
+        val
+        if val.startswith("0x")
+        else f"0x{val}"
+        if prefix
+        else val[2:]
+        if val.startswith("0x")
+        else val
+    )

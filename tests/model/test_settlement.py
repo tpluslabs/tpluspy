@@ -5,7 +5,6 @@ from tplus.model.settlement import (
     BundleSettlementRequest,
     TxSettlementRequest,
 )
-from tplus.utils.hex import to_vec
 
 CHAIN_ID = 42161
 ASSET_IN = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
@@ -27,8 +26,7 @@ class TestTxSettlementRequest:
         """
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
-        expected_user = f"{to_vec(user.public_key)}".replace(" ", "")
-        expected = f'{{"tplus_user":{expected_user},"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1","amount_in":"0x9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1","amount_out":"0x8e1bc9bf04000","chain_id":[0,0,0,0,0,0,164,177]}}'
+        expected = f'{{"tplus_user":"{user.public_key}","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1","amount_out":"8e1bc9bf04000","chain_id":42161}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
@@ -53,8 +51,7 @@ class TestBundleSettlementRequest:
         }
         settlement = BundleSettlementRequest(inner=inner, signature=[])
         actual = settlement.signing_payload()
-        expected_user = f"{to_vec(user.public_key)}".replace(" ", "")
-        expected = f'{{"settlements":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1","amount_in":"0x9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1","amount_out":"0x8e1bc9bf04000"}}],"bundle":{{"bundle":{{}},"bundle_id":0}},"chain_id":[0,0,0,0,0,0,164,177],"tplus_user":{expected_user}}}'
+        expected = f'{{"settlements":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1","amount_out":"8e1bc9bf04000"}}],"bundle":{{"bundle":{{}},"bundle_id":0}},"chain_id":42161,"tplus_user":"{user.public_key}"}}'
         assert actual == expected
 
 

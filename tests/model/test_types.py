@@ -24,7 +24,7 @@ class TestChainID:
 
         # Show it serializes back to equivalent of rust's [u8; 8].
         model_json = model.model_dump_json()
-        assert model_json == '{"chain_id":[0,0,0,0,0,0,164,177]}'
+        assert model_json == '{"chain_id":42161}'
 
 
 class TestUserPublicKey:
@@ -83,7 +83,7 @@ class TestUserPublicKey:
         model_json = model.model_dump_json()
         assert (
             model_json
-            == '{"user":[235,136,106,86,249,240,239,166,68,50,103,140,235,241,39,14,147,20,167,88,230,235,105,122,96,98,2,164,81,227,232,46]}'
+            == '{"user":"eb886a56f9f0efa64432678cebf1270e9314a758e6eb697a606202a451e3e82e"}'
         )
 
     def test_validate_user_for_key(self):
