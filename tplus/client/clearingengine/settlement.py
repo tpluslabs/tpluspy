@@ -1,4 +1,5 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
+from tplus.model.asset_identifier import ChainAddress
 from tplus.model.settlement import BundleSettlementRequest, TxSettlementRequest
 
 
@@ -69,8 +70,9 @@ class SettlementClient(BaseClearingEngineClient):
             chain_id (int): The chain ID to check.
             vault_address (str): The vault address to check.
         """
-        request = {"chain_id": chain_id, "vault_address": vault_address}
-        await self._post("settlers/update", json_data=request)
+        request = ChainAddress(f"{vault_address}@{chain_id}")
+        json_data = request.model_dump(mode="json")
+        await self._post("settlers/update", json_data=json_data)
 
     async def get_approved_settlers(self, chain_id: int) -> list[str]:
         """
