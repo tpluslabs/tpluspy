@@ -5,8 +5,8 @@ from tplus.utils.serializers import hex_serialize_no_prefix
 
 class UserPublicKey(str):
     """
-    A value that validates str, bytes, or list[int] but serializes
-    to list[int].
+    A value that validates str, bytes, or list[int] and serializes
+    to hex-str without the 0x prefix.
     """
 
     @classmethod
