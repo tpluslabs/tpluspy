@@ -10,6 +10,7 @@ from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
 from tplus.model.market_order import MarketOrderDetails
 from tplus.model.order_trigger import TriggerAbove, TriggerBelow
+from tplus.model.types import UserPublicKey
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class Side(str, Enum):
 
 
 class Order(BaseModel):
-    signer: list[int]
+    signer: UserPublicKey
     order_id: str
     base_asset: AssetIdentifier
     details: LimitOrderDetails | MarketOrderDetails

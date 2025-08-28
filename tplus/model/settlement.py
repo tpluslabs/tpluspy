@@ -2,7 +2,7 @@ import json
 from typing import TYPE_CHECKING
 
 from eth_pydantic_types.hex.int import HexInt
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.types import ChainID, UserPublicKey
@@ -21,6 +21,10 @@ class BaseSettlement(BaseModel):
     amount_in: HexInt
     asset_out: AssetIdentifier
     amount_out: HexInt
+
+    @field_serializer("amount_in", "amount_out")
+    def serialize_amounts(self, val):
+        return hex(val)[2:]
 
 
 class InnerSettlementRequest(BaseSettlement):

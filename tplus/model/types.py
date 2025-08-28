@@ -1,18 +1,18 @@
 from pydantic_core.core_schema import int_schema, no_info_before_validator_function, str_schema
 
-from tplus.utils.serializers import int_vec_serializer
+from tplus.utils.serializers import hex_serialize_no_prefix
 
 
 class UserPublicKey(str):
     """
-    A value that validates str, bytes, or list[int] but serializes
-    to list[int].
+    A value that validates str, bytes, or list[int] and serializes
+    to hex-str without the 0x prefix.
     """
 
     @classmethod
     def __get_pydantic_core_schema__(cls, value, handler=None):
         schema = no_info_before_validator_function(cls.__validate_user__, str_schema())
-        schema["serialization"] = int_vec_serializer(size=32)
+        schema["serialization"] = hex_serialize_no_prefix()
         return schema
 
     @classmethod
@@ -84,6 +84,4 @@ class ChainID(int):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, value, handler=None):
-        schema = no_info_before_validator_function(validate_hex_int, int_schema())
-        schema["serialization"] = int_vec_serializer(size=8)
-        return schema
+        return no_info_before_validator_function(validate_hex_int, int_schema())

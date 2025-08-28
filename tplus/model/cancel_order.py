@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.types import UserPublicKey
 
 
 class CancelOrder(BaseModel):
@@ -8,7 +9,7 @@ class CancelOrder(BaseModel):
 
     order_id: str
     asset_id: AssetIdentifier  # Or str if only string form is signed
-    signer: list[int]  # Public key of the signer, included in the signed payload
+    signer: UserPublicKey  # Public key of the signer, included in the signed payload
 
 
 class CancelOrderRequest(BaseModel):
