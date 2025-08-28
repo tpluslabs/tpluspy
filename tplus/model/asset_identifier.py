@@ -5,19 +5,7 @@ from pydantic import RootModel, model_serializer, model_validator
 
 def _parse_asset_from_dict(data: dict) -> str:
     if "Address" in data:
-        addr_data = data["Address"]
-
-        # Backend sends a dict with byte arrays for address and chain
-        if isinstance(addr_data, dict) and "address" in addr_data and "chain" in addr_data:
-            addr_bytes = bytes(addr_data["address"])
-            chain_bytes = bytes(addr_data["chain"])
-            addr_hex = addr_bytes.hex()
-            chain_hex = chain_bytes.hex()
-            return f"{addr_hex}@{chain_hex}"
-
-        # This case seems ambiguous, but we'll pass it through.
-        elif isinstance(addr_data, str):
-            return addr_data
+        return _parse_chain_address_from_dict(data)
 
     # Backend sends an Index
     elif "Index" in data:
@@ -26,7 +14,29 @@ def _parse_asset_from_dict(data: dict) -> str:
     raise ValueError("Invalid dictionary for AssetIdentifier: must have 'Address' or 'Index' key")
 
 
-def _parse_asset_from_str(data: str) -> str:
+def _parse_chain_address_from_dict(data: dict) -> str:
+    if not (addr_data := data.get("Address")):
+        raise ValueError("Invalid dictionary for ChainAddress: must have 'Address' key")
+
+    # Backend sends a dict with byte arrays for address and chain
+    if isinstance(addr_data, dict) and "address" in addr_data and "chain" in addr_data:
+        addr_bytes = bytes(addr_data["address"])
+        chain_bytes = bytes(addr_data["chain"])
+        addr_hex = addr_bytes.hex()
+        chain_hex = chain_bytes.hex()
+        return f"{addr_hex}@{chain_hex}"
+
+    # This case seems ambiguous, but we'll pass it through.
+    elif isinstance(addr_data, str):
+        return addr_data
+
+    raise ValueError("Invalid Address")
+
+
+def parse_chain_address(data: str) -> str:
+    """
+    Parse a chain-address str (e.g. AssetIdentifier or VaultAddress).
+    """
     address, chain_part = data.split("@", 1)
 
     if address.startswith("0x"):
@@ -49,6 +59,33 @@ def _parse_asset_from_str(data: str) -> str:
     return f"{address}@{chain_hex}"
 
 
+class ChainAddress(RootModel[str]):
+    """
+    Identifies an address on a chain in format hex_address@hex_chain.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_input(cls, data: Any) -> Any:
+        # Case 1: Input is a dictionary from the backend (e.g., from JSON deserialization)
+        if isinstance(data, dict):
+            return _parse_chain_address_from_dict(data)
+
+        # Case 2: Input is a user-friendly string like "0x...address@chain_id"
+        elif isinstance(data, str) and "@" in data:
+            return parse_chain_address(data)
+
+        # Also works for already validated AssetIdentifiers.
+        return data
+
+    def __str__(self) -> str:
+        return str(self.root)
+
+    @model_serializer
+    def serialize_model(self) -> str:
+        return self.root
+
+
 class AssetIdentifier(RootModel[str]):
     """
     Represents an asset identifier, typically as a string (e.g., "SYMBOL@EXCHANGE" or a unique ID).
@@ -69,7 +106,7 @@ class AssetIdentifier(RootModel[str]):
 
         # Case 2: Input is a user-friendly string like "0x...address@chain_id"
         elif isinstance(data, str) and "@" in data:
-            return _parse_asset_from_str(data)
+            return parse_chain_address(data)
 
         elif isinstance(data, int):
             # int means index.
