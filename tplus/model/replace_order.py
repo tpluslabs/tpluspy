@@ -3,7 +3,6 @@ from typing import Any, Optional
 from pydantic import BaseModel, model_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 
 
 class ReplaceOrderDetails(BaseModel):
@@ -13,7 +12,6 @@ class ReplaceOrderDetails(BaseModel):
     timestamp_ns: int  # Timestamp for this replace request
     new_price_limit: Optional[int] = None
     new_quantity: Optional[int] = None
-    new_trigger: Optional[TriggerAbove | TriggerBelow] = None
     book_quantity_decimals: Optional[int] = None  # Assuming i8 maps to int
     book_price_decimals: Optional[int] = None  # Assuming i8 maps to int
 
@@ -41,7 +39,7 @@ class ReplaceOrderRequestPayload(BaseModel):
         # This structure should match how CreateOrderRequest and CancelOrderRequest are serialized
         # for the ObRequestPayload enum in Rust, e.g., {"ReplaceOrderRequest": {...}}
         return {
-            "request": self.request.model_dump(exclude_none=False),
+            "request": self.request.model_dump(exclude_none=True),
             "signer": self.user_id,  # Added user_id to serialization
             "asset_id": self.asset_id.model_dump(exclude_none=True),
             "signature": self.signature,
