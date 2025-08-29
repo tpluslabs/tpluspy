@@ -9,7 +9,6 @@ from pydantic import BaseModel, ValidationError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
 from tplus.model.market_order import MarketOrderDetails
-from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 from tplus.model.types import UserPublicKey
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,6 @@ class Order(BaseModel):
     base_asset: AssetIdentifier
     details: LimitOrderDetails | MarketOrderDetails
     side: Side
-    trigger: TriggerAbove | TriggerBelow | None = None
     creation_timestamp_ns: int
     canceled: bool = False
 
