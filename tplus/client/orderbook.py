@@ -391,22 +391,3 @@ class OrderBookClient(BaseClient):
         """
         async for trade in self.stream_user_finalized_trades(user_id=user_id):
             yield trade
-
-    async def close(self) -> None:
-        """
-        Closes the underlying httpx async client.
-        """
-        self.logger.debug("Closing async HTTP client.")
-        await self._client.aclose()
-
-    async def __aenter__(self):
-        """
-        Async context manager entry.
-        """
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """
-        Async context manager exit.
-        """
-        await self.close()
