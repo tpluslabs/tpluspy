@@ -1,4 +1,6 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
+from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.types import UserPublicKey
 
 
 class AdminClient(BaseClearingEngineClient):
@@ -10,3 +12,19 @@ class AdminClient(BaseClearingEngineClient):
             str | None
         """
         return await self._get("admin/verifying-key")
+
+    async def modify_user_inventory(
+        self, user: "UserPublicKey", asset: "AssetIdentifier", balance: dict
+    ):
+        """
+        Admin-only API for testing.
+        """
+        if not isinstance(user, UserPublicKey):
+            user = UserPublicKey.__validate_user__(user)
+        if not isinstance(asset, AssetIdentifier):
+            asset = AssetIdentifier.model_validate(asset)
+
+        asset = asset.model_dump()
+        await self._post(
+            "admin/inventory/modify", json_data={"user": user, "asset": asset, "balance": balance}
+        )
