@@ -3,9 +3,19 @@ from typing import Any, Optional
 from pydantic import BaseModel, model_serializer, model_validator
 
 
+class MarketBaseQuantity(BaseModel):
+    quantity: int
+    max_sellable_amount: Optional[int]  # max_sellable_quote_quantity
+
+
+class MarketQuoteQuantity(BaseModel):
+    quantity: int
+    max_sellable_quantity: Optional[int]  # max_sellable_base_quantity
+
+
 class MarketQuantity(BaseModel):
-    base_asset: Optional[int] = None
-    quote_asset: Optional[int] = None
+    base_asset: Optional[MarketBaseQuantity] = None
+    quote_asset: Optional[MarketQuoteQuantity] = None
 
     @model_validator(mode="after")
     def check_quantities(self) -> "MarketQuantity":
@@ -18,16 +28,15 @@ class MarketQuantity(BaseModel):
     @model_serializer
     def serialize_model(self) -> dict[str, int]:
         if self.base_asset is not None:
-            return {"BaseAsset": self.base_asset}
+            return {"BaseAsset": self.base_asset.model_dump()}
         if self.quote_asset is not None:
-            return {"QuoteAsset": self.quote_asset}
+            return {"QuoteAsset": self.quote_asset.model_dump()}
         raise ValueError("Either base_asset or quote_asset must be set.")
 
 
 class MarketOrderDetails(BaseModel):
     quantity: MarketQuantity
     fill_or_kill: bool
-    book_quantity_decimals: int
 
     @model_validator(mode="before")
     @classmethod
@@ -47,6 +56,5 @@ class MarketOrderDetails(BaseModel):
         market_data = {
             "quantity": self.quantity.serialize_model(),
             "fill_or_kill": self.fill_or_kill,
-            "book_quantity_decimals": self.book_quantity_decimals,
         }
         return {"Market": market_data}
