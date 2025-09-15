@@ -26,13 +26,13 @@ def create_limit_order_ob_request_payload(
         quantity=quantity,
         limit_price=price,
         time_in_force=actual_time_in_force,
-        book_quantity_decimals=book_quantity_decimals,
-        book_price_decimals=book_price_decimals,
     )
     order = Order(
         signer=list(bytes.fromhex(signer.public_key)),
         order_id=order_id,
         base_asset=asset_identifier,
+        book_quantity_decimals=book_quantity_decimals,
+        book_price_decimals=book_price_decimals,
         details=details,
         side=side_normalized,
         creation_timestamp_ns=time.time_ns(),

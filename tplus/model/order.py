@@ -36,6 +36,8 @@ class Order(BaseModel):
     signer: UserPublicKey
     order_id: str
     base_asset: AssetIdentifier
+    book_price_decimals: int
+    book_quantity_decimals: int
     details: LimitOrderDetails | MarketOrderDetails
     side: Side
     trigger: TriggerAbove | TriggerBelow | None = None
