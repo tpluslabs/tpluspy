@@ -4,6 +4,7 @@ from typing import Optional
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC, GTD, IOC, LimitOrderDetails
 from tplus.model.order import CreateOrderRequest, Order
+from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 from tplus.utils.user import User
 
 
@@ -17,6 +18,7 @@ def create_limit_order_ob_request_payload(
     asset_identifier: AssetIdentifier,
     order_id: str,
     time_in_force: Optional[GTC | GTD | IOC] = None,
+    trigger: TriggerAbove | TriggerBelow | None = None,
 ) -> CreateOrderRequest:
     side_normalized = "Sell" if side.lower() == "sell" else "Buy"
 
@@ -35,9 +37,9 @@ def create_limit_order_ob_request_payload(
         book_price_decimals=book_price_decimals,
         details=details,
         side=side_normalized,
+        trigger=trigger,
         creation_timestamp_ns=time.time_ns(),
     )
-
     sign_payload_json = order.signable_part()
     signature_bytes = signer.sign(sign_payload_json)
 

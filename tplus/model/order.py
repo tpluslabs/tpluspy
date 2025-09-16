@@ -4,7 +4,7 @@ import logging
 from enum import Enum
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
@@ -46,6 +46,12 @@ class Order(BaseModel):
 
     def signable_part(self) -> str:
         return self.model_dump_json(exclude={"canceled"})
+
+    @field_serializer("trigger")
+    def serialize_trigger(self, trigger, _info):
+        if trigger is None:
+            return None
+        return trigger.model_dump()
 
 
 class CreateOrderRequest(BaseModel):

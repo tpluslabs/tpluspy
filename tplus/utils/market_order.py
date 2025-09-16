@@ -9,6 +9,7 @@ from tplus.model.market_order import (
     MarketQuoteQuantity,
 )
 from tplus.model.order import CreateOrderRequest, Order
+from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 from tplus.utils.user import User
 
 
@@ -22,6 +23,7 @@ def create_market_order_ob_request_payload(
     base_quantity: Optional[MarketBaseQuantity] = None,
     quote_quantity: Optional[MarketQuoteQuantity] = None,
     fill_or_kill: bool = False,
+    trigger: TriggerAbove | TriggerBelow | None = None,
 ) -> CreateOrderRequest:
     side_normalized = "Sell" if side.lower() == "sell" else "Buy"
 
@@ -37,6 +39,7 @@ def create_market_order_ob_request_payload(
         book_price_decimals=book_price_decimals,
         details=details,
         side=side_normalized,
+        trigger=trigger,
         creation_timestamp_ns=time.time_ns(),
     )
 
