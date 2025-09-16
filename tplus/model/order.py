@@ -49,9 +49,7 @@ class Order(BaseModel):
 
     @field_serializer("trigger")
     def serialize_trigger(self, trigger, _info):
-        if trigger is None:
-            return None
-        return trigger.model_dump()
+        return None if trigger is None else trigger.model_dump()
 
 
 class CreateOrderRequest(BaseModel):
