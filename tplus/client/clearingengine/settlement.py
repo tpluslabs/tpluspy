@@ -1,6 +1,6 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import ChainAddress
-from tplus.model.settlement import BundleSettlementRequest, TxSettlementRequest
+from tplus.model.settlement import BatchSettlementRequest, TxSettlementRequest
 
 
 class SettlementClient(BaseClearingEngineClient):
@@ -36,19 +36,19 @@ class SettlementClient(BaseClearingEngineClient):
         """
         return await self._get(f"settlement/signatures/{user}")
 
-    async def init_bundle_settlement(self, request: dict | BundleSettlementRequest):
+    async def init_batch_settlement(self, request: dict | BatchSettlementRequest):
         """
         Initialize a bundle-based settlement.
 
         Args:
-            request (dict | BundleSettlementRequest): The transaction request.
+            request (dict | BatchSettlementRequest): The transaction request.
         """
         if isinstance(request, dict):
             # Validate.
-            request = BundleSettlementRequest.model_validate(request)
+            request = BatchSettlementRequest.model_validate(request)
 
         json_data = request.model_dump(mode="json")
-        await self._post("settlement/init-bundle", json_data=json_data)
+        await self._post("settlement/batch", json_data=json_data)
 
     async def update(self, user: str, chain_id: int):
         """

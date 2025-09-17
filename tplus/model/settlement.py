@@ -1,6 +1,7 @@
 import json
 from typing import TYPE_CHECKING
 
+from eth_pydantic_types.address import Address
 from eth_pydantic_types.hex.int import HexInt
 from pydantic import BaseModel, field_serializer
 
@@ -80,12 +81,12 @@ class TxSettlementRequest(BaseModel):
         return self.inner.signing_payload()
 
 
-class BundleSettlementRequest(BaseModel):
+class BatchSettlementRequest(BaseModel):
     """
-    Bundle settlement request.
+    Batch settlement request.
     """
 
-    inner: "InnerBundleSettlementRequest"
+    inner: "InnerBatchSettlementRequest"
     """
     The inner part of the request (signature fields).
     Allows multiple settlements, unlike ``TxSettlementRequest``.
@@ -98,8 +99,8 @@ class BundleSettlementRequest(BaseModel):
 
     @classmethod
     def create_signed(
-        cls, inner: "InnerBundleSettlementRequest", signer: "User"
-    ) -> "BundleSettlementRequest":
+        cls, inner: "InnerBatchSettlementRequest", signer: "User"
+    ) -> "BatchSettlementRequest":
         signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
         return cls(inner=inner, signature=signature)
 
@@ -107,9 +108,9 @@ class BundleSettlementRequest(BaseModel):
         return self.inner.signing_payload()
 
 
-class InnerBundleSettlementRequest(BaseModel):
+class InnerBatchSettlementRequest(BaseModel):
     """
-    Bundle settlement inner request. Does not contain any additional fields.
+    Batch settlement inner request. Does not contain any additional fields.
     """
 
     settlements: list[BaseSettlement]
@@ -117,7 +118,7 @@ class InnerBundleSettlementRequest(BaseModel):
     All settlement included in the transaction bundle.
     """
 
-    bundle: "SimBundleRequest"
+    bundle: dict
     """
     The bundle that gets sent to the blockchain client process.
     """
@@ -132,6 +133,21 @@ class InnerBundleSettlementRequest(BaseModel):
     The settler.
     """
 
+    target_address: Address
+    """
+    Target address, needed so we can create the settlement transactions.
+    """
+
+    pull_batch_settlement_gas: int
+    """
+    The amount of gas to use for the `pullBatchSettlement()` call.
+    """
+
+    push_batch_settlements_gas: int
+    """
+    The amount of gas to use for the `pushBatchSettlements()` call.
+    """
+
     def signing_payload(self) -> str:
         return (
             self.model_dump_json(exclude_none=True)
@@ -139,19 +155,3 @@ class InnerBundleSettlementRequest(BaseModel):
             .replace("\r", "")
             .replace("\n", "")
         )
-
-
-class SimBundleRequest(BaseModel):
-    """
-    Data for the light-client to validate the transaction bundle.
-    """
-
-    bundle: dict  # NOTE: Not using the model here so Ape isn't required.
-    """
-    Bundle data. Should match the model expected in RPC ``mev_SimBundle``.
-    """
-
-    bundle_id: int
-    """
-    A bundle identifier, should be unique for all settlement.
-    """
