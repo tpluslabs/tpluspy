@@ -1,6 +1,10 @@
 import json
 import logging
-import uuid  # For generating order_ids
+
+# For generating order_ids
+import base64
+import uuid
+
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, Optional, Union
 
@@ -80,7 +84,7 @@ class OrderBookClient(BaseClient):
         """
         Create a market order (async).
         """
-        order_id = str(uuid.uuid4())
+        order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id)
         ob_request_payload = create_market_order_ob_request_payload(
             side=side,
@@ -110,7 +114,7 @@ class OrderBookClient(BaseClient):
         """
         Create a limit order (async).
         """
-        order_id = str(uuid.uuid4())
+        order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id)
         signed_message = create_limit_order_ob_request_payload(
             quantity=quantity,
@@ -150,7 +154,7 @@ class OrderBookClient(BaseClient):
         """
         Replace an existing order with new parameters (async).
         """
-        replace_operation_id = str(uuid.uuid4())
+        replace_operation_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id)
         signed_message = create_replace_order_ob_request_payload(
             original_order_id=original_order_id,
