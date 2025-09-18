@@ -7,6 +7,7 @@ from pydantic import BaseModel, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.types import ChainID, UserPublicKey
+from tplus.utils.decimals import normalize_to_inventory
 from tplus.utils.hex import str_to_vec
 
 if TYPE_CHECKING:
@@ -35,6 +36,33 @@ class InnerSettlementRequest(BaseSettlement):
 
     tplus_user: UserPublicKey
     chain_id: ChainID
+
+    @classmethod
+    def from_raw(
+        cls,
+        asset_in: AssetIdentifier,
+        amount_in: int,
+        decimals_in: int,
+        asset_out: AssetIdentifier,
+        amount_out: int,
+        decimals_out: int,
+        tplus_user: AssetIdentifier,
+        chain: ChainID,
+    ) -> "InnerSettlementRequest":
+        """
+        Create a request using raw amounts by first normalizing them to the CE.
+
+        Args:
+
+        """
+        cls(
+            asset_in=asset_in,
+            amount_in=normalize_to_inventory(amount_in, decimals_in, "up"),
+            asset_out=asset_out,
+            amount_out=normalize_to_inventory(amount_out, decimals_out, "down"),
+            tplus_user=tplus_user,
+            chain_id=chain,
+        )
 
     def signing_payload(self) -> str:
         base_data = self.model_dump(mode="json", exclude_none=True)
@@ -69,8 +97,20 @@ class TxSettlementRequest(BaseModel):
 
     @classmethod
     def create_signed(
-        cls, inner: InnerSettlementRequest | dict, signer: "User"
+        cls,
+        inner: InnerSettlementRequest | dict,
+        signer: "User",
     ) -> "TxSettlementRequest":
+        """
+        Create and sign a settlement request.
+
+        Args:
+            inner (:class:`~tplus.model.settlement.InnerSettlementRequest`): The inner part of
+              the request (signature fields).
+            signer:
+            signer (:class:`~tplus.utils.user.model.User`): The tplus user signing.
+        """
+
         if isinstance(inner, dict):
             inner = InnerSettlementRequest.model_validate(inner)
 
