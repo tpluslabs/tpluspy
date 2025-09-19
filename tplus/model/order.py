@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError, field_serializer
 
@@ -149,15 +149,16 @@ class OrderCancelFailedEvent(BaseOrderEvent):
     reason: str | None = None
 
 
-OrderEvent = Union[
-    OrderCreatedEvent,
-    OrderUpdatedEvent,
-    OrderCancelledEvent,
-    OrderReplacedEvent,
-    OrderCreateFailedEvent,
-    OrderReplaceFailedEvent,
-    OrderCancelFailedEvent,
-]
+OrderEvent = (
+    OrderCreatedEvent
+    | OrderUpdatedEvent
+    | OrderCancelledEvent
+    | OrderReplacedEvent
+    | OrderCreateFailedEvent
+    | OrderReplaceFailedEvent
+    | OrderCancelFailedEvent
+)
+
 
 _EVENT_TYPE_MODEL_MAP: dict[str, type[BaseOrderEvent]] = {
     "CREATED": OrderCreatedEvent,

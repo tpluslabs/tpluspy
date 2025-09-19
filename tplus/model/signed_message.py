@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any
 
 from pydantic import BaseModel, model_serializer
 
@@ -11,7 +11,7 @@ from tplus.model.replace_order import ReplaceOrderRequestPayload
 class ObRequest(BaseModel):
     order_id: str
     base_asset: AssetIdentifier
-    ob_request_payload: Union[CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload]
+    ob_request_payload: CreateOrderRequest | CancelOrderRequest | ReplaceOrderRequestPayload
 
     @model_serializer
     def serialize_model(self) -> dict[str, Any]:
@@ -21,7 +21,7 @@ class ObRequest(BaseModel):
         }
         if isinstance(
             self.ob_request_payload,
-            (CreateOrderRequest, CancelOrderRequest, ReplaceOrderRequestPayload),
+            CreateOrderRequest | CancelOrderRequest | ReplaceOrderRequestPayload,
         ):
             data["ob_request_payload"] = self.ob_request_payload.model_dump(exclude_none=False)
         else:

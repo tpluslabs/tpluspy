@@ -17,7 +17,7 @@ class UserPublicKey(str):
 
     @classmethod
     def __validate_user__(cls, value):
-        if isinstance(value, (str, int, bytes, list)):
+        if isinstance(value, str | int | bytes | list):
             return validate_hex_str(value, size=32, pad_right=True)
 
         from tplus.utils.user import User

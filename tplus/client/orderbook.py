@@ -4,7 +4,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -46,14 +46,14 @@ class OrderBookClient(BaseClient):
         user: "User",
         *,
         base_url: str | None = None,
-        websocket_kwargs: Optional[dict[str, Any]] = None,
+        websocket_kwargs: dict[str, Any] | None = None,
         log_level: int = logging.INFO,
     ) -> None:
         super().__init__(
             user, base_url=base_url, websocket_kwargs=websocket_kwargs, log_level=log_level
         )
 
-    async def create_market(self, asset_id: Union[AssetIdentifier, str]) -> dict[str, Any]:
+    async def create_market(self, asset_id: AssetIdentifier | str) -> dict[str, Any]:
         """
         Create and send a market (async).
         """
@@ -74,10 +74,10 @@ class OrderBookClient(BaseClient):
     async def create_market_order(
         self,
         side: str,
-        base_quantity: Optional[int] = None,
-        quote_quantity: Optional[int] = None,
+        base_quantity: int | None = None,
+        quote_quantity: int | None = None,
         fill_or_kill: bool = False,
-        asset_id: Optional[AssetIdentifier] = None,
+        asset_id: AssetIdentifier | None = None,
     ) -> dict[str, Any]:
         """
         Create a market order (async).
@@ -106,8 +106,8 @@ class OrderBookClient(BaseClient):
         quantity: int,
         price: int,
         side: str,
-        time_in_force: Optional[GTC | GTD | IOC] = None,
-        asset_id: Optional[AssetIdentifier] = None,
+        time_in_force: GTC | GTD | IOC | None = None,
+        asset_id: AssetIdentifier | None = None,
     ) -> dict[str, Any]:
         """
         Create a limit order (async).
@@ -146,8 +146,8 @@ class OrderBookClient(BaseClient):
         self,
         original_order_id: str,
         asset_id: AssetIdentifier,
-        new_quantity: Optional[int] = None,
-        new_price: Optional[int] = None,
+        new_quantity: int | None = None,
+        new_price: int | None = None,
     ) -> dict[str, Any]:
         """
         Replace an existing order with new parameters (async).
@@ -351,7 +351,7 @@ class OrderBookClient(BaseClient):
             yield kline
 
     async def stream_user_trade_events(
-        self, user_id: Optional[str] = None
+        self, user_id: str | None = None
     ) -> AsyncIterator[UserTrade]:
         """
         Stream **all** trade events (``Pending``, ``Confirmed``, ``Rollbacked``) for a specific user.
@@ -369,7 +369,7 @@ class OrderBookClient(BaseClient):
             yield trade
 
     async def stream_user_finalized_trades(
-        self, user_id: Optional[str] = None
+        self, user_id: str | None = None
     ) -> AsyncIterator[UserTrade]:
         """
         Stream **finalized** (confirmed) trades for a specific user.
@@ -386,7 +386,7 @@ class OrderBookClient(BaseClient):
         async for trade in self._stream_ws(path, parse_single_user_trade):
             yield trade
 
-    async def stream_user_trades(self, user_id: Optional[str] = None) -> AsyncIterator[UserTrade]:
+    async def stream_user_trades(self, user_id: str | None = None) -> AsyncIterator[UserTrade]:
         """
         [DEPRECATED] Use stream_user_trade_events or stream_user_finalized_trades instead.
         This method streams finalized (confirmed) trades for a specific user.

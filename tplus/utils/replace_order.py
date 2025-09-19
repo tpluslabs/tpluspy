@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.replace_order import ReplaceOrderDetails, ReplaceOrderRequestPayload
@@ -11,13 +10,13 @@ def create_replace_order_ob_request_payload(
     asset_identifier: AssetIdentifier,  # Asset ID of the order
     signer: User,
     # New parameters for the order
-    new_price: Optional[int] = None,
-    new_quantity: Optional[int] = None,
+    new_price: int | None = None,
+    new_quantity: int | None = None,
     # Market details, may be needed if not replacing price/qty or if server requires them
-    book_price_decimals: Optional[int] = None,
-    book_quantity_decimals: Optional[int] = None,
+    book_price_decimals: int | None = None,
+    book_quantity_decimals: int | None = None,
     # Timestamp for the replace operation itself
-    request_timestamp_ns: Optional[int] = None,
+    request_timestamp_ns: int | None = None,
 ) -> ReplaceOrderRequestPayload:
     """
     Creates the ReplaceOrderRequestPayload for an ObRequest.
