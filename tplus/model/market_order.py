@@ -1,21 +1,21 @@
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, model_serializer, model_validator
 
 
 class MarketBaseQuantity(BaseModel):
     quantity: int
-    max_sellable_amount: Optional[int]  # max_sellable_quote_quantity
+    max_sellable_amount: int | None  # max_sellable_quote_quantity
 
 
 class MarketQuoteQuantity(BaseModel):
     quantity: int
-    max_sellable_quantity: Optional[int]  # max_sellable_base_quantity
+    max_sellable_quantity: int | None  # max_sellable_base_quantity
 
 
 class MarketQuantity(BaseModel):
-    base_asset: Optional[MarketBaseQuantity] = None
-    quote_asset: Optional[MarketQuoteQuantity] = None
+    base_asset: MarketBaseQuantity | None = None
+    quote_asset: MarketQuoteQuantity | None = None
 
     @model_validator(mode="after")
     def check_quantities(self) -> "MarketQuantity":

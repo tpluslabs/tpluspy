@@ -1,8 +1,8 @@
 import json
 import logging
 import ssl
-from collections.abc import AsyncIterator
-from typing import Any, Callable, Optional
+from collections.abc import AsyncIterator, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -25,8 +25,8 @@ class BaseClient:
         user: User,
         base_url: str,
         timeout: float = DEFAULT_TIMEOUT,
-        client: Optional[httpx.Client] = None,
-        websocket_kwargs: Optional[dict[str, Any]] = None,
+        client: httpx.Client | None = None,
+        websocket_kwargs: dict[str, Any] | None = None,
         log_level: int = logging.INFO,
     ):
         self.user = user
@@ -43,7 +43,7 @@ class BaseClient:
         import asyncio
 
         self._auth_lock: asyncio.Lock = asyncio.Lock()
-        self._auth_token: Optional[str] = None
+        self._auth_token: str | None = None
         self._auth_expiry_ns: int = 0
         self.logger = get_logger(log_level=log_level)
 
@@ -54,18 +54,14 @@ class BaseClient:
         """
         return cls(client.user, client.base_url, client=client._client)
 
-    async def _get(
-        self, endpoint: str, json_data: Optional[dict[str, Any]] = None
-    ) -> dict[str, Any]:
+    async def _get(self, endpoint: str, json_data: dict[str, Any] | None = None) -> dict[str, Any]:
         return await self._request("GET", endpoint, json_data=json_data)
 
-    async def _post(
-        self, endpoint: str, json_data: Optional[dict[str, Any]] = None
-    ) -> dict[str, Any]:
+    async def _post(self, endpoint: str, json_data: dict[str, Any] | None = None) -> dict[str, Any]:
         return await self._request("POST", endpoint, json_data=json_data)
 
     async def _request(
-        self, method: str, endpoint: str, json_data: Optional[dict[str, Any]] = None
+        self, method: str, endpoint: str, json_data: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
 

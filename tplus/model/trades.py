@@ -1,4 +1,4 @@
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -91,7 +91,7 @@ class TradeConfirmedEvent(BaseTradeEvent):
     trade: Trade
 
 
-TradeEvent = Union[TradePendingEvent, TradeConfirmedEvent]
+TradeEvent = TradePendingEvent | TradeConfirmedEvent
 
 
 def parse_single_trade(item: dict[str, Any]) -> Trade:

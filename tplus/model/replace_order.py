@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, model_serializer
 
@@ -11,11 +11,11 @@ class ReplaceOrderDetails(BaseModel):
 
     order_id: str  # The ID of the order to be replaced
     timestamp_ns: int  # Timestamp for this replace request
-    new_price_limit: Optional[int] = None
-    new_quantity: Optional[int] = None
-    new_trigger: Optional[TriggerAbove | TriggerBelow] = None
-    book_quantity_decimals: Optional[int] = None  # Assuming i8 maps to int
-    book_price_decimals: Optional[int] = None  # Assuming i8 maps to int
+    new_price_limit: int | None = None
+    new_quantity: int | None = None
+    new_trigger: TriggerAbove | TriggerBelow | None = None
+    book_quantity_decimals: int | None = None  # Assuming i8 maps to int
+    book_price_decimals: int | None = None  # Assuming i8 maps to int
 
     # Pydantic serializes Optional[None] to null by default.
     # If specific fields must be present even if null, they don't need exclude_none.

@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.market_order import (
@@ -20,8 +19,8 @@ def create_market_order_ob_request_payload(
     book_price_decimals: int,
     asset_identifier: AssetIdentifier,
     order_id: str,
-    base_quantity: Optional[MarketBaseQuantity] = None,
-    quote_quantity: Optional[MarketQuoteQuantity] = None,
+    base_quantity: MarketBaseQuantity | None = None,
+    quote_quantity: MarketQuoteQuantity | None = None,
     fill_or_kill: bool = False,
     trigger: TriggerAbove | TriggerBelow | None = None,
 ) -> CreateOrderRequest:
