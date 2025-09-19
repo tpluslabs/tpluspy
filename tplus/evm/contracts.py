@@ -1,7 +1,7 @@
 import os
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 import yaml
 from ape.exceptions import ContractNotFoundError, ProjectError
@@ -235,7 +235,7 @@ class Registry(TPlusContract):
     def set_asset(
         self,
         index: int,
-        asset_address: Union[HexBytes32, AddressType],
+        asset_address: HexBytes32 | AddressType,
         chain_id: int,
         max_deposit: int,
         sender=None,

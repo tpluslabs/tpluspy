@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC, GTD, IOC, LimitOrderDetails
@@ -17,7 +16,7 @@ def create_limit_order_ob_request_payload(
     book_price_decimals: int,
     asset_identifier: AssetIdentifier,
     order_id: str,
-    time_in_force: Optional[GTC | GTD | IOC] = None,
+    time_in_force: GTC | GTD | IOC | None = None,
     trigger: TriggerAbove | TriggerBelow | None = None,
 ) -> CreateOrderRequest:
     side_normalized = "Sell" if side.lower() == "sell" else "Buy"
