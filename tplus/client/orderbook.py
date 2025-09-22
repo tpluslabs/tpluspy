@@ -13,6 +13,7 @@ from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
+from tplus.model.market_order import MarketBaseQuantity, MarketQuoteQuantity
 from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
 from tplus.model.orderbook import OrderBook, OrderBookDiff
 from tplus.model.trades import (
@@ -84,14 +85,28 @@ class OrderBookClient(BaseClient):
         """
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id)
+
+        # Wrap primitive quantities into the expected models so JSON matches OMS schema
+        base_qty_model: Optional[MarketBaseQuantity] = None
+        quote_qty_model: Optional[MarketQuoteQuantity] = None
+        if base_quantity is not None and quote_quantity is not None:
+            raise ValueError("Provide only one of base_quantity or quote_quantity for a market order")
+        if base_quantity is not None:
+            base_qty_model = MarketBaseQuantity(quantity=base_quantity, max_sellable_amount=None)
+        elif quote_quantity is not None:
+            quote_qty_model = MarketQuoteQuantity(
+                quantity=quote_quantity, max_sellable_quantity=None
+            )
+
         ob_request_payload = create_market_order_ob_request_payload(
             side=side,
             signer=self.user,
             book_quantity_decimals=market.book_quantity_decimals,
+            book_price_decimals=market.book_price_decimals,
             asset_identifier=asset_id,
             order_id=order_id,
-            base_quantity=base_quantity,
-            quote_quantity=quote_quantity,
+            base_quantity=base_qty_model,
+            quote_quantity=quote_qty_model,
             fill_or_kill=fill_or_kill,
         )
         self.logger.debug(
