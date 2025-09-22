@@ -112,6 +112,9 @@ class TxSettlementRequest(BaseModel):
         """
 
         if isinstance(inner, dict):
+            if "tplus_user" not in inner:
+                inner["tplus_user"] = signer.public_key
+
             inner = InnerSettlementRequest.model_validate(inner)
 
         signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
