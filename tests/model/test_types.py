@@ -26,6 +26,10 @@ class TestChainID:
         model_json = model.model_dump_json()
         assert model_json == '{"chain_id":42161}'
 
+    def test_eq(self):
+        chain_id = ChainID(42161)
+        assert chain_id == 42161
+
 
 class TestUserPublicKey:
     @pytest.mark.parametrize(
