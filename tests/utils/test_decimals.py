@@ -10,7 +10,6 @@ from tplus.utils.decimals import (
 
 def test_normalize_decimals_equal():
     assert normalize_decimals(12345, 6, 6, "down") == 12345
-    assert normalize_decimals(12345, 6, 6, "down") == 12345
 
 
 def test_normalize_decimals_scale_up():
