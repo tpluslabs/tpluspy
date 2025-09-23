@@ -46,7 +46,7 @@ class TestTxSettlementRequest:
         actual = settlement.inner.signing_payload()
         assert actual == expected
 
-    def test_from_signed(self, settlement, user):
+    def test_create_signed(self, settlement, user):
         signed = TxSettlementRequest.create_signed(settlement, user)
         assert signed.signature  # truthiness
 
