@@ -46,9 +46,21 @@ class TestTxSettlementRequest:
         actual = settlement.inner.signing_payload()
         assert actual == expected
 
-    def test_from_signed(self, settlement, user):
-        settlement = TxSettlementRequest.create_signed(settlement, user)
-        assert settlement.signature  # truthiness
+    def test_create_signed(self, settlement, user):
+        signed = TxSettlementRequest.create_signed(settlement, user)
+        assert signed.signature  # truthiness
+
+        # Show user is not required in inner dict.
+        settlement.pop("tplus_user", None)
+        signed = TxSettlementRequest.create_signed(settlement, user)
+        assert signed.inner.tplus_user == user.public_key
+        assert signed.signature  # truthiness
+
+        # Show can use model.
+        settlement_model = InnerSettlementRequest.model_validate(settlement)
+        signed = TxSettlementRequest.create_signed(settlement_model, user)
+        assert signed.inner.tplus_user == user.public_key
+        assert signed.signature  # truthiness
 
 
 class TestBundleSettlementRequest:

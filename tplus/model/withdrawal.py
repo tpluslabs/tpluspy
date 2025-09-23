@@ -18,12 +18,7 @@ class InnerWithdrawalRequest(BaseModel):
     chain_id: ChainID
 
     def signing_payload(self) -> str:
-        return (
-            self.model_dump_json(exclude_none=True)
-            .replace(" ", "")
-            .replace("\r", "")
-            .replace("\n", "")
-        )
+        return self.model_dump_json(exclude_none=True)
 
     @field_serializer("amount")
     def serialize_amount(self, value: HexInt) -> str:
@@ -37,11 +32,10 @@ class WithdrawalRequest(BaseModel):
     @classmethod
     def create_signed(
         cls,
-        tplus_user: str,
+        signer: "User",
         asset: AssetIdentifier | str,
         amount: int,
         chain_id: int,
-        signer: "User",
     ) -> "WithdrawalRequest":
         if not isinstance(asset, AssetIdentifier):
             if asset.startswith("0x") and "@" not in asset:
@@ -51,7 +45,7 @@ class WithdrawalRequest(BaseModel):
             asset = AssetIdentifier.model_validate(asset)
 
         inner = InnerWithdrawalRequest(
-            tplus_user=tplus_user,
+            tplus_user=signer.public_key,
             asset=asset,
             amount=amount,
             chain_id=chain_id,
