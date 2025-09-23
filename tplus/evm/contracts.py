@@ -10,6 +10,7 @@ from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
+from tplus.evm.constants import REGISTRY_ADDRESS
 from tplus.evm.exceptions import ContractNotExists
 from tplus.utils.bytes32 import to_bytes32
 
@@ -35,6 +36,9 @@ NETWORK_MAP = {
         "sepolia": 421614,
     },
 }
+DEFAULT_DEPLOYMENTS: dict = {
+    42161: {"Registry": REGISTRY_ADDRESS}
+}
 
 
 class TplusDeployments:
@@ -52,7 +56,7 @@ class TplusDeployments:
         file = contracts_path / "ape-config.yaml"
 
         if not file.is_file():
-            return {}
+            return DEFAULT_DEPLOYMENTS
 
         registered = yaml.safe_load(file.read_text())["deployments"]
         result = {}
