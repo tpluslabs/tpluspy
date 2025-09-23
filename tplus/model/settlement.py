@@ -46,7 +46,7 @@ class InnerSettlementRequest(BaseSettlement):
         asset_out: AssetIdentifier,
         amount_out: int,
         decimals_out: int,
-        tplus_user: AssetIdentifier,
+        tplus_user: UserPublicKey,
         chain: ChainID,
     ) -> "InnerSettlementRequest":
         """
