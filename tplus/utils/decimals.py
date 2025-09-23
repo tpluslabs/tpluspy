@@ -21,7 +21,7 @@ def normalize_decimals(amount: int, from_decimals: int, to_decimals: int, roundi
     Behaves like the Rust version: scales up or down depending on decimals,
     with optional round-down or ceiling division when scaling down.
     """
-    round_down = rounding.lower() == "down"
+    round_value = rounding.lower()
     if to_decimals > from_decimals:
         # Scale up: multiply
         exponent = to_decimals - from_decimals
@@ -32,11 +32,13 @@ def normalize_decimals(amount: int, from_decimals: int, to_decimals: int, roundi
         # Scale down: divide
         exponent = from_decimals - to_decimals
         factor = 10**exponent
-        if round_down:
+        if round_value == "down":
             return amount // factor
-        else:
+        elif round_value == "up":
             # Ceiling division
             return (amount + factor - 1) // factor
+        else:
+            raise ValueError(f"Unknown rounding value '{round_value}'; expecting 'up' or 'down'.")
 
     else:
         # Equal, no change
