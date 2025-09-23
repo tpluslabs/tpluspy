@@ -29,5 +29,5 @@ class VaultClient(BaseClearingEngineClient):
         """
         Get all registered vaults.
         """
-        result = await self._get("vaults") or []
+        result: list = await self._get("vaults") or []
         return [ChainAddress.model_validate(a) for a in result]
