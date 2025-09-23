@@ -36,9 +36,7 @@ NETWORK_MAP = {
         "sepolia": 421614,
     },
 }
-DEFAULT_DEPLOYMENTS: dict = {
-    42161: {"Registry": REGISTRY_ADDRESS}
-}
+DEFAULT_DEPLOYMENTS: dict = {42161: {"Registry": REGISTRY_ADDRESS}}
 
 
 class TplusDeployments:
