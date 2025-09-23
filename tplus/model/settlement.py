@@ -77,7 +77,7 @@ class InnerSettlementRequest(BaseSettlement):
             "chain_id": chain_id,
         }
 
-        return json.dumps(payload).replace(" ", "").replace("\r", "").replace("\n", "")
+        return json.dumps(payload, separators=(",", ":"))
 
 
 class TxSettlementRequest(BaseModel):

@@ -18,12 +18,7 @@ class InnerWithdrawalRequest(BaseModel):
     chain_id: ChainID
 
     def signing_payload(self) -> str:
-        return (
-            self.model_dump_json(exclude_none=True)
-            .replace(" ", "")
-            .replace("\r", "")
-            .replace("\n", "")
-        )
+        return self.model_dump_json(exclude_none=True)
 
     @field_serializer("amount")
     def serialize_amount(self, value: HexInt) -> str:
