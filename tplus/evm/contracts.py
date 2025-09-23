@@ -12,6 +12,7 @@ from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import REGISTRY_ADDRESS
 from tplus.evm.exceptions import ContractNotExists
+from tplus.model.asset_identifier import ChainAddress
 from tplus.utils.bytes32 import to_bytes32
 
 if TYPE_CHECKING:
@@ -320,6 +321,10 @@ class DepositVault(TPlusContract):
             )
 
         return super().__getattr__(attr_name)
+
+    @classmethod
+    def from_chain_address(cls, chain_address: ChainAddress) -> "DepositVault":
+        return cls(chain_address.chain_id, chain_address.evm_address)
 
 
 registry = Registry()

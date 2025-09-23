@@ -1,11 +1,27 @@
+import pytest
+
 from tplus.model.asset_identifier import AssetIdentifier, ChainAddress
 
 
 class TestChainAddress:
-    def test_chain_id(self):
-        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1"
-        asset_id = ChainAddress(root=raw_str)
-        assert asset_id.chain_id == 42161
+    @pytest.fixture(scope="class")
+    def chain_address(self):
+        return ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1")
+
+    def test_address(self, chain_address):
+        assert (
+            chain_address.address
+            == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000"
+        )
+
+    def test_evm_address(self, chain_address):
+        """
+        Evm address should be 20 bytes and checksummed.
+        """
+        assert chain_address.evm_address == "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
+
+    def test_chain_id(self, chain_address):
+        assert chain_address.chain_id == 42161
 
 
 class TestAssetIdentifier:
