@@ -3,12 +3,25 @@ import pytest
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.settlement import (
     BatchSettlementRequest,
+    InnerSettlementRequest,
     TxSettlementRequest,
 )
 
 CHAIN_ID = 42161
 ASSET_IN = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
 ASSET_OUT = "0x58372ab62269A52fA636aD7F200d93999595DCAF"
+
+
+class TestInnerSettlementRequest:
+    def test_from_raw(self, user):
+        request = InnerSettlementRequest.from_raw(
+            ASSET_IN, 100, 6, ASSET_OUT, 100, 18, user.public_key, CHAIN_ID
+        )
+        assert request.asset_in.root == ASSET_IN
+        assert request.amount_in == 100_000_000_000_000  # normalized
+        assert request.asset_out.root == ASSET_OUT
+        assert request.amount_out == 100
+        assert request.chain_id == CHAIN_ID
 
 
 class TestTxSettlementRequest:
