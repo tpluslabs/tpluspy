@@ -85,6 +85,10 @@ class ChainAddress(RootModel[str]):
     def serialize_model(self) -> str:
         return self.root
 
+    @property
+    def chain_id(self) -> int:
+        return int(self.root.split("@")[-1], 16)
+
 
 class AssetIdentifier(RootModel[str]):
     """

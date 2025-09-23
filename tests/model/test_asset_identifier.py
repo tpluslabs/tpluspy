@@ -1,4 +1,11 @@
-from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.asset_identifier import AssetIdentifier, ChainAddress
+
+
+class TestChainAddress:
+    def test_chain_id(self):
+        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1"
+        asset_id = ChainAddress(root=raw_str)
+        assert asset_id.chain_id == 42161
 
 
 class TestAssetIdentifier:
