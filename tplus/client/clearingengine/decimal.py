@@ -2,11 +2,18 @@ from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 
 
-def _prep_request(asset_id: list[str | AssetIdentifier], chains: list[int]) -> dict:
+def _prep_request(
+    asset_ids: list[str | AssetIdentifier] | str | AssetIdentifier, chains: list[int] | int
+) -> dict:
+    if not isinstance(asset_ids, list):
+        asset_ids = [asset_ids]
+    if not isinstance(chains, list):
+        chains = [chains]
+
     assets = []
-    for asset in asset_id:
+    for asset in asset_ids:
         if not isinstance(asset, AssetIdentifier):
-            asset = AssetIdentifier.model_validate(asset_id).model_dump()
+            asset = AssetIdentifier.model_validate(asset)
 
         assets.append(asset.model_dump())
 
