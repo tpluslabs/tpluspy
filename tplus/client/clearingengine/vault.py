@@ -1,5 +1,5 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
-from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.asset_identifier import AssetIdentifier, ChainAddress
 
 
 class VaultClient(BaseClearingEngineClient):
@@ -25,8 +25,9 @@ class VaultClient(BaseClearingEngineClient):
         request = {"asset_id": asset_id, "chain_id": chain_id}
         await self._post("vault/balance/update", json_data=request)
 
-    async def get(self) -> dict:
+    async def get(self) -> list[ChainAddress]:
         """
         Get all registered vaults.
         """
-        return await self._get("vaults")
+        result = await self._get("vaults") or []
+        return [ChainAddress.model_validate(a) for a in result]
