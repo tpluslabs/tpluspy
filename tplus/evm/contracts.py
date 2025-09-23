@@ -112,11 +112,18 @@ class TPlusContract(TPlusMixin):
     An abstraction around a t+ contract.
     """
 
-    def __init__(self, name: str, default_deployer: Optional["AccountAPI"] = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        default_deployer: Optional["AccountAPI"] = None,
+        chain_id: int | None = None,
+        address: str | None = None,
+    ) -> None:
         self._deployments: dict[int, ContractInstance] = {}
         self._name = name
         self._default_deployer = default_deployer
-        self._chain_id = None
+        self._chain_id = chain_id
+        self._address = address
 
     def __repr__(self) -> str:
         return f"<{self._name}>"
@@ -128,6 +135,14 @@ class TPlusContract(TPlusMixin):
         except AttributeError:
             # Resort to something defined on the contract.
             return getattr(self.contract, attr_name)
+
+    @property
+    def address(self) -> str:
+        if address := self._address:
+            return address
+
+        chain_id = self._chain_vid or self.chain_manager.chain_id
+        return self.get_address(chain_id=chain_id)
 
     @property
     def _contract_container(self) -> "ContractContainer":
@@ -179,17 +194,23 @@ class TPlusContract(TPlusMixin):
             # Get previously cached instance.
             return self._deployments[chain_id]
 
-        try:
-            address = TPLUS_DEPLOYMENTS[chain_id][self._name]
-        except KeyError:
-            raise ContractNotExists(f"{self._name} not deployed on chain '{chain_id}'.")
-
+        address = self.get_address(chain_id=chain_id)
         contract_container = self._contract_container.at(address)
 
         # Cache for next time.
         self._deployments[chain_id] = contract_container
 
         return contract_container
+
+    def get_address(self, chain_id: int | None = None) -> str:
+        if self._address and self._chain_id and chain_id == self._chain_id:
+            return self._address
+
+        chain_id = chain_id or self._chain_id or self.chain_manager.chain_id
+        try:
+            return TPLUS_DEPLOYMENTS[chain_id][self._name]
+        except KeyError:
+            raise ContractNotExists(f"{self._name} not deployed on chain '{chain_id}'.")
 
     def deploy(self, deployer: "AccountAPI") -> "TPlusContract":
         instance = deployer.deploy(self._contract_container)
@@ -276,9 +297,8 @@ class Registry(TPlusContract):
 
 
 class DepositVault(TPlusContract):
-    def __init__(self, chain_id: int | None = None) -> None:
-        super().__init__("DepositVault")
-        self._chain_id = chain_id
+    def __init__(self, chain_id: int | None = None, address: str | None = None) -> None:
+        super().__init__("DepositVault", chain_id=chain_id, address=address)
 
     def __getattr__(self, attr_name: str):
         if self._chain_id is None or attr_name in ("address",) or attr_name.startswith("_"):

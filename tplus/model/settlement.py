@@ -55,7 +55,7 @@ class InnerSettlementRequest(BaseSettlement):
         Args:
 
         """
-        cls(
+        return cls(
             asset_in=asset_in,
             amount_in=normalize_to_inventory(amount_in, decimals_in, "up"),
             asset_out=asset_out,
