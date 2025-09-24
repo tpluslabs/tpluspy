@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import yaml
-from ape.exceptions import ContractNotFoundError, ProjectError
+from ape.exceptions import ContractLogicError, ContractNotFoundError, ProjectError
 from ape.types import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
+from build.lib.tplus.model.types import UserPublicKey
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import REGISTRY_ADDRESS
 from tplus.evm.exceptions import ContractNotExists
@@ -325,6 +326,40 @@ class DepositVault(TPlusContract):
     @classmethod
     def from_chain_address(cls, chain_address: ChainAddress) -> "DepositVault":
         return cls(chain_address.chain_id, chain_address.evm_address)
+
+    def approve(self, user: UserPublicKey, token: AddressType, amount: int, **tx_kwargs) -> None:
+        try:
+            return self.contract.approve(user, token, amount, tx_kwargs)
+        except ContractLogicError as err:
+            if erc20_er := _decode_erc20_error(err):
+                raise erc20_er
+
+            raise  # Error as-is.
+
+    def execute_atomic_settlement(
+        self,
+        settlement: dict,
+        user: UserPublicKey,
+        data: HexBytes,
+        signature: HexBytes,
+        **tx_kwargs,
+    ) -> None:
+        try:
+            return self.contract.execute_atomic_settlement(
+                settlement, user, data, signature, **tx_kwargs
+            )
+        except ContractLogicError as err:
+            if erc20_er := _decode_erc20_error(err):
+                raise erc20_er
+
+            raise  # Error as-is.
+
+
+def _decode_erc20_error(err: ContractLogicError) -> ContractLogicError | None:
+    if err.message == "0x7939f424":
+        return ContractLogicError("TransferFromFailed").from_error(err)
+
+    return None
 
 
 registry = Registry()
