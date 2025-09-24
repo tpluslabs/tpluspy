@@ -40,10 +40,10 @@ class InnerSettlementRequest(BaseSettlement):
     @classmethod
     def from_raw(
         cls,
-        asset_in: AssetIdentifier,
+        asset_in: AssetIdentifier | str,
         amount_in: int,
         decimals_in: int,
-        asset_out: AssetIdentifier,
+        asset_out: AssetIdentifier | str,
         amount_out: int,
         decimals_out: int,
         tplus_user: UserPublicKey,
@@ -53,11 +53,11 @@ class InnerSettlementRequest(BaseSettlement):
         Create a request using raw amounts by first normalizing them to the CE.
 
         Args:
-            asset_in (:class:`~tplus.models.asset_identifier.AssetIdentifier): The asset being provided into the
+            asset_in (:class:`~tplus.models.asset_identifier.AssetIdentifier | str): The asset being provided into the
               protocol.
             amount_in (int): The raw on-chain integer amount of the input asset (before adjusting for decimals).
             decimals_in (int): The number of decimal places for the input asset.
-            asset_out (:class:`~tplus.models.asset_identifier.AssetIdentifier): The asset expected to be received from
+            asset_out (:class:`~tplus.models.asset_identifier.AssetIdentifier | str): The asset expected to be received from
               the protocol.
             amount_out (int): The raw on-chain integer amount of the output asset (before adjusting for decimals).
             decimals_out (int): The number of decimal places for the output asset.
@@ -69,6 +69,11 @@ class InnerSettlementRequest(BaseSettlement):
         Returns:
             InnerSettlementRequest: A normalized settlement request ready for processing.
         """
+        if isinstance(asset_in, str) and "@" not in asset_in:
+            asset_in = AssetIdentifier(f"{asset_in}@{chain}")
+        if isinstance(asset_out, str) and "@" not in asset_out:
+            asset_out = AssetIdentifier(f"{asset_out}@{chain}")
+
         return cls(
             asset_in=asset_in,
             amount_in=normalize_to_inventory(amount_in, decimals_in, "up"),

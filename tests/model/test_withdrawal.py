@@ -24,6 +24,10 @@ class TestWithdrawal:
 
     def test_create_signed(self, inner_withdrawal, user):
         signed = WithdrawalRequest.create_signed(
-            user, "62622E77D1349Face943C6e7D5c01C61465FE1dc", 100, 42161
+            user, "0x62622E77D1349Face943C6e7D5c01C61465FE1dc", 100, 42161
         )
         assert signed.signature  # truthiness
+        assert (
+            signed.inner.asset.root
+            == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
+        )
