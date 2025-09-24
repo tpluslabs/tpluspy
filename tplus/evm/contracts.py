@@ -74,8 +74,8 @@ class TplusDeployments:
 
         return result
 
-    def __getitem__(self, item):
-        return self.deployments[item]
+    def __getitem__(self, contract_name: str):
+        return self.deployments[contract_name]
 
     def get(self, item, default=None):
         return self.deployments.get(item, default)
@@ -144,7 +144,7 @@ class TPlusContract(TPlusMixin):
         if address := self._address:
             return address
 
-        chain_id = self._chain_vid or self.chain_manager.chain_id
+        chain_id = self._chain_id or self.chain_manager.chain_id
         return self.get_address(chain_id=chain_id)
 
     @property
