@@ -9,15 +9,15 @@ from ape.types import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
-from build.lib.tplus.model.types import UserPublicKey
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import REGISTRY_ADDRESS
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
+from tplus.model.types import UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
 
 if TYPE_CHECKING:
-    from ape.api import AccountAPI
+    from ape.api import AccountAPI, ReceiptAPI
     from ape.contracts import ContractContainer, ContractInstance
     from ape.managers.project import Project
 
@@ -327,12 +327,14 @@ class DepositVault(TPlusContract):
     def from_chain_address(cls, chain_address: ChainAddress) -> "DepositVault":
         return cls(chain_address.chain_id, chain_address.evm_address)
 
-    def approve(self, user: UserPublicKey, token: AddressType, amount: int, **tx_kwargs) -> None:
+    def deposit(
+        self, user: UserPublicKey, token: AddressType, amount: int, **tx_kwargs
+    ) -> "ReceiptAPI":
         try:
-            return self.contract.approve(user, token, amount, tx_kwargs)
+            return self.contract.deposit(user, token, amount, tx_kwargs)
         except ContractLogicError as err:
-            if erc20_er := _decode_erc20_error(err):
-                raise erc20_er
+            if erc20_err_name := _decode_erc20_error(err.message):
+                err.message = erc20_err_name
 
             raise  # Error as-is.
 
@@ -343,21 +345,26 @@ class DepositVault(TPlusContract):
         data: HexBytes,
         signature: HexBytes,
         **tx_kwargs,
-    ) -> None:
+    ) -> "ReceiptAPI":
         try:
-            return self.contract.execute_atomic_settlement(
+            return self.contract.executeAtomicSettlement(
                 settlement, user, data, signature, **tx_kwargs
             )
         except ContractLogicError as err:
-            if erc20_er := _decode_erc20_error(err):
-                raise erc20_er
+            if erc20_err_name := _decode_erc20_error(err.message):
+                err.message = erc20_err_name
 
             raise  # Error as-is.
 
 
-def _decode_erc20_error(err: ContractLogicError) -> ContractLogicError | None:
-    if err.message == "0x7939f424":
-        return ContractLogicError("TransferFromFailed").from_error(err)
+def _decode_erc20_error(err: str) -> ContractLogicError | None:
+    if err == "0x7939f424":
+        # The sender likely didn't approve, or they don't have the tokens.
+        return "TransferFromFailed()"
+
+    elif err == "0x90b8ec18":
+        # The sender likely doesn't have the tokens.
+        return "TransferFailed()"
 
     return None
 
