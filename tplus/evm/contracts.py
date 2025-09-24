@@ -334,7 +334,7 @@ class DepositVault(TPlusContract):
             return self.contract.deposit(user, token, amount, **tx_kwargs)
         except ContractLogicError as err:
             if erc20_err_name := _decode_erc20_error(err.message):
-                err.message = erc20_err_name
+                raise ContractLogicError(erc20_err_name) from err
 
             raise  # Error as-is.
 
@@ -352,7 +352,7 @@ class DepositVault(TPlusContract):
             )
         except ContractLogicError as err:
             if erc20_err_name := _decode_erc20_error(err.message):
-                err.message = erc20_err_name
+                raise ContractLogicError(erc20_err_name) from err
 
             raise  # Error as-is.
 
