@@ -331,7 +331,7 @@ class DepositVault(TPlusContract):
         self, user: UserPublicKey, token: AddressType, amount: int, **tx_kwargs
     ) -> "ReceiptAPI":
         try:
-            return self.contract.deposit(user, token, amount, tx_kwargs)
+            return self.contract.deposit(user, token, amount, **tx_kwargs)
         except ContractLogicError as err:
             if erc20_err_name := _decode_erc20_error(err.message):
                 err.message = erc20_err_name
