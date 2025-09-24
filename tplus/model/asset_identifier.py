@@ -137,21 +137,25 @@ class AssetIdentifier(RootModel[str]):
     @model_validator(mode="before")
     @classmethod
     def _validate_input(cls, data: Any) -> Any:
-        # Case 1: Input is a dictionary from the backend (e.g., from JSON deserialization)
+        # Case 1: Already validated.
+        if isinstance(data, AssetIdentifier):
+            return data
+
+        # Case 2: Backend dictionary (e.g., from JSON deserialization)
         if isinstance(data, dict):
             return _parse_asset_from_dict(data)
 
-        # Case 2: Input is a user-friendly string like "0x...address@chain_id"
+        # Case 3: User-friendly string like "0x...address@0x...chain_id"
         elif isinstance(data, str) and "@" in data:
             return parse_chain_address(data)
 
-        elif isinstance(data, int):
+        # Case 4: Index | stringified Index.
+        elif isinstance(data, int) or (isinstance(data, str) and data.isnumeric()):
             # int means index.
             return f"{data}"
 
-        # Fallback for Index as string ("12345") or other valid inputs
-        # Also works for already validated AssetIdentifiers.
-        return data
+        # No other input should be valid, including bare address string. Chain ID data required.
+        raise ValueError("Invalid AssetIdentifier")
 
     def __str__(self) -> str:
         return str(self.root)
