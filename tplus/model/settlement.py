@@ -53,7 +53,21 @@ class InnerSettlementRequest(BaseSettlement):
         Create a request using raw amounts by first normalizing them to the CE.
 
         Args:
+            asset_in (:class:`~tplus.models.asset_identifier.AssetIdentifier): The asset being provided into the
+              protocol.
+            amount_in (int): The raw on-chain integer amount of the input asset (before adjusting for decimals).
+            decimals_in (int): The number of decimal places for the input asset.
+            asset_out (:class:`~tplus.models.asset_identifier.AssetIdentifier): The asset expected to be received from
+              the protocol.
+            amount_out (int): The raw on-chain integer amount of the output asset (before adjusting for decimals).
+            decimals_out (int): The number of decimal places for the output asset.
+            tplus_user (:class:`~tplus.models.types.UserPublicKey`): The public key of the user associated with the
+              settlement request.
+            chain (:class:`~tplus.models.types.ChainID`): The blockchain network identifier where the
+              settlement will occur.
 
+        Returns:
+            InnerSettlementRequest: A normalized settlement request ready for processing.
         """
         return cls(
             asset_in=asset_in,
