@@ -1,4 +1,3 @@
-
 from tplus.client.clearingengine.decimal import _prep_request
 from tplus.model.asset_identifier import AssetIdentifier
 
