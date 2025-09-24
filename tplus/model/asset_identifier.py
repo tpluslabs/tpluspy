@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any
 
 from pydantic import RootModel, model_serializer, model_validator
@@ -85,7 +86,24 @@ class ChainAddress(RootModel[str]):
     def serialize_model(self) -> str:
         return self.root
 
-    @property
+    @cached_property
+    def address(self) -> str:
+        return self.root.split("@", 1)[0]
+
+    @cached_property
+    def evm_address(self) -> str:
+        address = f"0x{self.address[:40]}"
+
+        try:
+            # NOTE: This is installed as a peer-dependency if using [evm] extras.
+            from eth_utils import to_checksum_address
+
+        except ImportError:
+            return address  # Non-checksummed.
+
+        return to_checksum_address(address)
+
+    @cached_property
     def chain_id(self) -> int:
         return int(self.root.split("@")[-1], 16)
 
