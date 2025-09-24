@@ -17,9 +17,15 @@ class TestInnerSettlementRequest:
         request = InnerSettlementRequest.from_raw(
             ASSET_IN, 100, 6, ASSET_OUT, 100, 18, user.public_key, CHAIN_ID
         )
-        assert request.asset_in.root == ASSET_IN
+        assert (
+            request.asset_in.root
+            == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
+        )
         assert request.amount_in == 100_000_000_000_000  # normalized
-        assert request.asset_out.root == ASSET_OUT
+        assert (
+            request.asset_out.root
+            == "58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000a4b1"
+        )
         assert request.amount_out == 100
         assert request.chain_id == CHAIN_ID
 

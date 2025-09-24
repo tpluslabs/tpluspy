@@ -12,10 +12,20 @@ def _prep_request(
 
     assets = []
     for asset in asset_ids:
-        if not isinstance(asset, AssetIdentifier):
-            asset = AssetIdentifier.model_validate(asset)
+        if isinstance(asset, AssetIdentifier):
+            # Already validated.
+            assets.append(asset.model_dump())
 
-        assets.append(asset.model_dump())
+        elif isinstance(asset, str) and asset.startswith("0x") and "@" not in asset:
+            # Chain ID missing. Validate against all given chains.
+            for chain in chains:
+                asset = AssetIdentifier(f"{asset}@{chain}")
+                assets.append(asset.model_dump())
+
+        else:
+            # Try to validate.
+            asset = AssetIdentifier.model_validate(asset)
+            assets.append(asset.model_dump())
 
     return {"assets": assets, "chains": chains}
 
