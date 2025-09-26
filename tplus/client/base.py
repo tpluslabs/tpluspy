@@ -61,7 +61,11 @@ class BaseClient:
         return await self._request("POST", endpoint, json_data=json_data)
 
     async def _request(
-        self, method: str, endpoint: str, json_data: dict[str, Any] | None = None
+        self,
+        method: str,
+        endpoint: str,
+        json_data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
 
@@ -71,8 +75,10 @@ class BaseClient:
             await self._ensure_auth()
 
         try:
-            if json_data:
-                self.logger.debug(f"Request to {method} {relative_url} with payload: {json_data}")
+            if json_data or params:
+                self.logger.debug(
+                    f"Request to {method} {relative_url} with payload: {json_data} params: {params}"
+                )
             request_headers = self._get_auth_headers()
             if request_headers:
                 merged_headers = {**self._client.headers, **request_headers}
@@ -83,6 +89,7 @@ class BaseClient:
                 method=method,
                 url=relative_url,
                 json=json_data,
+                params=params,
                 headers=merged_headers,
             )
 
@@ -107,6 +114,7 @@ class BaseClient:
                     method=method,
                     url=relative_url,
                     json=json_data,
+                    params=params,
                     headers=retry_headers,
                 )
 

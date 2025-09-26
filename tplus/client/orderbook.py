@@ -41,6 +41,13 @@ if TYPE_CHECKING:
     from tplus.utils.user import User
 
 
+def compute_remaining(order: OrderResponse) -> int:
+    confirmed = int(order.confirmed_filled_quantity or 0)
+    pending = int(order.pending_filled_quantity or 0)
+    total_qty = int(order.quantity or 0)
+    return max(0, total_qty - confirmed - pending)
+
+
 class OrderBookClient(BaseClient):
     """Client for HTTP + WebSocket interactions with the OMS.
 
@@ -154,6 +161,7 @@ class OrderBookClient(BaseClient):
         self.logger.debug(
             f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
         )
+        # note: json_data is a dict, the httpx client will encode it as JSON
         resp = await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
         return OrderOperationResponse(**resp)
 
@@ -201,14 +209,6 @@ class OrderBookClient(BaseClient):
             "PATCH", "/orders/replace", json_data=signed_message.model_dump(exclude_none=True)
         )
         return OrderOperationResponse(**resp)
-
-    @staticmethod
-    def extract_order_id(resp: OrderOperationResponse) -> str:
-        return resp.order_id
-
-    @staticmethod
-    def is_ok(resp: OrderOperationResponse) -> bool:
-        return resp.status == OperationStatus.RECEIVED
 
     def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:
         """
@@ -304,13 +304,15 @@ class OrderBookClient(BaseClient):
         Handles 404 with empty list as "no orders" gracefully.
         """
         endpoint = f"/orders/user/{self.user.public_key}/{asset_id}"
+        params_dict: dict[str, Any] | None = None
         if page is not None or limit is not None:
-            page_q = 0 if page is None else int(page)
-            limit_q = 1000 if limit is None else int(limit)
-            endpoint = f"{endpoint}?page={page_q}&limit={limit_q}"
+            params_dict = {
+                "page": 0 if page is None else int(page),
+                "limit": 1000 if limit is None else int(limit),
+            }
         self.logger.debug(f"Getting Orders for user {self.user.public_key}, asset {asset_id}")
         try:
-            response_data = await self._request("GET", endpoint)
+            response_data = await self._request("GET", endpoint, params=params_dict)
 
             if isinstance(response_data, dict) and "error" in response_data:
                 self.logger.error(
@@ -348,13 +350,6 @@ class OrderBookClient(BaseClient):
         parsed_orders = parse_orders(response_data)
         return parsed_orders, response_data
 
-    @staticmethod
-    def compute_remaining(order: OrderResponse) -> int:
-        confirmed = int(order.confirmed_filled_quantity or 0)
-        pending = int(order.pending_filled_quantity or 0)
-        total_qty = int(order.quantity or 0)
-        return max(0, total_qty - confirmed - pending)
-
     async def get_open_orders_for_book(
         self, asset_id: AssetIdentifier, *, limit: int = 1000, max_pages: int = 50
     ) -> list[OrderResponse]:
@@ -370,11 +365,7 @@ class OrderBookClient(BaseClient):
             page += 1
         open_orders: list[OrderResponse] = []
         for o in all_orders:
-            if bool(o.canceled):
-                continue
-            if o.limit_price is None:
-                continue
-            if self.compute_remaining(o) <= 0:
+            if bool(o.canceled) or o.limit_price is None or compute_remaining(o) <= 0:
                 continue
             open_orders.append(o)
         return open_orders
