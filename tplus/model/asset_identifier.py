@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any
 
 from pydantic import RootModel, model_serializer, model_validator
@@ -59,6 +60,25 @@ def parse_chain_address(data: str) -> str:
     return f"{address}@{chain_hex}"
 
 
+def _validate_chain_address(chain_address: str) -> str:
+    # Case 1: Already validated.
+    if isinstance(chain_address, ChainAddress):
+        # Already validated.
+        return chain_address
+
+    # Case 2: Input is a dictionary from the backend (e.g., from JSON deserialization)
+    elif isinstance(chain_address, dict):
+        return _parse_asset_from_dict(chain_address)
+
+    # Case 3: Valid strings.
+    elif isinstance(chain_address, str):
+        # Case 3.1: User-friendly string like "0x...address@chain_id"
+        if "@" in chain_address:
+            return parse_chain_address(chain_address)
+
+    raise ValueError("Invalid ChainAddress")
+
+
 class ChainAddress(RootModel[str]):
     """
     Identifies an address on a chain in format hex_address@hex_chain.
@@ -67,16 +87,7 @@ class ChainAddress(RootModel[str]):
     @model_validator(mode="before")
     @classmethod
     def _validate_input(cls, data: Any) -> Any:
-        # Case 1: Input is a dictionary from the backend (e.g., from JSON deserialization)
-        if isinstance(data, dict):
-            return _parse_chain_address_from_dict(data)
-
-        # Case 2: Input is a user-friendly string like "0x...address@chain_id"
-        elif isinstance(data, str) and "@" in data:
-            return parse_chain_address(data)
-
-        # Also works for already validated AssetIdentifiers.
-        return data
+        return _validate_chain_address(data)
 
     def __str__(self) -> str:
         return str(self.root)
@@ -85,12 +96,29 @@ class ChainAddress(RootModel[str]):
     def serialize_model(self) -> str:
         return self.root
 
-    @property
+    @cached_property
+    def address(self) -> str:
+        return self.root.split("@", 1)[0]
+
+    @cached_property
+    def evm_address(self) -> str:
+        address = f"0x{self.address[:40]}"
+
+        try:
+            # NOTE: This is installed as a peer-dependency if using [evm] extras.
+            from eth_utils import to_checksum_address
+
+        except ImportError:
+            return address  # Non-checksummed.
+
+        return to_checksum_address(address)
+
+    @cached_property
     def chain_id(self) -> int:
         return int(self.root.split("@")[-1], 16)
 
 
-class AssetIdentifier(RootModel[str]):
+class AssetIdentifier(ChainAddress):
     """
     Represents an asset identifier, typically as a string (e.g., "SYMBOL@EXCHANGE" or a unique ID).
     It can be initialized with a user-friendly string like "0x...address@42161" (chain as integer ID),
@@ -104,21 +132,11 @@ class AssetIdentifier(RootModel[str]):
     @model_validator(mode="before")
     @classmethod
     def _validate_input(cls, data: Any) -> Any:
-        # Case 1: Input is a dictionary from the backend (e.g., from JSON deserialization)
-        if isinstance(data, dict):
-            return _parse_asset_from_dict(data)
-
-        # Case 2: Input is a user-friendly string like "0x...address@chain_id"
-        elif isinstance(data, str) and "@" in data:
-            return parse_chain_address(data)
-
-        elif isinstance(data, int):
-            # int means index.
+        # Index.
+        if isinstance(data, int) or isinstance(data, str) and data.isnumeric():
             return f"{data}"
 
-        # Fallback for Index as string ("12345") or other valid inputs
-        # Also works for already validated AssetIdentifiers.
-        return data
+        return _validate_chain_address(data)
 
     def __str__(self) -> str:
         return str(self.root)

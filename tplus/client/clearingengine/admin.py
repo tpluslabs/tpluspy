@@ -28,3 +28,12 @@ class AdminClient(BaseClearingEngineClient):
         await self._post(
             "admin/inventory/modify", json_data={"user": user, "asset": asset, "balance": balance}
         )
+
+    async def get_user_inventory(self, user: "UserPublicKey"):
+        """
+        Admin-only API for checking a user inventory.
+        """
+        if not isinstance(user, UserPublicKey):
+            user = UserPublicKey.__validate_user__(user)
+
+        return await self._get(f"admin/inventory/{user}")
