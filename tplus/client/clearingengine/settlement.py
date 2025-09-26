@@ -81,4 +81,4 @@ class SettlementClient(BaseClearingEngineClient):
         Args:
             chain_id (int): The chain ID to check.
         """
-        return await self._get(f"settlers/{chain_id}")
+        return await self._get(f"settlers/{chain_id}")  # type: ignore

@@ -3,7 +3,7 @@ from getpass import getpass
 from pathlib import Path
 from typing import Optional
 
-from ecdsa import Ed25519, SigningKey
+from ecdsa import Ed25519, SigningKey  # type: ignore
 
 from tplus.utils.user.ed_keyfile import decrypt_keyfile, encrypt_keyfile
 from tplus.utils.user.model import User
@@ -48,7 +48,7 @@ class UserManager:
     def load(self, name: str, password=None) -> "User":
         path = self._get_existing_path(name)
         password = password or getpass(f"Enter existing password for '{name}': ")
-        private_key = decrypt_keyfile(password, path)
+        private_key = decrypt_keyfile(password, f"{path}")
         return User(private_key=private_key)
 
     def load_default(self, password=None) -> Optional["User"]:
