@@ -15,7 +15,6 @@ from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
 from tplus.model.market_order import MarketBaseQuantity, MarketQuoteQuantity
 from tplus.model.order import (
-    OperationStatus,
     OrderEvent,
     OrderOperationResponse,
     OrderResponse,
