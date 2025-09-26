@@ -217,3 +217,20 @@ def parse_order_event(data: dict[str, Any]) -> OrderEvent:
             exc_info=True,
         )
         raise
+
+
+# ---------------------------------------------------------------------------
+# HTTP response models for create/replace/cancel (mirror OMS endpoints)
+# ---------------------------------------------------------------------------
+
+
+class OperationStatus(str, Enum):
+    RECEIVED = "Received"
+    REJECTED = "Rejected"
+
+
+class OrderOperationResponse(BaseModel):
+    order_id: str
+    status: OperationStatus
+    reason: str | None = None
+    processed_at_ns: int | None = None

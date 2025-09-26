@@ -14,7 +14,14 @@ from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
 from tplus.model.market_order import MarketBaseQuantity, MarketQuoteQuantity
-from tplus.model.order import OrderEvent, OrderResponse, parse_order_event, parse_orders
+from tplus.model.order import (
+    OperationStatus,
+    OrderEvent,
+    OrderOperationResponse,
+    OrderResponse,
+    parse_order_event,
+    parse_orders,
+)
 from tplus.model.orderbook import OrderBook, OrderBookDiff
 from tplus.model.trades import (
     Trade,
@@ -116,9 +123,10 @@ class OrderBookClient(BaseClient):
         self.logger.debug(
             f"Sending Market Order (Asset {asset_id}): BaseQty={base_quantity}, QuoteQty={quote_quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
         )
-        return await self._request(
+        resp = await self._request(
             "POST", "/orders/create", json_data=ob_request_payload.model_dump()
         )
+        return OrderOperationResponse(**resp)
 
     async def create_limit_order(
         self,
@@ -147,9 +155,12 @@ class OrderBookClient(BaseClient):
         self.logger.debug(
             f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
         )
-        return await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
+        resp = await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
+        return OrderOperationResponse(**resp)
 
-    async def cancel_order(self, order_id: str, asset_id: AssetIdentifier) -> dict[str, Any]:
+    async def cancel_order(
+        self, order_id: str, asset_id: AssetIdentifier
+    ) -> OrderOperationResponse:
         """
         Cancel an order (async).
         """
@@ -157,9 +168,10 @@ class OrderBookClient(BaseClient):
             order_id=order_id, asset_identifier=asset_id, signer=self.user
         )
         self.logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
-        return await self._request(
+        resp = await self._request(
             "DELETE", "/orders/cancel", json_data=signed_message.model_dump()
         )
+        return OrderOperationResponse(**resp)
 
     async def replace_order(
         self,
@@ -167,7 +179,7 @@ class OrderBookClient(BaseClient):
         asset_id: AssetIdentifier,
         new_quantity: int | None = None,
         new_price: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> OrderOperationResponse:
         """
         Replace an existing order with new parameters (async).
         """
@@ -186,9 +198,18 @@ class OrderBookClient(BaseClient):
             f"Sending Replace Order for original OrderID {original_order_id} (Asset {asset_id}): "
             f"New Qty={new_quantity}, New Price={new_price}, ReplaceOpID={replace_operation_id}"
         )
-        return await self._request(
+        resp = await self._request(
             "PATCH", "/orders/replace", json_data=signed_message.model_dump(exclude_none=True)
         )
+        return OrderOperationResponse(**resp)
+
+    @staticmethod
+    def extract_order_id(resp: OrderOperationResponse) -> str:
+        return resp.order_id
+
+    @staticmethod
+    def is_ok(resp: OrderOperationResponse) -> bool:
+        return resp.status == OperationStatus.RECEIVED
 
     def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:
         """
@@ -277,13 +298,17 @@ class OrderBookClient(BaseClient):
         return parsed_orders, response_data
 
     async def get_user_orders_for_book(
-        self, asset_id: AssetIdentifier
-    ) -> tuple[list[OrderResponse], dict[str, Any]]:
+        self, asset_id: AssetIdentifier, *, page: int | None = None, limit: int | None = None
+    ) -> tuple[list[OrderResponse], list[dict[str, Any]]]:
         """
         Get orders for a specific asset for the authenticated user (async).
         Handles 404 with empty list as "no orders" gracefully.
         """
         endpoint = f"/orders/user/{self.user.public_key}/{asset_id}"
+        if page is not None or limit is not None:
+            page_q = 0 if page is None else int(page)
+            limit_q = 1000 if limit is None else int(limit)
+            endpoint = f"{endpoint}?page={page_q}&limit={limit_q}"
         self.logger.debug(f"Getting Orders for user {self.user.public_key}, asset {asset_id}")
         try:
             response_data = await self._request("GET", endpoint)
@@ -292,12 +317,12 @@ class OrderBookClient(BaseClient):
                 self.logger.error(
                     f"Received error when fetching orders for book {asset_id}: {response_data['error']}"
                 )
-                return [], {}
+                return [], []
             if not isinstance(response_data, list):
                 self.logger.error(
                     f"Unexpected response type for book orders {asset_id}. Expected list, got {type(response_data).__name__}."
                 )
-                return [], {}
+                return [], []
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404 and e.request.url.path == endpoint:
@@ -323,6 +348,37 @@ class OrderBookClient(BaseClient):
 
         parsed_orders = parse_orders(response_data)
         return parsed_orders, response_data
+
+    @staticmethod
+    def compute_remaining(order: OrderResponse) -> int:
+        confirmed = int(order.confirmed_filled_quantity or 0)
+        pending = int(order.pending_filled_quantity or 0)
+        total_qty = int(order.quantity or 0)
+        return max(0, total_qty - confirmed - pending)
+
+    async def get_open_orders_for_book(
+        self, asset_id: AssetIdentifier, *, limit: int = 1000, max_pages: int = 50
+    ) -> list[OrderResponse]:
+        """Return only open, limit orders with remaining quantity > 0 for a book."""
+        # Pull pages until empty or cap reached
+        page = 0
+        all_orders: list[OrderResponse] = []
+        while page < max_pages:
+            parsed, raw = await self.get_user_orders_for_book(asset_id, page=page, limit=limit)
+            all_orders.extend(parsed)
+            if len(raw) < limit:
+                break
+            page += 1
+        open_orders: list[OrderResponse] = []
+        for o in all_orders:
+            if bool(o.canceled):
+                continue
+            if o.limit_price is None:
+                continue
+            if self.compute_remaining(o) <= 0:
+                continue
+            open_orders.append(o)
+        return open_orders
 
     async def get_user_inventory(self) -> dict[str, Any]:
         """
