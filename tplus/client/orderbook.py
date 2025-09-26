@@ -69,8 +69,7 @@ class OrderBookClient(BaseClient):
     async def get_market(self, asset_id: AssetIdentifier) -> Market:
         """Get a market (async) with simple per-asset caching."""
         key = str(asset_id)
-        cached = self._market_cache.get(key)
-        if cached is not None:
+        if (cached := self._market_cache.get(key)) is not None:
             return cached
 
         response = await self._request("GET", f"/market/{asset_id}")
