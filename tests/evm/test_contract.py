@@ -1,7 +1,8 @@
 import pytest
+from eth_utils import keccak, to_hex
 
 from tplus.evm.constants import REGISTRY_ADDRESS
-from tplus.evm.contracts import DepositVault, TPlusContract
+from tplus.evm.contracts import DepositVault, TPlusContract, _decode_erc20_error
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
 
@@ -29,3 +30,10 @@ class TestDepositVault:
         address = ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1")
         vault = DepositVault.from_chain_address(address)
         assert vault.address == address.evm_address
+
+
+@pytest.mark.parametrize("error", ("TransferFromFailed()", "TransferFailed()"))
+def test_decode_erc20_error(error):
+    erc20_error = to_hex(keccak(text=error)[:4])
+    actual = _decode_erc20_error(erc20_error)
+    assert actual == error
