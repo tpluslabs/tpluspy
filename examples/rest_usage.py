@@ -7,7 +7,7 @@ import httpx
 # Adjust the import path based on your project structure
 # Assumes 'tplus' is a package in your PYTHONPATH or installed
 from tplus.client import OrderBookClient
-from tplus.model.asset_identifier import IndexAsset
+from tplus.model.asset_identifier import AssetIdentifier
 from tplus.utils.user import User
 
 # Configure basic logging for the example
@@ -21,13 +21,13 @@ logger = logging.getLogger("RestExample")
 API_BASE_URL = "http://127.0.0.1:8000/"  # Example URL
 
 # Example Asset ID to use
-example_asset = IndexAsset(Index=200)  # Changed to keyword argument
+example_asset = AssetIdentifier.model_validate(200)
 
 
 async def main():
     user = User()
     logger.info(f"Using API Base URL: {API_BASE_URL}")
-    logger.info(f"Example Asset Index: {example_asset.Index}")
+    logger.info(f"Example Asset Index: {example_asset}")
 
     # Initialize client with the API base URL
     # Using async context manager ensures the client connection is closed properly
@@ -37,11 +37,11 @@ async def main():
 
             # --- Simple GET Test First ---
             logger.info("=" * 20 + " Simple GET Test " + "=" * 20)
-            logger.info(f"--- Getting Order Book Snapshot for asset {example_asset.Index} ---")
+            logger.info(f"--- Getting Order Book Snapshot for asset {example_asset} ---")
             try:
                 orderbook = await client.get_orderbook_snapshot(example_asset)
                 logger.info(
-                    f"Order Book Snapshot ({example_asset.Index}): Sequence={orderbook.sequence_number}, Asks={len(orderbook.asks)}, Bids={len(orderbook.bids)}"
+                    f"Order Book Snapshot ({example_asset}): Sequence={orderbook.sequence_number}, Asks={len(orderbook.asks)}, Bids={len(orderbook.bids)}"
                 )
                 logger.info("Simple GET test SUCCEEDED.")
             except httpx.RequestError as e:
@@ -102,7 +102,7 @@ async def main():
 
             await asyncio.sleep(0.5)
 
-            logger.info(f"--- Getting Orders for user {user_id}, asset {example_asset.Index} ---")
+            logger.info(f"--- Getting Orders for user {user_id}, asset {example_asset} ---")
             try:
                 # Unpack tuple
                 (
@@ -111,11 +111,11 @@ async def main():
                 ) = await client.get_user_orders_for_book(user_id, example_asset)
                 # Log raw response
                 logger.info(
-                    f"Raw User Asset Orders Response ({user_id}, {example_asset.Index}): {json.dumps(raw_asset_orders_response, indent=2)}"
+                    f"Raw User Asset Orders Response ({user_id}, {example_asset}): {json.dumps(raw_asset_orders_response, indent=2)}"
                 )
                 # Log parsed orders
                 logger.info(
-                    f"Parsed User Asset Orders ({user_id}, {example_asset.Index}): {json.dumps([o.model_dump() for o in user_asset_orders], indent=2)}"
+                    f"Parsed User Asset Orders ({user_id}, {example_asset}): {json.dumps([o.model_dump() for o in user_asset_orders], indent=2)}"
                 )
             except Exception as e:
                 logger.error(f"Get User Asset Orders Failed: {e}", exc_info=True)
@@ -133,11 +133,11 @@ async def main():
 
             await asyncio.sleep(0.5)
 
-            logger.info(f"--- Getting Trades for user {user_id}, asset {example_asset.Index} ---")
+            logger.info(f"--- Getting Trades for user {user_id}, asset {example_asset} ---")
             try:
                 user_asset_trades = await client.get_user_trades_for_asset(user_id, example_asset)
                 logger.info(
-                    f"User Asset Trades ({user_id}, {example_asset.Index}): {json.dumps([t.model_dump() for t in user_asset_trades], indent=2)}"
+                    f"User Asset Trades ({user_id}, {example_asset}): {json.dumps([t.model_dump() for t in user_asset_trades], indent=2)}"
                 )
             except Exception as e:
                 logger.error(f"Get User Asset Trades Failed: {e}", exc_info=True)
@@ -153,10 +153,10 @@ async def main():
 
             # --- Get Market Data (GET) ---
             await asyncio.sleep(0.5)
-            logger.info(f"--- Getting Klines for asset {example_asset.Index} ---")
+            logger.info(f"--- Getting Klines for asset {example_asset} ---")
             try:
                 klines = await client.get_klines(example_asset)
-                logger.info(f"Klines ({example_asset.Index}): {json.dumps(klines, indent=2)}")
+                logger.info(f"Klines ({example_asset}): {json.dumps(klines, indent=2)}")
             except Exception as e:
                 logger.error(f"Get Klines Failed: {e}", exc_info=True)
 

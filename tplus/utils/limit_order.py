@@ -2,7 +2,7 @@ import time
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC, GTD, IOC, LimitOrderDetails
-from tplus.model.order import CreateOrderRequest, Order
+from tplus.model.order import CreateOrderRequest, Order, Side
 from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 from tplus.utils.user import User
 
@@ -19,7 +19,7 @@ def create_limit_order_ob_request_payload(
     time_in_force: GTC | GTD | IOC | None = None,
     trigger: TriggerAbove | TriggerBelow | None = None,
 ) -> CreateOrderRequest:
-    side_normalized = "Sell" if side.lower() == "sell" else "Buy"
+    side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
 
     actual_time_in_force = GTC(post_only=False) if time_in_force is None else time_in_force
 
@@ -29,7 +29,7 @@ def create_limit_order_ob_request_payload(
         time_in_force=actual_time_in_force,
     )
     order = Order(
-        signer=list(bytes.fromhex(signer.public_key)),
+        signer=signer.public_key,
         order_id=order_id,
         base_asset=asset_identifier,
         book_quantity_decimals=book_quantity_decimals,

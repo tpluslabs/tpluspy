@@ -59,7 +59,7 @@ class OrderBookClient(BaseClient):
         self,
         user: "User",
         *,
-        base_url: str | None = None,
+        base_url: str,
         websocket_kwargs: dict[str, Any] | None = None,
         log_level: int = logging.INFO,
     ) -> None:
@@ -97,12 +97,15 @@ class OrderBookClient(BaseClient):
         quote_quantity: int | None = None,
         fill_or_kill: bool = False,
         asset_id: AssetIdentifier | None = None,
-    ) -> dict[str, Any]:
+    ) -> OrderOperationResponse:
         """
         Create a market order (async).
         """
+        # TODO: Fix the signature of this method so that `asset_id` is required.
+        asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
+
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
-        market = await self.get_market(asset_id)
+        market = await self.get_market(asset_id_unwrapped)
         base_qty_model = (
             MarketBaseQuantity(quantity=base_quantity, max_sellable_amount=None)
             if base_quantity is not None
@@ -119,7 +122,7 @@ class OrderBookClient(BaseClient):
             signer=self.user,
             book_quantity_decimals=market.book_quantity_decimals,
             book_price_decimals=market.book_price_decimals,
-            asset_identifier=asset_id,
+            asset_identifier=asset_id_unwrapped,
             order_id=order_id,
             base_quantity=base_qty_model,
             quote_quantity=quote_qty_model,
@@ -131,7 +134,7 @@ class OrderBookClient(BaseClient):
         resp = await self._request(
             "POST", "/orders/create", json_data=ob_request_payload.model_dump()
         )
-        return OrderOperationResponse(**resp)
+        return OrderOperationResponse.model_validate(resp)
 
     async def create_limit_order(
         self,
@@ -140,12 +143,15 @@ class OrderBookClient(BaseClient):
         side: str,
         time_in_force: GTC | GTD | IOC | None = None,
         asset_id: AssetIdentifier | None = None,
-    ) -> dict[str, Any]:
+    ) -> OrderOperationResponse:
         """
         Create a limit order (async).
         """
+        # TODO: Fix the signature if this method such that `asset_id` is required.
+        asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
+
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
-        market = await self.get_market(asset_id)
+        market = await self.get_market(asset_id_unwrapped)
         signed_message = create_limit_order_ob_request_payload(
             quantity=quantity,
             price=price,
@@ -153,7 +159,7 @@ class OrderBookClient(BaseClient):
             signer=self.user,
             book_quantity_decimals=market.book_quantity_decimals,
             book_price_decimals=market.book_price_decimals,
-            asset_identifier=asset_id,
+            asset_identifier=asset_id_unwrapped,
             order_id=order_id,
             time_in_force=time_in_force,
         )
@@ -162,7 +168,7 @@ class OrderBookClient(BaseClient):
         )
         # note: json_data is a dict, the httpx client will encode it as JSON
         resp = await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
-        return OrderOperationResponse(**resp)
+        return OrderOperationResponse.model_validate(resp)
 
     async def cancel_order(
         self, order_id: str, asset_id: AssetIdentifier
@@ -177,7 +183,7 @@ class OrderBookClient(BaseClient):
         resp = await self._request(
             "DELETE", "/orders/cancel", json_data=signed_message.model_dump()
         )
-        return OrderOperationResponse(**resp)
+        return OrderOperationResponse.model_validate(resp)
 
     async def replace_order(
         self,
@@ -207,7 +213,7 @@ class OrderBookClient(BaseClient):
         resp = await self._request(
             "PATCH", "/orders/replace", json_data=signed_message.model_dump(exclude_none=True)
         )
-        return OrderOperationResponse(**resp)
+        return OrderOperationResponse.model_validate(resp)
 
     def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:
         """
@@ -262,7 +268,7 @@ class OrderBookClient(BaseClient):
         endpoint = f"/trades/user/{self.user.public_key}"
         self.logger.debug(f"Getting Trades for user {self.user.public_key}")
         response_data = await self._request("GET", endpoint)
-        return self.parse_user_trades(response_data)
+        return self.parse_user_trades(response_data)  # type: ignore
 
     async def get_user_trades_for_asset(self, asset_id: AssetIdentifier) -> list[UserTrade]:
         """
@@ -271,7 +277,7 @@ class OrderBookClient(BaseClient):
         endpoint = f"/trades/user/{self.user.public_key}/{asset_id}"
         self.logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
         response_data = await self._request("GET", endpoint)
-        return self.parse_user_trades(response_data)
+        return self.parse_user_trades(response_data)  # type: ignore
 
     async def get_user_orders(self) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
@@ -333,7 +339,7 @@ class OrderBookClient(BaseClient):
                             f"Received 404 with empty list for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
                             f"This is expected if the user has no orders for this asset yet. Treating as success with no orders."
                         )
-                        return [], {}
+                        return [], {}  # type: ignore
                     else:
                         self.logger.warning(
                             f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "

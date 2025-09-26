@@ -25,7 +25,7 @@ class BaseClient:
         user: User,
         base_url: str,
         timeout: float = DEFAULT_TIMEOUT,
-        client: httpx.Client | None = None,
+        client: httpx.AsyncClient | None = None,
         websocket_kwargs: dict[str, Any] | None = None,
         log_level: int = logging.INFO,
     ):
@@ -48,7 +48,7 @@ class BaseClient:
         self.logger = get_logger(log_level=log_level)
 
     @classmethod
-    def from_client(cls, client: "BaseClient") -> "BaseClient":
+    def from_client(cls, client: "BaseClient"):
         """
         Easy way to clone clients without initializing multiple AsyncClients.
         """
@@ -85,7 +85,7 @@ class BaseClient:
             else:
                 merged_headers = None
 
-            response = await self._client.request(
+            response = await self._client.request(  # type: ignore
                 method=method,
                 url=relative_url,
                 json=json_data,
@@ -110,7 +110,7 @@ class BaseClient:
                 await self._authenticate()
                 retry_headers = {**self._client.headers, **self._get_auth_headers()}
 
-                response = await self._client.request(
+                response = await self._client.request(  # type: ignore
                     method=method,
                     url=relative_url,
                     json=json_data,
@@ -180,15 +180,18 @@ class BaseClient:
 
     async def _authenticate(self) -> None:
         nonce_endpoint = f"/nonce/{self.user.public_key}"
-        nonce_resp = await self._client.get(nonce_endpoint)
+        nonce_resp = await self._client.get(nonce_endpoint)  # type: ignore
         nonce_resp.raise_for_status()
         nonce_data = nonce_resp.json() if hasattr(nonce_resp, "json") else nonce_resp
-        nonce_value = nonce_data["value"] if isinstance(nonce_data, dict) else nonce_data
+
+        # NOTE: nonce_value **must** be a `str` here.
+        nonce_value = f"{nonce_data['value']}" if isinstance(nonce_data, dict) else f"{nonce_data}"
 
         signature_bytes = self.user.sign(nonce_value)
         signature_array = list(signature_bytes)
+        nonce_value_len = len(nonce_value)  # type: ignore
 
-        self.logger.debug(f"AUTH DEBUG: nonce={nonce_value} (len={len(nonce_value)})")
+        self.logger.debug(f"AUTH DEBUG: nonce={nonce_value} (len={nonce_value_len})")
         self.logger.debug(
             f"AUTH DEBUG: signature={signature_array[:8]}... (len={len(signature_array)})"
         )
@@ -199,18 +202,18 @@ class BaseClient:
             "signature": signature_array,
         }
 
-        token_resp = await self._client.post("/auth", json=auth_payload)
+        token_resp = await self._client.post("/auth", json=auth_payload)  # type: ignore
         token_resp.raise_for_status()
         token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
 
         self.logger.info(f"Full authentication response from server: {token_json}")
+        token = token_json.get("token")  # type: ignore
+        expiry_ns = int(token_json["expiry_ns"])  # type: ignore
 
-        self.logger.debug(
-            f"AUTH DEBUG: token={token_json.get('token')} expires={token_json.get('expiry_ns')}"
-        )
+        self.logger.debug(f"AUTH DEBUG: token={token} expires={expiry_ns} (len={len(token)})")
 
-        self._auth_token = token_json["token"]
-        self._auth_expiry_ns = int(token_json["expiry_ns"])
+        self._auth_token = token_json["token"]  # type: ignore
+        self._auth_expiry_ns = expiry_ns
 
     async def _ws_auth_headers(self) -> dict[str, str]:
         if self.AUTH:
@@ -284,7 +287,8 @@ class BaseClient:
         Closes the underlying httpx async client.
         """
         self.logger.debug("Closing async HTTP client.")
-        await self._client.aclose()
+        if self._client and isinstance(self._client, httpx.AsyncClient):
+            await self._client.aclose()
 
     async def __aenter__(self):
         """

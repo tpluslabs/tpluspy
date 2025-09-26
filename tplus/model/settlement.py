@@ -47,7 +47,7 @@ class InnerSettlementRequest(BaseSettlement):
         amount_out: int,
         decimals_out: int,
         tplus_user: UserPublicKey,
-        chain: ChainID,
+        chain: ChainID | int,
     ) -> "InnerSettlementRequest":
         """
         Create a request using raw amounts by first normalizing them to the CE.
@@ -74,13 +74,15 @@ class InnerSettlementRequest(BaseSettlement):
         if isinstance(asset_out, str) and "@" not in asset_out:
             asset_out = AssetIdentifier(f"{asset_out}@{chain}")
 
-        return cls(
-            asset_in=asset_in,
-            amount_in=normalize_to_inventory(amount_in, decimals_in, "up"),
-            asset_out=asset_out,
-            amount_out=normalize_to_inventory(amount_out, decimals_out, "down"),
-            tplus_user=tplus_user,
-            chain_id=chain,
+        return cls.model_validate(
+            {
+                "asset_in": asset_in,
+                "amount_in": normalize_to_inventory(amount_in, decimals_in, "up"),
+                "asset_out": asset_out,
+                "amount_out": normalize_to_inventory(amount_out, decimals_out, "down"),
+                "tplus_user": tplus_user,
+                "chain_id": chain,
+            }
         )
 
     def signing_payload(self) -> str:
@@ -154,7 +156,7 @@ class BatchSettlementRequest(BaseModel):
     Allows multiple settlements, unlike ``TxSettlementRequest``.
     """
 
-    signature: list[int]
+    signature: list[int] = []
     """
     The settler's signature from signing the necessary data (mostly from ``.inner``).
     """

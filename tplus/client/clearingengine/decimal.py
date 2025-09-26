@@ -1,17 +1,16 @@
+from collections.abc import Sequence
+
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 
 
 def _prep_request(
-    asset_ids: list[str | AssetIdentifier] | str | AssetIdentifier, chains: list[int] | int
+    asset_ids: Sequence[str | AssetIdentifier] | str | AssetIdentifier, chains: list[int] | int
 ) -> dict:
-    if not isinstance(asset_ids, list):
-        asset_ids = [asset_ids]
-    if not isinstance(chains, list):
-        chains = [chains]
-
+    asset_ids_seq = asset_ids if isinstance(asset_ids, Sequence) else [asset_ids]
+    chains = chains if isinstance(chains, Sequence) else [chains]
     assets = []
-    for asset in asset_ids:
+    for asset in asset_ids_seq:
         if isinstance(asset, AssetIdentifier):
             # Already validated.
             assets.append(asset.model_dump())

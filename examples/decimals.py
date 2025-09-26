@@ -4,13 +4,16 @@ from pprint import pprint
 
 from tplus.client import ClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.utils.user import User
 
 CLEARING_ENGINE_HOST = "http://127.0.0.1:3032"
 
 
 async def main():
-    client = ClearingEngineClient(None, CLEARING_ENGINE_HOST)
-    assets = [AssetIdentifier("0xf3c3351d6bd0098eeb33ca8f830faf2a141ea2e1@421614")]
+    client = ClearingEngineClient(User(), CLEARING_ENGINE_HOST)
+    assets: list[AssetIdentifier | str] = [
+        AssetIdentifier("0xf3c3351d6bd0098eeb33ca8f830faf2a141ea2e1@421614")
+    ]
     chains = [421614]
 
     await client.decimals.update(assets, chains)

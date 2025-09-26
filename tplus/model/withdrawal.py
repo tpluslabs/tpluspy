@@ -44,11 +44,13 @@ class WithdrawalRequest(BaseModel):
 
             asset = AssetIdentifier.model_validate(asset)
 
-        inner = InnerWithdrawalRequest(
-            tplus_user=signer.public_key,
-            asset=asset,
-            amount=amount,
-            chain_id=chain_id,
+        inner = InnerWithdrawalRequest.model_validate(
+            {
+                "tplus_user": signer.public_key,
+                "asset": asset,
+                "amount": amount,
+                "chain_id": chain_id,
+            }
         )
         signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
         return cls(inner=inner, signature=signature)

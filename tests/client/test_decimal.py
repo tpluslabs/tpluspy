@@ -23,7 +23,7 @@ def test_prep_request():
 
 
 def test_prep_request_given_asset_ids():
-    assets = [
+    assets: list[AssetIdentifier | str] = [
         AssetIdentifier("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1@000000000000a4b1"),
         AssetIdentifier("0xaf88d065e77c8cC2239327C5EDb3A432268e5831@000000000000a4b1"),
     ]

@@ -7,7 +7,7 @@ from tplus.evm.contracts import registry, vault
 
 
 def ape_init_extras():
-    res = {
+    res: dict = {
         "vault": vault,
         "registry": registry,
     }

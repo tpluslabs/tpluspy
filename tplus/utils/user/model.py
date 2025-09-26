@@ -1,7 +1,8 @@
 from functools import cached_property
 
-from ecdsa import Ed25519, SigningKey
+from ecdsa import Ed25519, SigningKey  # type: ignore
 
+from tplus.model.types import UserPublicKey
 from tplus.utils.hex import str_to_vec
 from tplus.utils.user.validate import privkey_to_bytes
 
@@ -21,11 +22,12 @@ class User:
         return f"<User {self.public_key}>"
 
     @cached_property
-    def public_key(self) -> str:
-        return self.pubkey()
+    def public_key(self) -> UserPublicKey:
+        # NOTE: Should effectively be the same as a `str` since base-type.
+        return UserPublicKey(self.pubkey())
 
     @cached_property
-    def public_key_vec(self) -> str:
+    def public_key_vec(self) -> list[int]:
         return str_to_vec(self.public_key)
 
     # Legacy: use `.public_key` (cached).
@@ -33,7 +35,7 @@ class User:
         return self.vk.to_string().hex()
 
     # Legacy: use `.public_key_vec` (cached).
-    def pubkey_vec(self) -> list[str]:
+    def pubkey_vec(self) -> list[int]:
         return str_to_vec(self.public_key)
 
     def sign(self, payload: str):

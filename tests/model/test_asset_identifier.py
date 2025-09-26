@@ -91,7 +91,7 @@ class TestAssetIdentifier:
         assert data == expected
 
     def test_index_str_full_circle(self):
-        model = AssetIdentifier(1)
+        model = AssetIdentifier("1")
 
         # Note: `mode_dump()` calls our custom model serializer.
         data = model.model_dump()
@@ -110,7 +110,7 @@ class TestAssetIdentifier:
 
     def test_index_dict_full_circle(self):
         init_data = {"Index": 1}
-        model = AssetIdentifier(init_data)
+        model = AssetIdentifier.model_validate(init_data)
         data = model.model_dump()
         assert data == "1"
 
@@ -121,7 +121,7 @@ class TestAssetIdentifier:
                 "chain": [0, 0, 0, 0, 0, 0, 0, 1],
             }
         }
-        model = AssetIdentifier(init_data)
+        model = AssetIdentifier.model_validate(init_data)
         data = model.model_dump()
         expected = (
             "0000000000000000000000000000000000000000000000000000000000000000@0000000000000001"
