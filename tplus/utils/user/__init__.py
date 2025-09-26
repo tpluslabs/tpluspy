@@ -13,4 +13,4 @@ def load_user(name: str | None = None, password: str | None = None) -> User:
     raise ValueError("No default user; please add a user.")
 
 
-__all__ = ("User", "UserManager")
+__all__ = ("User", "UserManager", "load_user")
