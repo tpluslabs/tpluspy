@@ -53,6 +53,8 @@ class OrderBookClient(BaseClient):
         super().__init__(
             user, base_url=base_url, websocket_kwargs=websocket_kwargs, log_level=log_level
         )
+        # Cache Market details per asset to avoid repeated GET /market calls
+        self._market_cache: dict[str, Market] = {}
 
     async def create_market(self, asset_id: AssetIdentifier | str) -> dict[str, Any]:
         """
@@ -65,11 +67,14 @@ class OrderBookClient(BaseClient):
         return await self._request("POST", "/market/create", json_data=message_dict)
 
     async def get_market(self, asset_id: AssetIdentifier) -> Market:
-        """
-        Get a market (async).
-        """
+        """Get a market (async) with simple per-asset caching."""
+        key = str(asset_id)
+        if (cached := self._market_cache.get(key)) is not None:
+            return cached
+
         response = await self._request("GET", f"/market/{asset_id}")
         market = parse_market(response)
+        self._market_cache[key] = market
         return market
 
     async def create_market_order(
