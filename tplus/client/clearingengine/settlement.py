@@ -1,6 +1,12 @@
+from typing import Any
+
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.settlement import BatchSettlementRequest, TxSettlementRequest
+
+
+def _extract_tx(rfq_resp: dict[str, Any]) -> dict[str, Any] | None:
+    return rfq_resp.get("tx") or rfq_resp.get("transaction")
 
 
 class SettlementClient(BaseClearingEngineClient):
@@ -34,7 +40,15 @@ class SettlementClient(BaseClearingEngineClient):
         Returns:
             A list of signatures (rust int arrays).
         """
-        return await self._get(f"settlement/signatures/{user}")
+        result = await self._get(f"settlement/signatures/{user}")
+        if isinstance(result, list):
+            return result
+
+        elif isinstance(result, dict) and "error" in result:
+            raise RuntimeError(result["error"])
+
+        # Unknown.
+        return result
 
     async def init_batch_settlement(self, request: dict | BatchSettlementRequest):
         """
