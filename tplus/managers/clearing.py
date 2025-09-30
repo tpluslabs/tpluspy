@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
 from tplus.model.settlement import TxSettlementRequest
+from tplus.utils.address import public_key_to_address
 from tplus.utils.amount import AmountPair
 
 try:
@@ -72,6 +73,14 @@ class ClearingManager(ManagerAccessMixin):
         if deposits:
             await self.check_for_new_deposits()
 
+    async def register_admin(self, vault_owner: "AccountAPI") -> "ReceiptAPI":
+        """
+        Register the connected clearing-engine as a valid deposit vault admin.
+        """
+        key = await self.ce.admin.get_verifying_key()
+        address = public_key_to_address(key)
+        return self.vault.setAdmin(address, True, sender=vault_owner)
+
     async def settle(
         self,
         asset_in: "AssetIdentifier",
@@ -118,7 +127,7 @@ class ClearingManager(ManagerAccessMixin):
             {
                 "tokenIn": asset_in.evm_address,
                 "amountIn": amount_in.atomic,
-                "assetOut": asset_out.evm_address,
+                "tokenOut": asset_out.evm_address,
                 "amountOut": amount_out.atomic,
                 "nonce": approval["inner"]["nonce"],
             },
