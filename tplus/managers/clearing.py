@@ -3,6 +3,8 @@ import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from ethpm_types import ContractInstance
+
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
 from tplus.model.settlement import TxSettlementRequest
@@ -75,7 +77,7 @@ class ClearingManager(ManagerAccessMixin):
         if deposits:
             await self.check_for_new_deposits()
 
-    async def register_admin(self, vault_owner: "AccountAPI") -> "ReceiptAPI":
+    async def register_admin(self, *, vault_owner: "AccountAPI") -> "ReceiptAPI":
         """
         Register the connected clearing-engine as a valid deposit vault admin.
         Requires being the vault contract owner.
@@ -88,7 +90,7 @@ class ClearingManager(ManagerAccessMixin):
         self,
         *,
         vault_owner: "AccountAPI",
-        executor: "AddressType | str | AccountAPI",
+        executor: "AddressType | str | AccountAPI | ContractInstance",
         user: "UserPublicKey | None" = None,
     ) -> "ReceiptAPI":
         """
