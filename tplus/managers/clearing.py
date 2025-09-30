@@ -17,8 +17,10 @@ except ImportError:
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
     from ape.api.transactions import ReceiptAPI
+    from ape.types.address import AddressType
 
     from tplus.model.asset_identifier import AssetIdentifier
+    from tplus.model.types import UserPublicKey
     from tplus.utils.user import User
 
 
@@ -76,10 +78,29 @@ class ClearingManager(ManagerAccessMixin):
     async def register_admin(self, vault_owner: "AccountAPI") -> "ReceiptAPI":
         """
         Register the connected clearing-engine as a valid deposit vault admin.
+        Requires being the vault contract owner.
         """
         key = await self.ce.admin.get_verifying_key()
         address = public_key_to_address(key)
         return self.vault.setAdmin(address, True, sender=vault_owner)
+
+    async def register_settler(
+        self,
+        *,
+        vault_owner: "AccountAPI",
+        executor: "AddressType | str | AccountAPI",
+        user: "UserPublicKey | None" = None,
+    ) -> "ReceiptAPI":
+        """
+        Allow a user to settler. Requires being the vault contract owner.
+        """
+        user = user or self.tplus_user.public_key
+        tx = self.vault.setSettlerExecutor(user, executor, sender=vault_owner)
+
+        # Update the clearing-engine.
+        await self.ce.settlements.update_approved_settlers(self.chain_id, self.vault.address)
+
+        return tx
 
     async def settle(
         self,
