@@ -3,8 +3,6 @@ import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from ethpm_types import ContractInstance
-
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
 from tplus.model.settlement import TxSettlementRequest
@@ -19,6 +17,7 @@ except ImportError:
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
     from ape.api.transactions import ReceiptAPI
+    from ape.contracts.base import ContractInstance
     from ape.types.address import AddressType
 
     from tplus.model.asset_identifier import AssetIdentifier
