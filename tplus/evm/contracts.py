@@ -406,7 +406,7 @@ class DepositVault(TPlusContract):
 
         # Set the owner as an admin who can approve settlements/withdrawals.
         # (we only do this in dev mode; irl the roles are different).
-        contract.set_admin_status(owner, True, sender=owner)
+        contract.set_admin_status(owner, True, owner)
 
         return contract
 
