@@ -29,6 +29,12 @@ class TestTplusContract:
 
 
 class TestDepositVault:
+    def test_deploy(self, accounts):
+        owner = accounts[0]
+        instance = DepositVault.deploy(owner)
+        # It should know its address.
+        assert instance.address
+
     def test_from_chain_address(self):
         address = ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1")
         vault = DepositVault.from_chain_address(address)

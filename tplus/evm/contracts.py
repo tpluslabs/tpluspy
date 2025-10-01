@@ -154,7 +154,7 @@ class TPlusContract(TPlusMixin):
 
     @classmethod
     def deploy(cls, deployer: "AccountAPI") -> "TPlusContract":
-        contract_container = load_tplus_contracts_project(cls.NAME)
+        contract_container = load_tplus_contract_container(cls.NAME)
         instance = deployer.deploy(contract_container)
         chain_id = cls.chain_manager.chain_id
         return cls(default_deployer=deployer, chain_id=chain_id, address=instance.address)
@@ -422,7 +422,7 @@ class DepositVault(TPlusContract):
             domain_separator
             or Domain(
                 _chainId_=self.chain_manager.chain_id,
-                _verifyingContract_=vault.address,
+                _verifyingContract_=self.address,
             )._domain_separator_
         )
 
