@@ -41,14 +41,19 @@ class VaultOwner(ManagerAccessMixin):
         self.chain_id = chain_id
         self.ce = clearing_engine
 
-    async def register_admin(self, *, vault_owner: "AccountAPI") -> "ReceiptAPI":
+    async def register_admin(self, admin_key: str | None = None) -> "ReceiptAPI":
         """
         Register the connected clearing-engine as a valid deposit vault admin.
         Requires being the vault contract owner.
         """
-        key = await self.ce.admin.get_verifying_key()
-        address = public_key_to_address(key)
-        return self.vault.setAdmin(address, True, sender=vault_owner)
+        if admin_key is None:
+            if self.ce is None:
+                raise ValueError("Either admin_key or self.ce must be specified")
+
+            admin_key = await self.ce.admin.get_verifying_key()
+
+        address = public_key_to_address(admin_key)
+        return self.vault.setAdmin(address, True, sender=self.owner_eoa)
 
     async def register_settler(
         self,

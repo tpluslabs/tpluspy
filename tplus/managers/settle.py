@@ -26,7 +26,7 @@ class SettlementResult:
     execute_atomic_settlement_tx: "ReceiptAPI | None" = None
 
 
-class ClearingManager(ManagerAccessMixin):
+class SettlementManager(ManagerAccessMixin):
     """
     Integrates the clearing-engine client with the vault contract via Ape to
     abstract away full operations like settlements.
