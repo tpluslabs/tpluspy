@@ -1,26 +1,27 @@
 import os
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional, cast
 
 import yaml
 from ape.exceptions import ContractLogicError, ContractNotFoundError, ProjectError
-from ape.types import AddressType
+from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import REGISTRY_ADDRESS
+from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.types import UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
 
 if TYPE_CHECKING:
-    from ape.api import AccountAPI, ReceiptAPI
-    from ape.contracts import ContractContainer, ContractInstance
-    from ape.managers.project import Project
-
+    from ape.api.accounts import AccountAPI
+    from ape.api.transactions import ReceiptAPI
+    from ape.contracts.base import ContractContainer, ContractInstance
+    from ape.managers.project import LocalProject, Project
 
 CHAIN_MAP = {
     1: "ethereum:mainnet",
@@ -85,6 +86,36 @@ class TplusDeployments:
 TPLUS_DEPLOYMENTS = TplusDeployments()
 
 
+def load_tplus_contracts_project() -> "LocalProject":
+    """
+    Loads the Ape project containing the Solidity contracts for tplus.
+    If you are in the tplus-contracts repo, it detects that and loads that way.
+    Else, it checks all Ape installed dependencies. If it is not installed, it will fail.
+    Install the tplus-contracts project by running ``ape pm install tpluslabs/tplus-contracts``.
+    """
+    if ManagerAccessMixin.local_project.name == "tplus-contracts":
+        # Working from the t+ contracts repo
+        return ManagerAccessMixin.local_project
+
+    # Load the project from dependencies.
+    available_versions = ManagerAccessMixin.local_project.dependencies["tplus-contracts"]
+    if not (version_key := next(iter(available_versions), None)):
+        raise ProjectError("Please install the t+ contracts project")
+
+    project = available_versions[version_key]
+    project.load_contracts()  # Ensure is compiled.
+    return project
+
+
+def load_tplus_contract_container(name: str) -> "ContractContainer":
+    project = load_tplus_contracts_project()
+    return project.get_contract(name)
+
+
+def get_dev_default_owner() -> "AccountAPI":
+    return ManagerAccessMixin.account_manager.test_accounts[0]
+
+
 class TPlusMixin(ManagerAccessMixin):
     """
     A mixin for access to relevant t+ constructs.
@@ -97,18 +128,7 @@ class TPlusMixin(ManagerAccessMixin):
         download and cache the contracts project from GitHub. See pyproject.toml
         Ape config for current specification.
         """
-        if self.local_project.name == "tplus-contracts":
-            # Working from the t+ contracts repo
-            return self.local_project
-
-        # Load the project from dependencies.
-        available_versions = self.local_project.dependencies["tplus-contracts"]
-        if not (version_key := next(iter(available_versions), None)):
-            raise ProjectError("Please install the t+ contracts project")
-
-        project = available_versions[version_key]
-        project.load_contracts()  # Ensure is compiled.
-        return project
+        return load_tplus_contracts_project()
 
 
 class TPlusContract(TPlusMixin):
@@ -116,21 +136,36 @@ class TPlusContract(TPlusMixin):
     An abstraction around a t+ contract.
     """
 
+    NAME: ClassVar[str] = ""
+
     def __init__(
         self,
-        name: str,
         default_deployer: Optional["AccountAPI"] = None,
         chain_id: int | None = None,
         address: str | None = None,
     ) -> None:
         self._deployments: dict[int, ContractInstance] = {}
-        self._name = name
         self._default_deployer = default_deployer
         self._chain_id = chain_id
         self._address = address
 
+        if address is not None and chain_id is not None:
+            self._deployments[chain_id] = self._contract_container.at(address)
+
+    @classmethod
+    def deploy(cls, deployer: "AccountAPI") -> "TPlusContract":
+        contract_container = load_tplus_contracts_project(cls.NAME)
+        instance = deployer.deploy(contract_container)
+        chain_id = cls.chain_manager.chain_id
+        return cls(default_deployer=deployer, chain_id=chain_id, address=instance.address)
+
+    @classmethod
+    def deploy_dev(cls):
+        owner = get_dev_default_owner()
+        return cls.deploy(owner)
+
     def __repr__(self) -> str:
-        return f"<{self._name}>"
+        return f"<{self.name}>"
 
     def __getattr__(self, attr_name: str):
         try:
@@ -139,6 +174,10 @@ class TPlusContract(TPlusMixin):
         except AttributeError:
             # Resort to something defined on the contract.
             return getattr(self.contract, attr_name)
+
+    @property
+    def name(self) -> str:
+        return self.__class__.NAME
 
     @property
     def address(self) -> str:
@@ -150,7 +189,7 @@ class TPlusContract(TPlusMixin):
 
     @property
     def _contract_container(self) -> "ContractContainer":
-        return self.tplus_contracts_project.get_contract(self._name)
+        return self.tplus_contracts_project.get_contract(self.name)
 
     @property
     def contract(self) -> "ContractInstance":
@@ -162,7 +201,7 @@ class TPlusContract(TPlusMixin):
         except ContractNotExists:
             if self.chain_manager.provider.network.is_local:
                 # If simulating, deploy it now.
-                return self.deploy(self.default_deployer)
+                return self.deploy_dev()
 
             raise  # This error.
 
@@ -176,7 +215,7 @@ class TPlusContract(TPlusMixin):
             self._default_deployer = deployer
             return deployer
 
-        raise ValueError(f"Cannot deploy '{self._name}' - No default deployer configured.")
+        raise ValueError(f"Cannot deploy '{self.name}' - No default deployer configured.")
 
     def set_chain(self, chain_id: int):
         self._chain_id = chain_id
@@ -212,20 +251,13 @@ class TPlusContract(TPlusMixin):
 
         chain_id = chain_id or self._chain_id or self.chain_manager.chain_id
         try:
-            return TPLUS_DEPLOYMENTS[chain_id][self._name]
+            return TPLUS_DEPLOYMENTS[chain_id][self.name]
         except KeyError:
-            raise ContractNotExists(f"{self._name} not deployed on chain '{chain_id}'.")
-
-    def deploy(self, deployer: "AccountAPI") -> "TPlusContract":
-        instance = deployer.deploy(self._contract_container)
-        chain_id = self.chain_manager.chain_id
-        self._deployments[chain_id] = instance
-        return instance
+            raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.")
 
 
 class Registry(TPlusContract):
-    def __init__(self):
-        super().__init__("Registry")
+    NAME = "Registry"
 
     def get_assets(self, chain_id: int | None = None) -> list["ContractInstance"]:
         connected_chain = self.chain_manager.chain_id
@@ -281,7 +313,7 @@ class Registry(TPlusContract):
         chain_id = self.chain_manager.chain_id if chain_id is None else chain_id
         return self.contract.addVault(address, chain_id, **kwargs)
 
-    def get_vaults(self) -> list[tuple[AddressType, int]]:
+    def get_vaults(self) -> list[tuple[bytes, int]]:
         return [(r.vaultAddress, r.chain) for r in self.contract.getVaults()]
 
     def get_evm_vaults(self) -> list[tuple[AddressType, int]]:
@@ -301,8 +333,7 @@ class Registry(TPlusContract):
 
 
 class DepositVault(TPlusContract):
-    def __init__(self, chain_id: int | None = None, address: str | None = None) -> None:
-        super().__init__("DepositVault", chain_id=chain_id, address=address)
+    NAME = "DepositVault"
 
     def __getattr__(self, attr_name: str):
         if self._chain_id is None or attr_name in ("address",) or attr_name.startswith("_"):
@@ -325,7 +356,7 @@ class DepositVault(TPlusContract):
 
     @classmethod
     def from_chain_address(cls, chain_address: ChainAddress) -> "DepositVault":
-        return cls(chain_address.chain_id, chain_address.evm_address)
+        return cls(chain_id=chain_address.chain_id, address=chain_address.evm_address)
 
     def deposit(
         self, user: UserPublicKey, token: AddressType, amount: int, **tx_kwargs
@@ -355,6 +386,47 @@ class DepositVault(TPlusContract):
                 raise ContractLogicError(erc20_err_name) from err
 
             raise  # Error as-is.
+
+    @classmethod
+    def deploy(cls, deployer: "AccountAPI") -> "DepositVault":
+        instance = super().deploy(deployer)
+
+        # Set the domain separator.
+        instance.set_domain_separator(deployer)
+
+        return instance
+
+    @classmethod
+    def deploy_dev(cls, owner: "AccountAPI | None" = None) -> TPlusContract:
+        """
+        Deploy and set up a development vault.
+        """
+        owner = owner or cls.account_manager.test_accounts[0]
+        contract = cast(DepositVault, cls.deploy(deployer=owner))
+
+        # Set the owner as an admin who can approve settlements/withdrawals.
+        # (we only do this in dev mode; irl the roles are different).
+        contract.set_admin_status(owner, True, sender=owner)
+
+        return contract
+
+    def set_admin_status(
+        self, admin: "AddressType", status: bool, vault_owner: "AccountAPI"
+    ) -> "ReceiptAPI":
+        return self.contract.setAdmin(admin, status, sender=vault_owner)
+
+    def set_domain_separator(
+        self, vault_owner: "AccountAPI", domain_separator: bytes | None = None
+    ) -> "ReceiptAPI":
+        domain_separator = (
+            domain_separator
+            or Domain(
+                _chainId_=self.chain_manager.chain_id,
+                _verifyingContract_=vault.address,
+            )._domain_separator_
+        )
+
+        return self.contract.setDomainSeparator(domain_separator, sender=vault_owner)
 
 
 def _decode_erc20_error(err: str) -> ContractLogicError | None:
