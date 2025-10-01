@@ -2,14 +2,17 @@ import pytest
 from eth_utils import keccak, to_hex
 
 from tplus.evm.constants import REGISTRY_ADDRESS
-from tplus.evm.contracts import DepositVault, TPlusContract, _decode_erc20_error
+from tplus.evm.contracts import DepositVault, Registry, TPlusContract, _decode_erc20_error
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
 
 
 class TestTplusContract:
     def test_address_not_exists(self):
-        contract = TPlusContract("foo")
+        class FooContract(TPlusContract):
+            NAME = "foo"
+
+        contract = FooContract()
         with pytest.raises(ContractNotExists, match=r"foo not deployed on chain '\d*'\."):
             _ = contract.address
 
@@ -20,7 +23,7 @@ class TestTplusContract:
 
     def test_address_from_lookup(self):
         chain_id = 42161
-        contract = TPlusContract("Registry", chain_id=chain_id)
+        contract = Registry(chain_id=chain_id)
         expected = REGISTRY_ADDRESS
         assert contract.address == expected
 
