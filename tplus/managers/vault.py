@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 from tplus.client import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
+from tplus.evm.eip712 import Domain
 from tplus.managers.evm import ChainConnectedManager
 from tplus.model.types import UserPublicKey
 from tplus.utils.address import public_key_to_address
@@ -41,7 +42,20 @@ class VaultOwner(ChainConnectedManager):
         self.chain_id = chain_id
         self.ce = clearing_engine
 
-    async def register_admin(self, admin_key: str | None = None) -> "ReceiptAPI":
+    def set_domain_separator(self, domain_separator: bytes) -> None:
+        domain_separator = (
+            domain_separator
+            or Domain(
+                _chainId_=self.chain_manager.chain_id,
+                _verifyingContract_=self.vault.address,
+            )._domain_separator_
+        )
+
+        return self.vault.set_domain_separator(domain_separator, sender=self.owner_eoa)
+
+    async def register_admin(
+        self, admin_key: str | None = None, verify: bool = False
+    ) -> "ReceiptAPI":
         """
         Register the connected clearing-engine as a valid deposit vault admin.
         Requires being the vault contract owner.
@@ -53,7 +67,12 @@ class VaultOwner(ChainConnectedManager):
             admin_key = await self.ce.admin.get_verifying_key()
 
         address = public_key_to_address(admin_key)
-        return self.vault.setAdmin(address, True, sender=self.owner_eoa)
+        tx = self.vault.setAdmin(address, True, sender=self.owner_eoa)
+
+        if verify:
+            self.vault.isAdmin(address)
+
+        return tx
 
     async def register_settler(
         self,

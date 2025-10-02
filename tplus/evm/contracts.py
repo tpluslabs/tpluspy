@@ -388,11 +388,16 @@ class DepositVault(TPlusContract):
             raise  # Error as-is.
 
     @classmethod
-    def deploy(cls, sender: "AccountAPI") -> "DepositVault":
+    def deploy(cls, *, sender: "AccountAPI") -> "DepositVault":
         instance = super().deploy(sender)
 
         # Set the domain separator.
-        instance.set_domain_separator(sender)
+        separator = Domain(
+            _chainId_=cls.chain_manager.chain_id,
+            _verifyingContract_=instance.address,
+        )._domain_separator_
+
+        instance.set_domain_separator(separator, sender=sender)
 
         return instance
 
@@ -416,17 +421,9 @@ class DepositVault(TPlusContract):
         return self.contract.setAdmin(admin, status, sender=vault_owner)
 
     def set_domain_separator(
-        self, vault_owner: "AccountAPI", domain_separator: bytes | None = None
+        self, domain_separator: bytes, *, sender: "AccountAPI"
     ) -> "ReceiptAPI":
-        domain_separator = (
-            domain_separator
-            or Domain(
-                _chainId_=self.chain_manager.chain_id,
-                _verifyingContract_=self.address,
-            )._domain_separator_
-        )
-
-        return self.contract.setDomainSeparator(domain_separator, sender=vault_owner)
+        return self.contract.setDomainSeparator(domain_separator, sender=sender)
 
 
 def _decode_erc20_error(err: str) -> ContractLogicError | None:
