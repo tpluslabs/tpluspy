@@ -63,11 +63,7 @@ class SettlementManager(ManagerAccessMixin):
         """
         Do any initial set up on a fresh CE, such as check for new vaults and deposits.
         """
-        if vaults:
-            await self.check_for_new_vaults()
-            await asyncio.sleep(
-                2
-            )  # Have to sleep because can't do anything until the CE has vaults.
+        await self.ensure_vault_registered(check_for_new_vaults=vaults)
 
         # Next, force the decimals to update. This isn't really needed but helps things run consistently from the go.
         if dec := decimals:
@@ -77,6 +73,20 @@ class SettlementManager(ManagerAccessMixin):
         # do anything for the CE, but you can always run `ape run ingest deposits` separately.
         if deposits:
             await self.check_for_new_deposits()
+
+    async def ensure_vault_registered(self, check_for_new_vaults: bool) -> None:
+        if check_for_new_vaults:
+            await self.check_for_new_vaults()
+            await asyncio.sleep(2)  # Give CE time to register vaults.
+
+        for attempt in range(2):  # Try up to 2 times
+            ce_vaults = await self.ce.vaults.get()
+            if ce_vaults:
+                return
+            if attempt == 0:
+                await asyncio.sleep(2)
+
+        raise ValueError("Vault never registered.")
 
     async def settle(
         self,
