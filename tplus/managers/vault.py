@@ -1,3 +1,5 @@
+import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from ape.utils.basemodel import ManagerAccessMixin
@@ -59,13 +61,31 @@ class VaultOwner(ManagerAccessMixin):
         self,
         settler: UserPublicKey,
         executor: "AddressType | str | AccountAPI | ContractInstance",
+        wait: bool = False,
     ) -> "ReceiptAPI":
         """
         Allow a user to settler. Requires being the vault contract owner.
         """
         tx = self.vault.setSettlerExecutor(settler, executor, sender=self.owner_eoa)
 
-        if self.ce is not None:
-            await self.ce.settlements.update_approved_settlers(self.chain_id, self.vault.address)
+        if wait:
+            if not (ce := self.ce):
+                raise ValueError("Must have clearing_engine to wait for settler registration.")
+
+            # Wait for the settler to appear in the CE's list of approved settlers.
+            found = False
+            timeout = 10  # Seconds
+            start = int(time.time())
+            while int(time.time()) - start <= timeout:
+                await self.ce.settlements.update_approved_settlers(self.chain_id, self.vault.address)
+                settlers = await ce.settlements.get_approved_settlers(self.chain_id)
+                if settler in settlers:
+                    found = True
+                    break
+
+                await asyncio.sleep(1)
+
+            if not found:
+                raise Exception("Settler approval failed.")
 
         return tx
