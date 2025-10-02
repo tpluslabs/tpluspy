@@ -1,11 +1,8 @@
-import asyncio
-import time
 from typing import TYPE_CHECKING
-
-from ape.utils.basemodel import ManagerAccessMixin
 
 from tplus.client import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
+from tplus.managers.evm import ChainConnectedManager
 from tplus.model.types import UserPublicKey
 from tplus.utils.address import public_key_to_address
 from tplus.utils.timeout import wait_for_condition
@@ -17,7 +14,7 @@ if TYPE_CHECKING:
     from ape.types.address import AddressType
 
 
-class VaultOwner(ManagerAccessMixin):
+class VaultOwner(ChainConnectedManager):
     """
     This manager is for council use against the vault contract.
     It contains simpler operations for configuring vaults.
@@ -74,7 +71,9 @@ class VaultOwner(ManagerAccessMixin):
                 raise ValueError("Must have clearing_engine to wait for settler registration.")
 
             await wait_for_condition(
-                update_fn=lambda: ce.settlements.update_approved_settlers(self.chain_id, self.vault.address),
+                update_fn=lambda: ce.settlements.update_approved_settlers(
+                    self.chain_id, self.vault.address
+                ),
                 get_fn=lambda: ce.settlements.get_approved_settlers(self.chain_id),
                 check_fn=lambda settlers: settler in settlers,
                 timeout=10,

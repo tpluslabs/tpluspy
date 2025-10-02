@@ -1,14 +1,17 @@
-from ape.utils.basemodel import ManagerAccessMixin
 from typing import TYPE_CHECKING
+
 from tplus.evm.contracts import Registry
+from tplus.managers.evm import ChainConnectedManager
 from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:
+    from ape.api.accounts import AccountAPI
     from ape.types.address import AddressType
+
     from tplus.client.clearingengine import ClearingEngineClient
 
 
-class RegistryOwner(ManagerAccessMixin):
+class RegistryOwner(ChainConnectedManager):
     """
     For registry (`Registry.sol`) operations using the owner of the contract.
     """
@@ -21,20 +24,16 @@ class RegistryOwner(ManagerAccessMixin):
         clearing_engine: "ClearingEngineClient | None" = None,
     ):
         self.owner_eoa = owner_eoa
+        self.chain_id = chain_id or self.chain_manager.chain_id
 
         if registry is None:
-            if chain_id is None:
-                raise ValueError("Either vault or chain_id must be specified")
-
-            self.registry = Registry(chain_id=chain_id)
-
+            self.registry = Registry(chain_id=self.chain_id)
         else:
             self.registry = registry
 
-        self.chain_id = chain_id
         self.ce = clearing_engine
 
-    async def add_vault(self, vault: "AddressType", wait: bool):
+    async def add_vault(self, vault: "AddressType", wait: bool = False):
         """
         Add a vault to the registry.
 
@@ -52,9 +51,10 @@ class RegistryOwner(ManagerAccessMixin):
                 raise ValueError("Must have clearing_engine to wait for vault registration.")
 
             await wait_for_condition(
-                update_fn=lambda: ce.settlements.update_approved_settlers(self.chain_id, self.vault.address),
-                get_fn=lambda: ce.settlements.get_approved_settlers(self.chain_id),
-                check_fn=lambda vaults: vault in vaults,
+                update_fn=lambda: ce.vaults.update(),
+                get_fn=lambda: ce.vaults.get(),
+                # cond: checks if the vault EVM address is part any of the ChainAddress returned.
+                check_fn=lambda vaults: any(vault in vault_ca for vault_ca in vaults),
                 timeout=10,
                 interval=1,
                 error_msg="Vault registration failed.",

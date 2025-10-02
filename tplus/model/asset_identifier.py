@@ -1,6 +1,7 @@
 from functools import cached_property
 from typing import Any
 
+from hexbytes import HexBytes
 from pydantic import RootModel, model_serializer, model_validator
 
 
@@ -91,6 +92,21 @@ class ChainAddress(RootModel[str]):
 
     def __str__(self) -> str:
         return str(self.root)
+
+    def __contains__(self, key: Any) -> bool:
+        if isinstance(key, int):
+            return key == self.chain_id
+
+        elif isinstance(key, str) and key.startswith("0x"):
+            key_bytes = HexBytes(key)
+            if len(key_bytes) == 20:
+                # EVM style.
+                return HexBytes(self.evm_address) == key_bytes
+
+            return HexBytes(self.address) == key_bytes
+
+        # Attemps from the other side before returning False.
+        return NotImplemented
 
     @model_serializer
     def serialize_model(self) -> str:

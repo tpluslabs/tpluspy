@@ -1,21 +1,21 @@
 import asyncio
 import time
 from collections.abc import Sequence
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
+from tplus.managers.deposit import DepositManager
+from tplus.managers.evm import ChainConnectedManager
 from tplus.model.settlement import TxSettlementRequest
 from tplus.utils.amount import AmountPair
-
-try:
-    from ape.utils.basemodel import ManagerAccessMixin
-except ImportError:
-    raise ImportError("Please install ape to use the ClearingManager")
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
     from ape.api.transactions import ReceiptAPI
+    from ape.contracts.base import ContractInstance
+    from ape.types.address import AddressType
 
     from tplus.model.asset_identifier import AssetIdentifier
     from tplus.utils.user import User
@@ -26,7 +26,7 @@ class SettlementResult:
     execute_atomic_settlement_tx: "ReceiptAPI | None" = None
 
 
-class SettlementManager(ManagerAccessMixin):
+class SettlementManager(ChainConnectedManager):
     """
     Integrates the clearing-engine client with the vault contract via Ape to
     abstract away full operations like settlements.
@@ -53,6 +53,16 @@ class SettlementManager(ManagerAccessMixin):
         #       like if following the demo-algo settler service which uses a proxy
         #       for the actual `.executeAtomicSettlement()` call because of the cb.
         self.settlement_vault = settlement_vault or self.vault
+
+    @cached_property
+    def deposits(self):
+        return DepositManager(
+            self.ape_account,
+            self.tplus_user,
+            vault=self.vault,
+            chain_id=self.chain_id,
+            clearing_engine=self.ce,
+        )
 
     async def prefetch_chaindata(
         self,
@@ -87,6 +97,11 @@ class SettlementManager(ManagerAccessMixin):
                 await asyncio.sleep(2)
 
         raise ValueError("Vault never registered.")
+
+    async def deposit(
+        self, token: "str | AddressType | ContractInstance", amount: int, wait: bool = False
+    ):
+        await self.deposits.deposit(token, amount, wait=wait)
 
     async def settle(
         self,
