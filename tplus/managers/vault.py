@@ -8,6 +8,7 @@ from tplus.client import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
 from tplus.model.types import UserPublicKey
 from tplus.utils.address import public_key_to_address
+from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -72,20 +73,13 @@ class VaultOwner(ManagerAccessMixin):
             if not (ce := self.ce):
                 raise ValueError("Must have clearing_engine to wait for settler registration.")
 
-            # Wait for the settler to appear in the CE's list of approved settlers.
-            found = False
-            timeout = 10  # Seconds
-            start = int(time.time())
-            while int(time.time()) - start <= timeout:
-                await self.ce.settlements.update_approved_settlers(self.chain_id, self.vault.address)
-                settlers = await ce.settlements.get_approved_settlers(self.chain_id)
-                if settler in settlers:
-                    found = True
-                    break
-
-                await asyncio.sleep(1)
-
-            if not found:
-                raise Exception("Settler approval failed.")
+            await wait_for_condition(
+                update_fn=lambda: ce.settlements.update_approved_settlers(self.chain_id, self.vault.address),
+                get_fn=lambda: ce.settlements.get_approved_settlers(self.chain_id),
+                check_fn=lambda settlers: settler in settlers,
+                timeout=10,
+                interval=1,
+                error_msg="Settler approval failed.",
+            )
 
         return tx
