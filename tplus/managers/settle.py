@@ -36,13 +36,13 @@ class SettlementManager(ManagerAccessMixin):
         self,
         tplus_user: "User",
         ape_account: "AccountAPI",
-        ce: ClearingEngineClient | None = None,
+        clearing_engine: ClearingEngineClient | None = None,
         chain_id: int | None = None,
         vault: DepositVault | None = None,
     ):
         self.tplus_user = tplus_user
         self.ape_account = ape_account
-        self.ce: ClearingEngineClient = ce or ClearingEngineClient(
+        self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient(
             self.tplus_user, "http://127.0.0.1:3032"
         )
         self.chain_id = self.chain_manager.chain_id if chain_id is None else chain_id

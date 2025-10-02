@@ -153,11 +153,11 @@ class TPlusContract(TPlusMixin):
             self._deployments[chain_id] = self._contract_container.at(address)
 
     @classmethod
-    def deploy(cls, deployer: "AccountAPI") -> "TPlusContract":
+    def deploy(cls, sender: "AccountAPI") -> "TPlusContract":
         contract_container = load_tplus_contract_container(cls.NAME)
-        instance = deployer.deploy(contract_container)
+        instance = sender.deploy(contract_container)
         chain_id = cls.chain_manager.chain_id
-        return cls(default_deployer=deployer, chain_id=chain_id, address=instance.address)
+        return cls(default_deployer=sender, chain_id=chain_id, address=instance.address)
 
     @classmethod
     def deploy_dev(cls):
@@ -388,25 +388,25 @@ class DepositVault(TPlusContract):
             raise  # Error as-is.
 
     @classmethod
-    def deploy(cls, deployer: "AccountAPI") -> "DepositVault":
-        instance = super().deploy(deployer)
+    def deploy(cls, sender: "AccountAPI") -> "DepositVault":
+        instance = super().deploy(sender)
 
         # Set the domain separator.
-        instance.set_domain_separator(deployer)
+        instance.set_domain_separator(sender)
 
         return instance
 
     @classmethod
-    def deploy_dev(cls, owner: "AccountAPI | None" = None) -> TPlusContract:
+    def deploy_dev(cls, sender: "AccountAPI | None" = None) -> TPlusContract:
         """
         Deploy and set up a development vault.
         """
-        owner = owner or cls.account_manager.test_accounts[0]
-        contract = cast(DepositVault, cls.deploy(deployer=owner))
+        sender = sender or cls.account_manager.test_accounts[0]
+        contract = cast(DepositVault, cls.deploy(sender=sender))
 
         # Set the owner as an admin who can approve settlements/withdrawals.
         # (we only do this in dev mode; irl the roles are different).
-        contract.set_admin_status(owner, True, owner)
+        contract.set_admin_status(sender, True, sender)
 
         return contract
 
