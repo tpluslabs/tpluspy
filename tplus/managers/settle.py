@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 
 from hexbytes import HexBytes
 
-from tplus.logger import get_logger
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
+from tplus.logger import get_logger
 from tplus.managers.deposit import DepositManager
 from tplus.managers.evm import ChainConnectedManager
 from tplus.model.settlement import TxSettlementRequest
@@ -161,7 +161,8 @@ class SettlementManager(ChainConnectedManager):
             f"Asset out: {asset_out.evm_address}, "
             f"Amount out: {amount_out.atomic}, "
             f"Nonce: {nonce}, "
-            f"Expiry: {expiry} "
+            f"Expiry: {expiry}, "
+            f"Domain separator: {self.vault.domain_separator}"
         )
 
         # Execute the settlement on-chain.

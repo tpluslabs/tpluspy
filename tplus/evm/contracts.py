@@ -358,6 +358,10 @@ class DepositVault(TPlusContract):
     def from_chain_address(cls, chain_address: ChainAddress) -> "DepositVault":
         return cls(chain_id=chain_address.chain_id, address=chain_address.evm_address)
 
+    @property
+    def domain_separator(self) -> HexBytes:
+        return HexBytes(self.chain_manager.provider.get_storage(self.address, 1))
+
     def deposit(
         self, user: UserPublicKey, token: AddressType, amount: int, **tx_kwargs
     ) -> "ReceiptAPI":
