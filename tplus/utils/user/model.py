@@ -9,7 +9,7 @@ from tplus.utils.user.validate import privkey_to_bytes
 class User:
     def __init__(self, private_key: str | bytes | None = None):
         if private_key:
-            if isinstance(private_key, (str, bytes)):
+            if isinstance(private_key, str | bytes):
                 private_key_bytes = privkey_to_bytes(private_key)
                 self.sk = SigningKey.from_string(private_key_bytes, curve=Ed25519)
             elif isinstance(private_key, SigningKey):

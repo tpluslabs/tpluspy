@@ -39,6 +39,7 @@ class SettlementManager(ManagerAccessMixin):
         clearing_engine: ClearingEngineClient | None = None,
         chain_id: int | None = None,
         vault: DepositVault | None = None,
+        settlement_vault: DepositVault | None = None,
     ):
         self.tplus_user = tplus_user
         self.ape_account = ape_account
@@ -47,6 +48,11 @@ class SettlementManager(ManagerAccessMixin):
         )
         self.chain_id = self.chain_manager.chain_id if chain_id is None else chain_id
         self.vault = vault or DepositVault(chain_id=self.chain_id)
+
+        # NOTE: The user may want to use a different 'vault' instance for settling,
+        #       like if following the demo-algo settler service which uses a proxy
+        #       for the actual `.executeAtomicSettlement()` call because of the cb.
+        self.settlement_vault = settlement_vault or self.vault
 
     async def prefetch_chaindata(
         self,
@@ -114,7 +120,7 @@ class SettlementManager(ManagerAccessMixin):
         approval: dict = await self.wait_for_settlement_approval()
 
         # Execute the settlement on-chain.
-        tx = self.vault.executeAtomicSettlement(
+        tx = self.settlement_vault.executeAtomicSettlement(
             {
                 "tokenIn": asset_in.evm_address,
                 "amountIn": amount_in.atomic,
