@@ -4,6 +4,9 @@ from collections.abc import Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING
 
+from hexbytes import HexBytes
+
+from tplus.logger import get_logger
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
 from tplus.managers.deposit import DepositManager
@@ -53,6 +56,7 @@ class SettlementManager(ChainConnectedManager):
         #       like if following the demo-algo settler service which uses a proxy
         #       for the actual `.executeAtomicSettlement()` call because of the cb.
         self.settlement_vault = settlement_vault or self.vault
+        self.logger = get_logger()
 
     @cached_property
     def deposits(self):
@@ -144,6 +148,22 @@ class SettlementManager(ChainConnectedManager):
         # NOTE: Hopefully we improve this in the clearing-engine.
         approval: dict = await self.wait_for_settlement_approval()
 
+        nonce = approval["inner"]["nonce"]
+        expiry = approval["expiry"]
+
+        self.logger.info(
+            "Settlement data: "
+            f"Vault: {self.vault.address}, "
+            f"Chain ID: {self.chain_id}, "
+            f"User: {self.tplus_user.public_key}, "
+            f"Asset in: {asset_in.evm_address}, "
+            f"Amount in: {amount_in.atomic}, "
+            f"Asset out: {asset_out.evm_address}, "
+            f"Amount out: {amount_out.atomic}, "
+            f"Nonce: {nonce}, "
+            f"Expiry: {expiry} "
+        )
+
         # Execute the settlement on-chain.
         tx = self.settlement_vault.executeAtomicSettlement(
             {
@@ -151,12 +171,12 @@ class SettlementManager(ChainConnectedManager):
                 "amountIn": amount_in.atomic,
                 "tokenOut": asset_out.evm_address,
                 "amountOut": amount_out.atomic,
-                "nonce": approval["inner"]["nonce"],
+                "nonce": nonce,
             },
-            self.tplus_user.public_key,
-            approval["expiry"],
+            HexBytes(self.tplus_user.public_key),
+            expiry,
             "",
-            approval["inner"]["signature"],
+            HexBytes(approval["inner"]["signature"]),
             sender=self.ape_account,
             required_confirmations=confirmations,
         )
