@@ -24,11 +24,6 @@ if TYPE_CHECKING:
     from tplus.utils.user import User
 
 
-class SettlementResult:
-    success: bool
-    execute_atomic_settlement_tx: "ReceiptAPI | None" = None
-
-
 class SettlementManager(ChainConnectedManager):
     """
     Integrates the clearing-engine client with the vault contract via Ape to
@@ -114,7 +109,7 @@ class SettlementManager(ChainConnectedManager):
         asset_out: "AssetIdentifier",
         amount_out: AmountPair,
         confirmations: int = 0,
-    ) -> SettlementResult:
+    ) -> "ReceiptAPI":
         """
         Initializes a settlement, waits for the approval from the clearing-engine and submits
         the final settlement on-chain.
@@ -128,7 +123,7 @@ class SettlementManager(ChainConnectedManager):
               complete. Defaults to ``0``.
 
         Return:
-            SettlementResult
+            ReceiptAPI
         """
         # Initialize the settlement in the clearing-engine. If the user passes solvency checks,
         # approval signatures will eventually become available.
@@ -162,7 +157,7 @@ class SettlementManager(ChainConnectedManager):
             f"Amount out: {amount_out.atomic}, "
             f"Nonce: {nonce}, "
             f"Expiry: {expiry}, "
-            f"Domain separator: {self.vault.domain_separator}"
+            f"Domain separator: {self.vault.domain_separator.hex()}"
         )
 
         # Execute the settlement on-chain.
@@ -185,7 +180,7 @@ class SettlementManager(ChainConnectedManager):
         # Update the CE.
         await self.ce.settlements.update(self.tplus_user.public_key, self.chain_id)
 
-        return SettlementResult(success=True, execute_atomic_settlement_tx=tx)
+        return tx
 
     async def wait_for_settlement_approval(self) -> dict:
         """
