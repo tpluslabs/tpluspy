@@ -138,7 +138,7 @@ class SettlementManager(ChainConnectedManager):
             },
             self.tplus_user,
         )
-        await self.ce.settlements.init_settlement(request)
+        await self.init_settlement(request)
 
         # Wait for the approvals using a re-try/timeout approach.
         # NOTE: Hopefully we improve this in the clearing-engine.
@@ -197,7 +197,7 @@ class SettlementManager(ChainConnectedManager):
         started = int(time.time())
         wait_time = 1
         while True:
-            approvals = await self.ce.settlements.get_signatures(self.tplus_user.public_key)
+            approvals = await self.get_approvals()
             if isinstance(approvals, list) and len(approvals) > 0:
                 # TODO: This will be problematic if attempting to settle more than once at the same time.
                 return approvals[-1]
@@ -223,11 +223,8 @@ class SettlementManager(ChainConnectedManager):
             self.chain_id,
         )
 
-    async def get_vaults(self):
-        return await self.ce.vaults.get()
-
     async def init_settlement(self, request: "TxSettlementRequest"):
         return await self.ce.settlements.init_settlement(request)
 
     async def get_approvals(self):
-        return await self.ce.settlements.get_signatures(self.tplus_user)
+        return await self.ce.settlements.get_signatures(self.tplus_user.public_key)
