@@ -7,7 +7,7 @@ from tplus.utils.user.validate import privkey_to_bytes
 
 
 class User:
-    def __init__(self, private_key: str | bytes | None = None):
+    def __init__(self, private_key: str | bytes | SigningKey | None = None):
         if private_key:
             if isinstance(private_key, str | bytes):
                 private_key_bytes = privkey_to_bytes(private_key)

@@ -86,14 +86,15 @@ class SettlementManager(ChainConnectedManager):
     async def ensure_vault_registered(self, check_for_new_vaults: bool) -> None:
         if check_for_new_vaults:
             await self.check_for_new_vaults()
+
             await asyncio.sleep(2)  # Give CE time to register vaults.
 
         for attempt in range(2):  # Try up to 2 times
             ce_vaults = await self.ce.vaults.get()
             if ce_vaults:
                 return
-            if attempt == 0:
-                await asyncio.sleep(2)
+
+            await asyncio.sleep(2)
 
         raise ValueError("Vault never registered.")
 
