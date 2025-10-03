@@ -44,7 +44,7 @@ class WithdrawalClient(BaseClearingEngineClient):
 
         # Unknown. Return + log whatever it is and let it fail elsewhere.
         self.logger.error(f"Unknown result format for {prefix} response: {result}.")
-        return result
+        return result  # type: ignore
 
     async def update(self, user: str, chain_id: int):
         """

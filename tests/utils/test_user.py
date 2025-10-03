@@ -1,4 +1,4 @@
-from ecdsa import SigningKey
+from ecdsa import SigningKey  # type: ignore
 
 from tplus.utils.user import User
 

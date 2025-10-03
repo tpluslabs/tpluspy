@@ -363,7 +363,11 @@ class DepositVault(TPlusContract):
         return HexBytes(self.chain_manager.provider.get_storage(self.address, 1))
 
     def deposit(
-        self, user: UserPublicKey, token: AddressType, amount: int, **tx_kwargs
+        self,
+        user: UserPublicKey,
+        token: "str | AddressType | ContractInstance",
+        amount: int,
+        **tx_kwargs,
     ) -> "ReceiptAPI":
         try:
             return self.contract.deposit(user, token, amount, **tx_kwargs)

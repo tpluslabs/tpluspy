@@ -29,25 +29,16 @@ class VaultOwner(ChainConnectedManager):
         clearing_engine: "ClearingEngineClient | None" = None,
     ):
         self.owner_eoa = owner_eoa
-
-        if vault is None:
-            if chain_id is None:
-                raise ValueError("Either vault or chain_id must be specified")
-
-            self.vault = DepositVault(chain_id=chain_id)
-
-        else:
-            self.vault = vault
-
-        self.chain_id = chain_id
+        self.chain_id = chain_id or self.chain_manager.chain_id
+        self.vault = vault or DepositVault(chain_id=self.chain_id)
         self.ce = clearing_engine
 
-    def set_domain_separator(self, domain_separator: bytes) -> None:
+    def set_domain_separator(self, domain_separator: bytes) -> "ReceiptAPI":
         domain_separator = (
             domain_separator
             or Domain(
-                _chainId_=self.chain_manager.chain_id,
-                _verifyingContract_=self.vault.address,
+                _chainId_=self.chain_manager.chain_id,  # type: ignore
+                _verifyingContract_=self.vault.address,  # type: ignore
             )._domain_separator_
         )
 

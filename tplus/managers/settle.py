@@ -220,7 +220,7 @@ class SettlementManager(ChainConnectedManager):
     async def update_decimals(self, assets: Sequence["AssetIdentifier"]):
         await self.ce.decimals.update(
             list(assets),
-            self.chain_id,
+            [self.chain_id],
         )
 
     async def init_settlement(self, request: "TxSettlementRequest"):

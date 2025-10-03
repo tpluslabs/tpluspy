@@ -44,7 +44,7 @@ class SettlementClient(BaseClearingEngineClient):
 
         # Unknown. Return + log whatever it is and let it fail elsewhere.
         self.logger.error(f"Unknown result format for {prefix} response: {result}.")
-        return result
+        return result  # type: ignore
 
     async def init_batch_settlement(self, request: dict | BatchSettlementRequest):
         """
