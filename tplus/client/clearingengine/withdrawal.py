@@ -23,7 +23,7 @@ class WithdrawalClient(BaseClearingEngineClient):
         json_data = withdrawal.model_dump(mode="json")
         await self._post("withdrawal/init", json_data=json_data)
 
-    async def get_signatures(self, user: str) -> dict:
+    async def get_signatures(self, user: str) -> list[dict]:
         """
         Get CE approved signatures for the given user for withdrawal. This happens
         after withdrawal initialization.
@@ -32,9 +32,19 @@ class WithdrawalClient(BaseClearingEngineClient):
             user (str): The user withdrawing.
 
         Returns:
-            A list of signatures (rust int arrays).
+            A list of approval dictionaries containing signatures, nonces, and expirys.
         """
-        return await self._get(f"withdrawal/signatures/{user}")
+        prefix = "withdrawal/signatures"
+        result = await self._get(f"{prefix}/{user}")
+        if isinstance(result, list):
+            return result
+
+        elif isinstance(result, dict) and "error" in result:
+            raise RuntimeError(result["error"])
+
+        # Unknown. Return + log whatever it is and let it fail elsewhere.
+        self.logger.error(f"Unknown result format for {prefix} response: {result}.")
+        return result
 
     async def update(self, user: str, chain_id: int):
         """

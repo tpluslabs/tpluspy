@@ -1,4 +1,3 @@
-
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.settlement import BatchSettlementRequest, TxSettlementRequest
@@ -24,7 +23,7 @@ class SettlementClient(BaseClearingEngineClient):
         data = request.model_dump(mode="json")
         await self._post("settlement/init", json_data=data)
 
-    async def get_signatures(self, user: str) -> dict:
+    async def get_signatures(self, user: str) -> list[dict]:
         """
         Get CE approved signatures for the given user for settlement. This happens
         after settlement initialization.
@@ -33,16 +32,18 @@ class SettlementClient(BaseClearingEngineClient):
             user (str): The settler.
 
         Returns:
-            A list of signatures (rust int arrays).
+            A list of approval dictionaries containing signatures, nonces, and expirys.
         """
-        result = await self._get(f"settlement/signatures/{user}")
+        prefix = "settlement/signatures"
+        result = await self._get(f"{prefix}/{user}")
         if isinstance(result, list):
             return result
 
         elif isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"])
 
-        # Unknown.
+        # Unknown. Return + log whatever it is and let it fail elsewhere.
+        self.logger.error(f"Unknown result format for {prefix} response: {result}.")
         return result
 
     async def init_batch_settlement(self, request: dict | BatchSettlementRequest):

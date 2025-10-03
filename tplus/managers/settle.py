@@ -226,5 +226,5 @@ class SettlementManager(ChainConnectedManager):
     async def init_settlement(self, request: "TxSettlementRequest"):
         return await self.ce.settlements.init_settlement(request)
 
-    async def get_approvals(self):
+    async def get_approvals(self) -> list[dict]:
         return await self.ce.settlements.get_signatures(self.tplus_user.public_key)
