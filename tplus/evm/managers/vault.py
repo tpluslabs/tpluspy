@@ -33,7 +33,9 @@ class VaultOwner(ChainConnectedManager):
         self.vault = vault or DepositVault(chain_id=self.chain_id)
         self.ce = clearing_engine
 
-    def set_domain_separator(self, domain_separator: bytes) -> "ReceiptAPI":
+    def set_domain_separator(self, domain_separator: bytes, **tx_kwargs) -> "ReceiptAPI":
+        tx_kwargs.setdefault("sender", self.owner)
+
         domain_separator = (
             domain_separator
             or Domain(
@@ -42,15 +44,20 @@ class VaultOwner(ChainConnectedManager):
             )._domain_separator_
         )
 
-        return self.vault.set_domain_separator(domain_separator, sender=self.owner)
+        return self.vault.set_domain_separator(domain_separator, **tx_kwargs)
 
     async def register_admin(
-        self, admin_key: str | None = None, verify: bool = False
+        self,
+        admin_key: str | None = None,
+        verify: bool = False,
+        **tx_kwargs,
     ) -> "ReceiptAPI":
         """
         Register the connected clearing-engine as a valid deposit vault admin.
         Requires being the vault contract owner.
         """
+        tx_kwargs.setdefault("sender", self.owner)
+
         if admin_key is None:
             if self.ce is None:
                 raise ValueError("Either admin_key or self.ce must be specified")
@@ -58,8 +65,8 @@ class VaultOwner(ChainConnectedManager):
             admin_key = await self.ce.admin.get_verifying_key()
 
         address = public_key_to_address(admin_key)
-        tx = self.vault.setAdmin(address, True, sender=self.owner)
 
+        tx = self.vault.setAdmin(address, True, **tx_kwargs)
         if verify:
             self.vault.isAdmin(address)
 
@@ -70,11 +77,13 @@ class VaultOwner(ChainConnectedManager):
         settler: UserPublicKey,
         executor: "AddressType | str | AccountAPI | ContractInstance",
         wait: bool = False,
+        **tx_kwargs,
     ) -> "ReceiptAPI":
         """
         Allow a user to settler. Requires being the vault contract owner.
         """
-        tx = self.vault.setSettlerExecutor(settler, executor, sender=self.owner)
+        tx_kwargs.setdefault("sender", self.owner)
+        tx = self.vault.setSettlerExecutor(settler, executor, **tx_kwargs)
 
         if wait:
             if not (ce := self.ce):

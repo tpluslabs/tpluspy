@@ -33,18 +33,20 @@ class RegistryOwner(ChainConnectedManager):
 
         self.ce = clearing_engine
 
-    async def add_vault(self, vault: "AddressType", wait: bool = False):
+    async def add_vault(self, vault: "AddressType", wait: bool = False, **tx_kwargs):
         """
         Add a vault to the registry.
 
         Args:
             vault (AddressType): The vault to add.
             wait (bool): If true and the CE exists, will wait for the vault to be registered in the CE.
+            tx_kwargs: Additional tx kwargs.
 
         Returns:
             ReceiptAPI
         """
-        tx = self.registry.addVault(self.chain_manager.chain_id, vault, sender=self.owner)
+        tx_kwargs.setdefault("sender", self.owner)
+        tx = self.registry.addVault(self.chain_manager.chain_id, vault, **tx_kwargs)
 
         if wait:
             if not (ce := self.ce):

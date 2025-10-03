@@ -109,7 +109,7 @@ class SettlementManager(ChainConnectedManager):
         amount_in: AmountPair,
         asset_out: "AssetIdentifier",
         amount_out: AmountPair,
-        confirmations: int = 0,
+        **tx_kwargs,
     ) -> "ReceiptAPI":
         """
         Initializes a settlement, waits for the approval from the clearing-engine and submits
@@ -120,14 +120,17 @@ class SettlementManager(ChainConnectedManager):
             amount_in (AmountPair): Both the normalized and atomic amounts for the amount going into the protocol.
             asset_out (AssetIdentifier): The ID of the asset leaving the protocol.
             amount_out (AmountPair): Both the normalized and atomic amounts for the amount leaving the protocol.
-            confirmations (int): The number of confirmations to wait for the settlement transaction to count as
-              complete. Defaults to ``0``.
+            tx_kwargs (dict[str, Any]): Additional tx properties to pass to the ``executeAtomicSettlement()`` e.g.
+              ``gas=`` or ``required_confirmations=``.
 
         Return:
             ReceiptAPI
         """
         # Initialize the settlement in the clearing-engine. If the user passes solvency checks,
         # approval signatures will eventually become available.
+        tx_kwargs.setdefault("sender", self.ape_account)
+        tx_kwargs.setdefault("required_confirmations", 0)
+
         request = TxSettlementRequest.create_signed(
             {
                 "chain_id": self.chain_id,
@@ -174,8 +177,7 @@ class SettlementManager(ChainConnectedManager):
             expiry,
             "",
             HexBytes(approval["inner"]["signature"]),
-            sender=self.ape_account,
-            required_confirmations=confirmations,
+            **tx_kwargs,
         )
 
         # Update the CE.
