@@ -64,4 +64,5 @@ class WithdrawalClient(BaseClearingEngineClient):
         Args:
             user (str): The user withdrawing.
         """
-        return await self._get(f"withdrawal/queue/{user}")
+        result: list = await self._get(f"withdrawal/queue/{user}")  # type: ignore
+        return [WithdrawalRequest.model_validate(d) for d in result]

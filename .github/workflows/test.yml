@@ -38,9 +38,8 @@ jobs:
       - name: Format
         run: ruff format --check .
 
-# TODO: Handle type checking issues
-#      - name: Type Check
-#        run: mypy .
+      - name: Type Check
+        run: mypy .
 
       - name: Client Tests
         run: pytest tests --ignore=tests/evm

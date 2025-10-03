@@ -26,11 +26,12 @@ class MarketQuantity(BaseModel):
         return self
 
     @model_serializer
-    def serialize_model(self) -> dict[str, int]:
+    def serialize_model(self) -> dict[str, Any]:
         if self.base_asset is not None:
             return {"BaseAsset": self.base_asset.model_dump()}
-        if self.quote_asset is not None:
+        elif self.quote_asset is not None:
             return {"QuoteAsset": self.quote_asset.model_dump()}
+
         raise ValueError("Either base_asset or quote_asset must be set.")
 
 

@@ -60,7 +60,7 @@ class TplusDeployments:
             return DEFAULT_DEPLOYMENTS
 
         registered = yaml.safe_load(file.read_text())["deployments"]
-        result = {}
+        result: dict = {}
 
         for ecosystem, network_deployments in registered.items():
             for network, deployments in network_deployments.items():
@@ -76,11 +76,11 @@ class TplusDeployments:
 
         return result
 
-    def __getitem__(self, contract_name: str):
-        return self.deployments[contract_name]
+    def __getitem__(self, chain_id: int):
+        return self.deployments[chain_id]
 
-    def get(self, item, default=None):
-        return self.deployments.get(item, default)
+    def get(self, chain_id: int, default=None):
+        return self.deployments.get(chain_id, default)
 
 
 TPLUS_DEPLOYMENTS = TplusDeployments()
@@ -430,7 +430,7 @@ class DepositVault(TPlusContract):
         return self.contract.setDomainSeparator(domain_separator, sender=sender)
 
 
-def _decode_erc20_error(err: str) -> ContractLogicError | None:
+def _decode_erc20_error(err: str) -> str | None:
     if err == "0x7939f424":
         # The sender likely didn't approve, or they don't have the tokens.
         return "TransferFromFailed()"

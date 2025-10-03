@@ -8,8 +8,16 @@ ref = "main"
 scheme = "ssh"
 
 [tool.mypy]
-exclude = ["build/", "dist/", "docs/"]
+exclude = ["build/", "dist/", "docs/", "ape_console_extras.py", "setup.py", "examples"]
 check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "tplus.evm.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "tests.evm.*"
+ignore_errors = true
 
 [tool.setuptools_scm]
 write_to = "tplus/version.py"

@@ -95,5 +95,5 @@ class TestUserPublicKey:
             user: UserPublicKey
 
         user = User()
-        model = MyModel(user=user)
+        model = MyModel(user=user)  # type: ignore
         assert model.user == user.public_key

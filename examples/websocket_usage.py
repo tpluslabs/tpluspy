@@ -6,7 +6,7 @@ import websockets  # Import websocket exceptions
 # Adjust the import path based on your project structure
 # Assumes 'tplus' is a package in your PYTHONPATH or installed
 from tplus.client import OrderBookClient
-from tplus.model.asset_identifier import IndexAsset
+from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.orderbook import OrderBookDiff
 from tplus.model.trades import Trade  # Import specific model
 from tplus.utils.user import User
@@ -22,14 +22,14 @@ logger = logging.getLogger("WebSocketExample")
 API_BASE_URL = "http://127.0.0.1:8000/"  # Example URL
 
 # Example Asset ID to use
-example_asset = IndexAsset(Index=200)  # Fix instantiation: Use keyword argument
+example_asset = AssetIdentifier("200")
 
 # --- Stream Handler Functions ---
 
 
-async def listen_depth(client: OrderBookClient, asset: IndexAsset, max_messages: int = 10):
+async def listen_depth(client: OrderBookClient, asset: AssetIdentifier, max_messages: int = 10):
     """Connects to the depth diff stream and logs received messages."""
-    logger.info(f"Connecting to Depth stream for asset {asset.Index}...")
+    logger.info(f"Connecting to Depth stream for asset {asset}...")
     msg_count = 0
     try:
         # Expect OrderBookDiff objects now
@@ -37,28 +37,26 @@ async def listen_depth(client: OrderBookClient, asset: IndexAsset, max_messages:
             if isinstance(diff_update, OrderBookDiff):
                 # Log info from the diff object
                 logger.info(
-                    f"[Depth-{asset.Index}] Received Diff: Seq={diff_update.sequence_number}, Asks Count={len(diff_update.asks)}, Bids Count={len(diff_update.bids)}"
+                    f"[Depth-{asset}] Received Diff: Seq={diff_update.sequence_number}, Asks Count={len(diff_update.asks)}, Bids Count={len(diff_update.bids)}"
                 )
                 # Optional: Log specific asks/bids if needed for debugging
                 # logger.debug(f"[Depth-{asset.Index}] Asks: {diff_update.asks}")
                 # logger.debug(f"[Depth-{asset.Index}] Bids: {diff_update.bids}")
             else:
                 logger.warning(
-                    f"[Depth-{asset.Index}] Received unexpected data type: {type(diff_update)} - {diff_update}"
+                    f"[Depth-{asset}] Received unexpected data type: {type(diff_update)} - {diff_update}"
                 )
 
             msg_count += 1
             if msg_count >= max_messages:
-                logger.info(
-                    f"[Depth-{asset.Index}] Received {max_messages} messages, stopping listener."
-                )
+                logger.info(f"[Depth-{asset}] Received {max_messages} messages, stopping listener.")
                 break
     except websockets.exceptions.ConnectionClosedError as e:
-        logger.error(f"[Depth-{asset.Index}] Connection closed unexpectedly: {e}")
+        logger.error(f"[Depth-{asset}] Connection closed unexpectedly: {e}")
     except Exception as e:
-        logger.error(f"[Depth-{asset.Index}] Error in stream: {e}", exc_info=True)
+        logger.error(f"[Depth-{asset}] Error in stream: {e}", exc_info=True)
     finally:
-        logger.info(f"[Depth-{asset.Index}] Listener finished.")
+        logger.info(f"[Depth-{asset}] Listener finished.")
 
 
 async def listen_finalized_trades(client: OrderBookClient, max_messages: int = 5):
@@ -70,7 +68,7 @@ async def listen_finalized_trades(client: OrderBookClient, max_messages: int = 5
             if isinstance(trade, Trade):
                 # Use trade.to_dict() for cleaner logging if needed
                 logger.info(
-                    f"[Trades-Finalized] Received Trade ID: {trade.trade_id}, Price: {trade.price}, Qty: {trade.quantity}, Buyer: {trade.is_buyer}"
+                    f"[Trades-Finalized] Received Trade ID: {trade.trade_id}, Price: {trade.price}, Qty: {trade.quantity}, Buyer: {trade.buyer_is_maker}"
                 )
             else:
                 logger.warning(
@@ -97,7 +95,7 @@ async def listen_finalized_trades(client: OrderBookClient, max_messages: int = 5
 async def main():
     user = User()  # Create a user for potential future authenticated streams
     logger.info(f"Using API Base URL: {API_BASE_URL}")
-    logger.info(f"Example Asset Index: {example_asset.Index}")
+    logger.info(f"Example Asset Index: {example_asset}")
 
     # Removed signal handling setup - Not supported on Windows default loop
 

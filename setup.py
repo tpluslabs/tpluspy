@@ -36,9 +36,8 @@ setup(
             "pytest-mock",
         ],
         "lint": [
-            "mypy>=1.15.0,<2",
             "ruff>=0.11.7",
-            "mypy>=1.15.0,<2",
+            "mypy>=1.18.2,<2",
         ],
         "release": [
             "setuptools>=75.6.0",
