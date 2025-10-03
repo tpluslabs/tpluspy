@@ -22,6 +22,7 @@ setup(
         "ecdsa>=0.17",
         "eth-pydantic-types>=0.2.2,<0.3",
         "eth-utils>=5.1.0,<6",
+        "hexbytes>=1.2.1,<2",
         "httpx>=0.20",
         "pycryptodome>=3.17.1",
         "pydantic>=2.10.4,<3",
