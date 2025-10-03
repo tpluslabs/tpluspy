@@ -1,7 +1,6 @@
 import asyncio
 from typing import TYPE_CHECKING
 
-from tplus.client import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
 from tplus.managers.evm import ChainConnectedManager
 
