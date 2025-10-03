@@ -36,7 +36,7 @@ def validate_hex_str(value, size: int | None = None, pad_right: bool = False) ->
 
         value_bytes = bytes.fromhex(value)
 
-    elif isinstance(value, int):
+    elif isinstance(value, int) and size is not None:
         value_bytes = value.to_bytes(size, "big")
 
     elif isinstance(value, bytes):

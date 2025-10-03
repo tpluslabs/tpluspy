@@ -4,7 +4,6 @@ import time
 from ape import networks
 from ape.cli import select_account
 from ape_tokens.testing import MockERC20
-from hexbytes import HexBytes
 
 from tplus.client import ClearingEngineClient
 from tplus.evm.contracts import vault
@@ -29,8 +28,7 @@ def deposit_to_chain(blockchain_user, tplus_user):
         token.approve(vault.contract, amount, sender=blockchain_user)
 
         vault.deposit(
-            HexBytes(tplus_user.public_key),
-            blockchain_user,
+            tplus_user.public_key,
             TOKEN,
             amount,
             sender=blockchain_user,

@@ -1,5 +1,7 @@
 from functools import cached_property
+from typing import cast
 
+from tplus.client.base import BaseClient
 from tplus.client.clearingengine.admin import AdminClient
 from tplus.client.clearingengine.assetregistry import AssetRegistryClient
 from tplus.client.clearingengine.base import BaseClearingEngineClient
@@ -21,46 +23,46 @@ class ClearingEngineClient(BaseClearingEngineClient):
         """
         APIs related to settlements.
         """
-        return SettlementClient.from_client(self)
+        return SettlementClient.from_client(cast(BaseClient, self))
 
     @cached_property
     def assets(self) -> AssetRegistryClient:
         """
         APIs related to registered assets.
         """
-        return AssetRegistryClient.from_client(self)
+        return AssetRegistryClient.from_client(cast(BaseClient, self))
 
     @cached_property
     def decimals(self) -> DecimalClient:
         """
         APIs related to decimals.
         """
-        return DecimalClient.from_client(self)
+        return DecimalClient.from_client(cast(BaseClient, self))
 
     @cached_property
     def deposits(self) -> DepositClient:
         """
         APIs related to deposits.
         """
-        return DepositClient.from_client(self)
+        return DepositClient.from_client(cast(BaseClient, self))
 
     @cached_property
     def withdrawals(self) -> WithdrawalClient:
         """
         APIs related to withdrawals.
         """
-        return WithdrawalClient.from_client(self)
+        return WithdrawalClient.from_client(cast(BaseClient, self))
 
     @cached_property
     def vaults(self) -> VaultClient:
         """
         APIs related to vaults.
         """
-        return VaultClient.from_client(self)
+        return VaultClient.from_client(cast(BaseClient, self))
 
     @cached_property
     def admin(self) -> AdminClient:
         """
         APIs related to the admin clearing-engine.
         """
-        return AdminClient.from_client(self)
+        return AdminClient.from_client(cast(BaseClient, self))

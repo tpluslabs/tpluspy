@@ -6,11 +6,13 @@ from tplus.model.withdrawal import InnerWithdrawalRequest, WithdrawalRequest
 class TestWithdrawal:
     @pytest.fixture
     def inner_withdrawal(self):
-        return InnerWithdrawalRequest(
-            tplus_user="0xeb886a56f9f0efa64432678cebf1270e9314a758e6eb697a606202a451e3e82e",
-            asset="62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1",
-            amount=100,
-            chain_id=42161,
+        return InnerWithdrawalRequest.model_validate(
+            {
+                "tplus_user": "0xeb886a56f9f0efa64432678cebf1270e9314a758e6eb697a606202a451e3e82e",
+                "asset": "62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1",
+                "amount": 100,
+                "chain_id": 42161,
+            }
         )
 
     def test_signing_payload(self, inner_withdrawal):
