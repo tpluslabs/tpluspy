@@ -23,12 +23,12 @@ class VaultOwner(ChainConnectedManager):
 
     def __init__(
         self,
-        owner_eoa: "AccountAPI",
+        owner: "AccountAPI",
         vault: DepositVault | None = None,
         chain_id: int | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
     ):
-        self.owner_eoa = owner_eoa
+        self.owner = owner
         self.chain_id = chain_id or self.chain_manager.chain_id
         self.vault = vault or DepositVault(chain_id=self.chain_id)
         self.ce = clearing_engine
@@ -42,7 +42,7 @@ class VaultOwner(ChainConnectedManager):
             )._domain_separator_
         )
 
-        return self.vault.set_domain_separator(domain_separator, sender=self.owner_eoa)
+        return self.vault.set_domain_separator(domain_separator, sender=self.owner)
 
     async def register_admin(
         self, admin_key: str | None = None, verify: bool = False
@@ -58,7 +58,7 @@ class VaultOwner(ChainConnectedManager):
             admin_key = await self.ce.admin.get_verifying_key()
 
         address = public_key_to_address(admin_key)
-        tx = self.vault.setAdmin(address, True, sender=self.owner_eoa)
+        tx = self.vault.setAdmin(address, True, sender=self.owner)
 
         if verify:
             self.vault.isAdmin(address)
@@ -74,7 +74,7 @@ class VaultOwner(ChainConnectedManager):
         """
         Allow a user to settler. Requires being the vault contract owner.
         """
-        tx = self.vault.setSettlerExecutor(settler, executor, sender=self.owner_eoa)
+        tx = self.vault.setSettlerExecutor(settler, executor, sender=self.owner)
 
         if wait:
             if not (ce := self.ce):

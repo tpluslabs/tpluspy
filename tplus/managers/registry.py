@@ -18,12 +18,12 @@ class RegistryOwner(ChainConnectedManager):
 
     def __init__(
         self,
-        owner_eoa: "AccountAPI",
+        owner: "AccountAPI",
         registry: Registry | None = None,
         chain_id: int | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
     ):
-        self.owner_eoa = owner_eoa
+        self.owner = owner
         self.chain_id = chain_id or self.chain_manager.chain_id
 
         if registry is None:
@@ -44,7 +44,7 @@ class RegistryOwner(ChainConnectedManager):
         Returns:
             ReceiptAPI
         """
-        tx = self.registry.addVault(self.chain_manager.chain_id, vault, sender=self.owner_eoa)
+        tx = self.registry.addVault(self.chain_manager.chain_id, vault, sender=self.owner)
 
         if wait:
             if not (ce := self.ce):
