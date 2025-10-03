@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from tplus.client import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
 from tplus.evm.eip712 import Domain
-from tplus.managers.evm import ChainConnectedManager
+from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import UserPublicKey
 from tplus.utils.address import public_key_to_address
 from tplus.utils.timeout import wait_for_condition

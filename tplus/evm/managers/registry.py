@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from tplus.evm.contracts import Registry
-from tplus.managers.evm import ChainConnectedManager
+from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:

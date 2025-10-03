@@ -2,7 +2,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from tplus.evm.contracts import DepositVault
-from tplus.managers.evm import ChainConnectedManager
+from tplus.evm.managers.evm import ChainConnectedManager
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI

@@ -8,9 +8,9 @@ from hexbytes import HexBytes
 
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
+from tplus.evm.managers.deposit import DepositManager
+from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.logger import get_logger
-from tplus.managers.deposit import DepositManager
-from tplus.managers.evm import ChainConnectedManager
 from tplus.model.settlement import TxSettlementRequest
 from tplus.utils.amount import AmountPair
 
