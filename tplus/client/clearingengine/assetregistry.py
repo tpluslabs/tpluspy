@@ -1,10 +1,17 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
+from tplus.model.asset_identifier import ChainAddress
 
 
 class AssetRegistryClient(BaseClearingEngineClient):
     """
     Clearing engine APIs related to assets.
     """
+
+    async def get_registry_address(self) -> ChainAddress:
+        """
+        Get the address of the registry the CE is pointed at.
+        """
+        return await self._get("registry")
 
     async def get(self) -> dict:
         """
