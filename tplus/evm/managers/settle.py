@@ -52,6 +52,7 @@ class SettlementManager(ChainConnectedManager):
         #       for the actual `.executeAtomicSettlement()` call because of the cb.
         self.settlement_vault = settlement_vault or self.vault
         self.logger = get_logger()
+        self.nonce = 0
 
     @cached_property
     def deposits(self):
@@ -183,6 +184,8 @@ class SettlementManager(ChainConnectedManager):
         # Update the CE.
         await self.ce.settlements.update(self.tplus_user.public_key, self.chain_id)
 
+        self.nonce += 1
+
         return tx
 
     async def wait_for_settlement_approval(self) -> dict:
@@ -201,8 +204,12 @@ class SettlementManager(ChainConnectedManager):
         while True:
             approvals = await self.get_approvals()
             if isinstance(approvals, list) and len(approvals) > 0:
-                # TODO: This will be problematic if attempting to settle more than once at the same time.
-                return approvals[-1]
+                for approval in approvals[::-1]:
+                    if approval["inner"]["nonce"] == self.nonce:
+                        return approvals[-1]
+                    elif approval["inner"]["nonce"] < self.nonce:
+                        # No need to search rest of list.
+                        break
 
             elif int(time.time()) - started > timeout:
                 # It would be nice if the CE gave us some sort of error here. But here are some things to check:
