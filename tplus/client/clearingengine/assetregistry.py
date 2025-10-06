@@ -11,7 +11,7 @@ class AssetRegistryClient(BaseClearingEngineClient):
         """
         Get the address of the registry the CE is pointed at.
         """
-        return await self._get("registry")
+        return await self._get("registry")  # type: ignore
 
     async def get(self) -> dict:
         """
