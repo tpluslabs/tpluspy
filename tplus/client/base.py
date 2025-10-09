@@ -28,15 +28,19 @@ class BaseClient:
         client: httpx.AsyncClient | None = None,
         websocket_kwargs: dict[str, Any] | None = None,
         log_level: int = logging.INFO,
+        insecure_ssl: bool = False,
     ):
         self.user = user
         self.base_url = base_url.rstrip("/")
         self._parsed_base_url = urlparse(self.base_url)
+        if not isinstance(insecure_ssl, bool):
+            raise TypeError("insecure_ssl must be a bool")
+        self._insecure_ssl: bool = insecure_ssl
         self._client = client or httpx.AsyncClient(
             base_url=self.base_url,
             timeout=timeout,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
-            verify=False,  # TODO remove that for production
+            verify=(False if self._insecure_ssl else True),
         )
         self._ws_kwargs: dict[str, Any] = websocket_kwargs or {}
 
@@ -256,12 +260,29 @@ class BaseClient:
         else:
             ws_kwargs["extra_headers"] = auth_headers
 
-        # TODO Remove this when we have a real SSL certificate (or make it configurable)
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
+        # Provide Origin to be proxy/gateway friendly
+        origin = f"{self._parsed_base_url.scheme}://{self._parsed_base_url.netloc}"
+        if "origin" not in ws_kwargs:
+            ws_kwargs["origin"] = origin
 
-        async with websockets.connect(ws_url, **ws_kwargs, ssl=ssl_context) as websocket:
+        # Build SSL context (secure by default) and prefer HTTP/1.1 for WS handshake
+        ssl_context = ssl.create_default_context()
+        if self._insecure_ssl:
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+        try:
+            ssl_context.set_alpn_protocols(["http/1.1"])  # avoid h2 for WS
+        except Exception:
+            pass
+
+        server_hostname = self._parsed_base_url.hostname if self._parsed_base_url.scheme == "https" else None
+
+        if server_hostname:
+            websocket_cm = websockets.connect(ws_url, **ws_kwargs, ssl=ssl_context, server_hostname=server_hostname)
+        else:
+            websocket_cm = websockets.connect(ws_url, **ws_kwargs, ssl=ssl_context)
+
+        async with websocket_cm as websocket:
             async for message in websocket:
                 try:
                     data = json.loads(message)
