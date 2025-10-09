@@ -1,12 +1,17 @@
 # For generating order_ids
+import asyncio
 import base64
+import contextlib
 import json
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
 import httpx
+
+if TYPE_CHECKING:  # imported for type annotations only
+    import websockets
 
 from tplus.client.base import BaseClient
 from tplus.model.asset_identifier import AssetIdentifier
@@ -41,6 +46,7 @@ if TYPE_CHECKING:
 
 
 def compute_remaining(order: OrderResponse) -> int:
+    # Deprecated: server-side open filtering is now supported; retained for backward compatibility.
     confirmed = int(order.confirmed_filled_quantity or 0)
     pending = int(order.pending_filled_quantity or 0)
     total_qty = int(order.quantity or 0)
@@ -62,12 +68,29 @@ class OrderBookClient(BaseClient):
         base_url: str,
         websocket_kwargs: dict[str, Any] | None = None,
         log_level: int = logging.INFO,
+        use_ws_control: bool = False,
+        insecure_ssl: bool = False,
     ) -> None:
         super().__init__(
-            user, base_url=base_url, websocket_kwargs=websocket_kwargs, log_level=log_level
+            user,
+            base_url=base_url,
+            websocket_kwargs=websocket_kwargs,
+            log_level=log_level,
+            insecure_ssl=insecure_ssl,
         )
         # Cache Market details per asset to avoid repeated GET /market calls
         self._market_cache: dict[str, Market] = {}
+        # When True, create/replace/cancel are sent via WS /control instead of HTTP
+        if not isinstance(use_ws_control, bool):
+            raise TypeError("use_ws_control must be a bool")
+        self._use_ws_control: bool = use_ws_control
+        # WS control connection state
+        self._control_ws: websockets.WebSocketClientProtocol | None = None
+        self._control_ws_task: asyncio.Task | None = None
+        self._control_ws_lock: asyncio.Lock = asyncio.Lock()
+        self._pending_control: dict[str, asyncio.Future] = {}
+        # Optional user callback for control channel state updates
+        self._on_control_state: Callable[[str], None] | None = None
 
     async def create_market(self, asset_id: AssetIdentifier | str) -> dict[str, Any]:
         """
@@ -99,7 +122,7 @@ class OrderBookClient(BaseClient):
         asset_id: AssetIdentifier | None = None,
     ) -> OrderOperationResponse:
         """
-        Create a market order (async).
+        Create a market order (async). Uses WS /control if enabled.
         """
         # TODO: Fix the signature of this method so that `asset_id` is required.
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
@@ -131,6 +154,10 @@ class OrderBookClient(BaseClient):
         self.logger.debug(
             f"Sending Market Order (Asset {asset_id}): BaseQty={base_quantity}, QuoteQty={quote_quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
         )
+        if self._use_ws_control:
+            payload = {"CreateOrderRequest": ob_request_payload.model_dump()}
+            ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=15.0)
+            return self._extract_operation_response(ws_resp)
         resp = await self._request(
             "POST", "/orders/create", json_data=ob_request_payload.model_dump()
         )
@@ -145,7 +172,7 @@ class OrderBookClient(BaseClient):
         asset_id: AssetIdentifier | None = None,
     ) -> OrderOperationResponse:
         """
-        Create a limit order (async).
+        Create a limit order (async). Uses WS /control if enabled.
         """
         # TODO: Fix the signature if this method such that `asset_id` is required.
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
@@ -166,7 +193,10 @@ class OrderBookClient(BaseClient):
         self.logger.debug(
             f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
         )
-        # note: json_data is a dict, the httpx client will encode it as JSON
+        if self._use_ws_control:
+            payload = {"CreateOrderRequest": signed_message.model_dump()}
+            ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=15.0)
+            return self._extract_operation_response(ws_resp)
         resp = await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
         return OrderOperationResponse.model_validate(resp)
 
@@ -174,12 +204,16 @@ class OrderBookClient(BaseClient):
         self, order_id: str, asset_id: AssetIdentifier
     ) -> OrderOperationResponse:
         """
-        Cancel an order (async).
+        Cancel an order (async). Uses WS /control if enabled.
         """
         signed_message = create_cancel_order_ob_request_payload(
             order_id=order_id, asset_identifier=asset_id, signer=self.user
         )
         self.logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
+        if self._use_ws_control:
+            payload = {"CancelOrderRequest": signed_message.model_dump()}
+            ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=10.0)
+            return self._extract_operation_response(ws_resp)
         resp = await self._request(
             "DELETE", "/orders/cancel", json_data=signed_message.model_dump()
         )
@@ -193,9 +227,8 @@ class OrderBookClient(BaseClient):
         new_price: int | None = None,
     ) -> OrderOperationResponse:
         """
-        Replace an existing order with new parameters (async).
+        Replace an existing order with new parameters (async). Uses WS /control if enabled.
         """
-        replace_operation_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id)
         signed_message = create_replace_order_ob_request_payload(
             original_order_id=original_order_id,
@@ -208,8 +241,14 @@ class OrderBookClient(BaseClient):
         )
         self.logger.debug(
             f"Sending Replace Order for original OrderID {original_order_id} (Asset {asset_id}): "
-            f"New Qty={new_quantity}, New Price={new_price}, ReplaceOpID={replace_operation_id}"
+            f"New Qty={new_quantity}, New Price={new_price}"
         )
+        if self._use_ws_control:
+            payload = {"ReplaceOrderRequest": signed_message.model_dump(exclude_none=True)}
+            ws_resp = await self._control_ws_send(
+                payload, expected_order_id=original_order_id, timeout=15.0
+            )
+            return self._extract_operation_response(ws_resp)
         resp = await self._request(
             "PATCH", "/orders/replace", json_data=signed_message.model_dump(exclude_none=True)
         )
@@ -302,7 +341,12 @@ class OrderBookClient(BaseClient):
         return parsed_orders, response_data
 
     async def get_user_orders_for_book(
-        self, asset_id: AssetIdentifier, *, page: int | None = None, limit: int | None = None
+        self,
+        asset_id: AssetIdentifier,
+        *,
+        page: int | None = None,
+        limit: int | None = None,
+        open_only: bool | None = None,
     ) -> tuple[list[OrderResponse], list[dict[str, Any]]]:
         """
         Get orders for a specific asset for the authenticated user (async).
@@ -310,11 +354,13 @@ class OrderBookClient(BaseClient):
         """
         endpoint = f"/orders/user/{self.user.public_key}/{asset_id}"
         params_dict: dict[str, Any] | None = None
-        if page is not None or limit is not None:
+        if page is not None or limit is not None or open_only is not None:
             params_dict = {
                 "page": 0 if page is None else int(page),
                 "limit": 1000 if limit is None else int(limit),
             }
+            if open_only is not None:
+                params_dict["open_only"] = bool(open_only)
         self.logger.debug(f"Getting Orders for user {self.user.public_key}, asset {asset_id}")
         try:
             response_data = await self._request("GET", endpoint, params=params_dict)
@@ -339,7 +385,7 @@ class OrderBookClient(BaseClient):
                             f"Received 404 with empty list for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
                             f"This is expected if the user has no orders for this asset yet. Treating as success with no orders."
                         )
-                        return [], {}  # type: ignore
+                        return [], []
                     else:
                         self.logger.warning(
                             f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "
@@ -358,22 +404,183 @@ class OrderBookClient(BaseClient):
     async def get_open_orders_for_book(
         self, asset_id: AssetIdentifier, *, limit: int = 1000, max_pages: int = 50
     ) -> list[OrderResponse]:
-        """Return only open, limit orders with remaining quantity > 0 for a book."""
-        # Pull pages until empty or cap reached
+        """Return open orders directly from server (source of truth)."""
         page = 0
-        all_orders: list[OrderResponse] = []
+        open_orders: list[OrderResponse] = []
         while page < max_pages:
-            parsed, raw = await self.get_user_orders_for_book(asset_id, page=page, limit=limit)
-            all_orders.extend(parsed)
+            parsed, raw = await self.get_user_orders_for_book(
+                asset_id, page=page, limit=limit, open_only=True
+            )
+            open_orders.extend(parsed)
             if len(raw) < limit:
                 break
             page += 1
-        open_orders: list[OrderResponse] = []
-        for o in all_orders:
-            if bool(o.canceled) or o.limit_price is None or compute_remaining(o) <= 0:
-                continue
-            open_orders.append(o)
         return open_orders
+
+    # ------------------------------------------------------------------
+    # Optional persistent WebSocket control channel for create/replace/cancel
+    # ------------------------------------------------------------------
+    async def _ensure_control_ws(self) -> None:
+        if not self._use_ws_control:
+            return
+        if self._control_ws and not getattr(self._control_ws, "closed", False):
+            return
+        async with self._control_ws_lock:
+            if self._control_ws and not getattr(self._control_ws, "closed", False):
+                return
+            attempt = 0
+            delay = 0.5
+            while True:
+                try:
+                    websocket_cm = await self._open_ws("/control")
+                    self._control_ws = await websocket_cm.__aenter__()  # type: ignore[attr-defined]
+                    callback = self._on_control_state
+                    if callback is not None:
+                        try:
+                            callback("connected")
+                        except Exception:
+                            pass
+                    self._control_ws_task = asyncio.create_task(self._control_ws_reader())
+                    break
+                except Exception:
+                    attempt += 1
+                    if attempt >= 5:
+                        raise
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 5.0)
+
+    async def _control_ws_reader(self) -> None:
+        try:
+            ws = self._control_ws
+            if ws is None:
+                return
+            async for message in ws:
+                try:
+                    data = json.loads(message)
+                    if isinstance(data, dict) and data.get("type") in {
+                        "subscriptions",
+                        "ping",
+                        "pong",
+                    }:
+                        continue
+                    key_parts = self._control_response_order_id(data)
+                    if key_parts is None:
+                        continue
+                    variant, asset_id, order_id = key_parts
+                    composite_key = f"{variant}:{asset_id}:{order_id}"
+                    fut = self._pending_control.pop(composite_key, None)
+                    if fut and not fut.done():
+                        fut.set_result(data)
+                except Exception as e:
+                    # Ignore malformed messages; futures will timeout
+                    self.logger.debug(f"Control WS reader parse error: {e}")
+        except Exception as e:
+            # Fail all pending futures on connection drop
+            for _, fut in list(self._pending_control.items()):
+                if not fut.done():
+                    fut.set_exception(e)
+            self._pending_control.clear()
+        finally:
+            try:
+                if self._control_ws and not getattr(self._control_ws, "closed", False):
+                    await self._control_ws.close()
+            except Exception:
+                pass
+            self._control_ws = None
+            self._control_ws_task = None
+            callback = self._on_control_state
+            if callback is not None:
+                try:
+                    callback("disconnected")
+                except Exception:
+                    pass
+
+    def _control_response_order_id(self, data: dict[str, Any]) -> tuple[str, str, str] | None:
+        if not isinstance(data, dict) or len(data) != 1:
+            return None
+        variant, content = next(iter(data.items()))
+        if not isinstance(content, dict):
+            return None
+        response = content.get("response")
+        if not isinstance(response, dict):
+            return None
+        oid = response.get("order_id")
+        asset_id = (
+            data.get("asset_id")
+            if isinstance(data.get("asset_id"), str)
+            else content.get("asset_id")
+        )
+        if oid is None or asset_id is None:
+            return None
+        return str(variant), str(asset_id), str(oid)
+
+    async def _control_ws_send(
+        self, payload: dict[str, Any], *, expected_order_id: str, timeout: float = 5.0
+    ) -> dict[str, Any]:
+        await self._ensure_control_ws()
+        # If connection couldn't be established, fallback
+        if not self._control_ws:
+            raise RuntimeError("WS control not connected")
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        # Determine expected response variant and asset_id from payload to build key
+        if len(payload) != 1:
+            raise ValueError("Invalid WS control payload shape")
+        request_variant, content = next(iter(payload.items()))
+        # Map request variant to response variant names sent by server
+        response_variant_map = {
+            "CreateOrderRequest": "CreateOrderResponse",
+            "CancelOrderRequest": "CancelOrderResponse",
+            "ReplaceOrderRequest": "ReplaceOrderResponse",
+        }
+        response_variant = response_variant_map.get(request_variant, request_variant)
+        asset_id: str | None = None
+        if isinstance(content, dict):
+            if isinstance(content.get("asset_id"), str):
+                asset_id = content["asset_id"]
+            elif isinstance(content.get("cancel"), dict) and isinstance(
+                content["cancel"].get("asset_id"), str
+            ):
+                asset_id = content["cancel"]["asset_id"]
+            elif isinstance(content.get("order"), dict) and isinstance(
+                content["order"].get("base_asset"), str
+            ):
+                asset_id = content["order"]["base_asset"]
+        if asset_id is None:
+            raise ValueError("WS control payload missing asset_id")
+        key = f"{response_variant}:{asset_id}:{expected_order_id}"
+        self._pending_control[key] = fut
+        await self._control_ws.send(json.dumps(payload))
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        finally:
+            # Ensure cleanup if timed out
+            self._pending_control.pop(key, None)
+
+    def _extract_operation_response(self, data: dict[str, Any]) -> OrderOperationResponse:
+        if not isinstance(data, dict) or len(data) != 1:
+            raise ValueError(f"Unexpected WS control response shape: {data}")
+        variant, content = next(iter(data.items()))
+        if not isinstance(content, dict):
+            raise ValueError(f"Unexpected WS control response content: {content}")
+        response = content.get("response")
+        if not isinstance(response, dict):
+            raise ValueError(f"Missing 'response' in WS control payload: {content}")
+        return OrderOperationResponse.model_validate(response)
+
+    async def close(self) -> None:
+        # Close control WS first
+        try:
+            if self._control_ws_task:
+                self._control_ws_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self._control_ws_task
+            if self._control_ws and not getattr(self._control_ws, "closed", False):
+                with contextlib.suppress(Exception):
+                    await self._control_ws.close()
+        finally:
+            self._control_ws = None
+            self._control_ws_task = None
+        await super().close()
 
     async def get_user_inventory(self) -> dict[str, Any]:
         """

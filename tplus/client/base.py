@@ -28,15 +28,19 @@ class BaseClient:
         client: httpx.AsyncClient | None = None,
         websocket_kwargs: dict[str, Any] | None = None,
         log_level: int = logging.INFO,
+        insecure_ssl: bool = False,
     ):
         self.user = user
         self.base_url = base_url.rstrip("/")
         self._parsed_base_url = urlparse(self.base_url)
+        if not isinstance(insecure_ssl, bool):
+            raise TypeError("insecure_ssl must be a bool")
+        self._insecure_ssl: bool = insecure_ssl
         self._client = client or httpx.AsyncClient(
             base_url=self.base_url,
             timeout=timeout,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
-            verify=False,  # TODO remove that for production
+            verify=not self._insecure_ssl,
         )
         self._ws_kwargs: dict[str, Any] = websocket_kwargs or {}
 
@@ -206,11 +210,15 @@ class BaseClient:
         token_resp.raise_for_status()
         token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
 
-        self.logger.info(f"Full authentication response from server: {token_json}")
         token = token_json.get("token")  # type: ignore
         expiry_ns = int(token_json["expiry_ns"])  # type: ignore
 
-        self.logger.debug(f"AUTH DEBUG: token={token} expires={expiry_ns} (len={len(token)})")
+        # Mask token if present
+        if isinstance(token, str):
+            masked = token[:4] + "…" + token[-4:] if len(token) >= 8 else "***"
+        else:
+            masked = "***"
+        self.logger.debug(f"AUTH DEBUG: token={masked} expires={expiry_ns}")
 
         self._auth_token = token_json["token"]  # type: ignore
         self._auth_expiry_ns = expiry_ns
@@ -229,6 +237,59 @@ class BaseClient:
         ws_path = path if path.startswith("/") else f"/{path}"
         return urlunparse((scheme, netloc, ws_path, "", "", ""))
 
+    async def _open_ws(
+        self,
+        path: str,
+        ws_kwargs: dict[str, Any] | None = None,
+    ):
+        """
+        Build a WebSocket connection context for the given path with proper
+        auth headers and TLS/handshake settings. Returns a websockets.connect
+        context manager which can be used with "async with".
+        """
+        ws_url = self._get_websocket_url(path)
+        auth_headers = await self._ws_auth_headers()
+        final_kwargs = dict(self._ws_kwargs)
+        if ws_kwargs:
+            final_kwargs.update(ws_kwargs)
+
+        # Merge extra headers with auth headers
+        if "extra_headers" in final_kwargs and final_kwargs["extra_headers"]:
+            caller_headers = final_kwargs.pop("extra_headers")
+            if isinstance(caller_headers, dict):
+                caller_headers.update(auth_headers)
+                final_kwargs["extra_headers"] = caller_headers
+            else:
+                final_kwargs["extra_headers"] = list(auth_headers.items()) + list(caller_headers)
+        else:
+            final_kwargs["extra_headers"] = auth_headers
+
+        # Provide Origin to be proxy/gateway friendly
+        origin = f"{self._parsed_base_url.scheme}://{self._parsed_base_url.netloc}"
+        if "origin" not in final_kwargs:
+            final_kwargs["origin"] = origin
+
+        # Build SSL context (secure by default). Only set ALPN/server_hostname for HTTPS.
+        if self._parsed_base_url.scheme == "https":
+            ssl_context = ssl.create_default_context()
+            if self._insecure_ssl:
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+            try:
+                ssl_context.set_alpn_protocols(["http/1.1"])  # avoid h2 for WS
+            except Exception:
+                pass
+
+            server_hostname = self._parsed_base_url.hostname
+            if server_hostname:
+                return websockets.connect(
+                    ws_url, **final_kwargs, ssl=ssl_context, server_hostname=server_hostname
+                )
+            return websockets.connect(ws_url, **final_kwargs, ssl=ssl_context)
+
+        # Plain WS (no TLS)
+        return websockets.connect(ws_url, **final_kwargs)
+
     CONTROL_MESSAGE_TYPES: set[str] = {
         "subscriptions",
         "ping",
@@ -244,24 +305,9 @@ class BaseClient:
     ) -> AsyncIterator[Any]:
         ws_url = self._get_websocket_url(path)
         self.logger.debug("Connecting to %s stream: %s", path, ws_url)
-        auth_headers = await self._ws_auth_headers()
-        ws_kwargs = dict(self._ws_kwargs)
-        if "extra_headers" in ws_kwargs and ws_kwargs["extra_headers"]:
-            caller_headers = ws_kwargs.pop("extra_headers")
-            if isinstance(caller_headers, dict):
-                caller_headers.update(auth_headers)
-                ws_kwargs["extra_headers"] = caller_headers
-            else:
-                ws_kwargs["extra_headers"] = list(auth_headers.items()) + list(caller_headers)
-        else:
-            ws_kwargs["extra_headers"] = auth_headers
+        websocket_cm = await self._open_ws(path)
 
-        # TODO Remove this when we have a real SSL certificate (or make it configurable)
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-
-        async with websockets.connect(ws_url, **ws_kwargs, ssl=ssl_context) as websocket:
+        async with websocket_cm as websocket:
             async for message in websocket:
                 try:
                     data = json.loads(message)
