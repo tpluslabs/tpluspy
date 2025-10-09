@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from tplus.client.base import BaseClient
 from tplus.client.clearingengine.admin import AdminClient
@@ -11,12 +11,19 @@ from tplus.client.clearingengine.settlement import SettlementClient
 from tplus.client.clearingengine.vault import VaultClient
 from tplus.client.clearingengine.withdrawal import WithdrawalClient
 
+if TYPE_CHECKING:
+    from tplus.utils.user import User
+
 
 class ClearingEngineClient(BaseClearingEngineClient):
     """
     APIs targeting the clearing engine ("CE") directly. Most of the APIs are
     permission-less; however some require signing, such as settlements and withdrawal flows.
     """
+
+    @classmethod
+    def from_local(cls, user: "User", port: int = 3032):
+        return cls(user, base_url=f"http://127.0.0.1:{port}")
 
     @cached_property
     def settlements(self) -> SettlementClient:
