@@ -135,6 +135,7 @@ class SettlementManager(ChainConnectedManager):
         # approval signatures will eventually become available.
         wait_timeout = kwargs.pop("wait_timeout", DEFAULT_WAIT_SECONDS)
         wait_interval = kwargs.pop("wait_interval", DEFAULT_WAIT_INTERVAL)
+        force_update = kwargs.pop("force_update", False)
         kwargs.setdefault("sender", self.ape_account)
         kwargs.setdefault("required_confirmations", 0)
 
@@ -189,8 +190,10 @@ class SettlementManager(ChainConnectedManager):
             **kwargs,
         )
 
-        # Update the CE.
-        await self.ce.settlements.update(self.tplus_user.public_key, self.chain_id)
+        # Typically, core has websockets running handling the events and shouldn't need to manually call
+        # the update methods.
+        if force_update:
+            await self.ce.settlements.update(self.tplus_user.public_key, self.chain_id)
 
         self.nonce += 1
 
