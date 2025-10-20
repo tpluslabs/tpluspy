@@ -1,9 +1,10 @@
 import os
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Optional, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import yaml
+from ape.api.accounts import AccountAPI
 from ape.exceptions import ContractLogicError, ContractNotFoundError, ProjectError
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
@@ -18,7 +19,6 @@ from tplus.model.types import UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
 
 if TYPE_CHECKING:
-    from ape.api.accounts import AccountAPI
     from ape.api.transactions import ReceiptAPI
     from ape.contracts.base import ContractContainer, ContractInstance
     from ape.managers.project import LocalProject, Project
@@ -112,7 +112,7 @@ def load_tplus_contract_container(name: str) -> "ContractContainer":
     return project.get_contract(name)
 
 
-def get_dev_default_owner() -> "AccountAPI":
+def get_dev_default_owner() -> AccountAPI:
     return ManagerAccessMixin.account_manager.test_accounts[0]
 
 
@@ -140,7 +140,7 @@ class TPlusContract(TPlusMixin):
 
     def __init__(
         self,
-        default_deployer: Optional["AccountAPI"] = None,
+        default_deployer: AccountAPI | None = None,
         chain_id: int | None = None,
         address: str | None = None,
     ) -> None:
@@ -153,9 +153,9 @@ class TPlusContract(TPlusMixin):
             self._deployments[chain_id] = self._contract_container.at(address)
 
     @classmethod
-    def deploy(cls, sender: "AccountAPI") -> "TPlusContract":
+    def deploy(cls, *args, sender: AccountAPI) -> "TPlusContract":
         contract_container = load_tplus_contract_container(cls.NAME)
-        instance = sender.deploy(contract_container)
+        instance = sender.deploy(contract_container, *args)
         chain_id = cls.chain_manager.chain_id
         return cls(default_deployer=sender, chain_id=chain_id, address=instance.address)
 
@@ -206,7 +206,7 @@ class TPlusContract(TPlusMixin):
             raise  # This error.
 
     @property
-    def default_deployer(self) -> "AccountAPI":
+    def default_deployer(self) -> AccountAPI:
         if deployer := self._default_deployer:
             return deployer
 
@@ -396,21 +396,28 @@ class DepositVault(TPlusContract):
             raise  # Error as-is.
 
     @classmethod
-    def deploy(cls, *, sender: "AccountAPI") -> "DepositVault":
-        instance = super().deploy(sender)
+    def deploy(cls, *args, sender: AccountAPI) -> "DepositVault":
+        owner = args[0] if args else sender
+        address = sender.get_deployment_address()
+        separator = (
+            args[1]
+            if len(args) > 1
+            else Domain(
+                _chainId_=cls.chain_manager.chain_id,
+                _verifyingContract_=address,
+            )._domain_separator_
+        )
 
-        # Set the domain separator.
-        separator = Domain(
-            _chainId_=cls.chain_manager.chain_id,
-            _verifyingContract_=instance.address,
-        )._domain_separator_
+        instance = super().deploy(owner, separator, sender=sender)
 
-        instance.set_domain_separator(separator, sender=sender)
+        if instance.address != address:
+            # Shouldn't happen - but just in case, as this will cause hard to detect problems.
+            raise ValueError("Invalid address in domain separator")
 
         return instance
 
     @classmethod
-    def deploy_dev(cls, sender: "AccountAPI | None" = None) -> TPlusContract:
+    def deploy_dev(cls, sender: AccountAPI | None = None) -> TPlusContract:
         """
         Deploy and set up a development vault.
         """
@@ -424,13 +431,11 @@ class DepositVault(TPlusContract):
         return contract
 
     def set_admin_status(
-        self, admin: "AddressType", status: bool, vault_owner: "AccountAPI"
+        self, admin: "AddressType", status: bool, vault_owner: AccountAPI
     ) -> "ReceiptAPI":
         return self.contract.setAdmin(admin, status, sender=vault_owner)
 
-    def set_domain_separator(
-        self, domain_separator: bytes, *, sender: "AccountAPI"
-    ) -> "ReceiptAPI":
+    def set_domain_separator(self, domain_separator: bytes, *, sender: AccountAPI) -> "ReceiptAPI":
         return self.contract.setDomainSeparator(domain_separator, sender=sender)
 
 

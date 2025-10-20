@@ -35,6 +35,18 @@ class TestDepositVault:
         instance = DepositVault.deploy(sender=owner)
         # It should know its address.
         assert instance.address
+        assert instance.owner() == owner.address
+
+    def test_deploy_different_owner(self, accounts):
+        owner = accounts[0]
+        sender = accounts[1]
+        deployer_nonce_before = sender.nonce
+        instance = DepositVault.deploy(owner, sender=sender)
+        deployer_nonce_after = sender.nonce
+        # It should know its address.
+        assert instance.address
+        assert instance.owner() == owner.address
+        assert deployer_nonce_after > deployer_nonce_before
 
     def test_from_chain_address(self):
         address = ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1")
