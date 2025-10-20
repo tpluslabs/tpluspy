@@ -135,3 +135,12 @@ class TestAssetIdentifier:
     def test_word_string_raises(self):
         with pytest.raises(ValueError):
             AssetIdentifier("TestToken")
+
+    def test_contains(self):
+        addr = "62622E77D1349Face943C6e7D5c01C61465FE1dc"
+        long_addr = f"{addr}000000000000000000000000"
+        asset_id = AssetIdentifier(f"{addr}@a4b1")
+        assert addr in asset_id
+        assert bytes.fromhex(addr) in asset_id
+        assert long_addr in asset_id
+        assert bytes.fromhex(long_addr) in asset_id

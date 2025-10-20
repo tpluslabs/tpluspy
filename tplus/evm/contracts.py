@@ -86,7 +86,7 @@ class TplusDeployments:
 TPLUS_DEPLOYMENTS = TplusDeployments()
 
 
-def load_tplus_contracts_project() -> "LocalProject":
+def load_tplus_contracts_project(version: str | None = None) -> "LocalProject":
     """
     Loads the Ape project containing the Solidity contracts for tplus.
     If you are in the tplus-contracts repo, it detects that and loads that way.
@@ -99,16 +99,21 @@ def load_tplus_contracts_project() -> "LocalProject":
 
     # Load the project from dependencies.
     available_versions = ManagerAccessMixin.local_project.dependencies["tplus-contracts"]
-    if not (version_key := next(iter(available_versions), None)):
-        raise ProjectError("Please install the t+ contracts project")
+    if version:
+        project = available_versions[version]
+    else:
+        # Select first one.
+        if not (version_key := next(iter(available_versions), None)):
+            raise ProjectError("Please install the t+ contracts project")
 
-    project = available_versions[version_key]
+        project = available_versions[version_key]
+
     project.load_contracts()  # Ensure is compiled.
     return project
 
 
-def load_tplus_contract_container(name: str) -> "ContractContainer":
-    project = load_tplus_contracts_project()
+def load_tplus_contract_container(name: str, version: str | None = None) -> "ContractContainer":
+    project = load_tplus_contracts_project(version=version)
     return project.get_contract(name)
 
 
@@ -143,21 +148,30 @@ class TPlusContract(TPlusMixin):
         default_deployer: AccountAPI | None = None,
         chain_id: int | None = None,
         address: str | None = None,
+        tplus_contracts_version: str | None = None,
     ) -> None:
         self._deployments: dict[int, ContractInstance] = {}
         self._default_deployer = default_deployer
         self._chain_id = chain_id
         self._address = address
+        self._tplus_contracts_version = tplus_contracts_version
 
         if address is not None and chain_id is not None:
             self._deployments[chain_id] = self._contract_container.at(address)
 
     @classmethod
-    def deploy(cls, *args, sender: AccountAPI) -> "TPlusContract":
-        contract_container = load_tplus_contract_container(cls.NAME)
-        instance = sender.deploy(contract_container, *args)
+    def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "TPlusContract":
+        tplus_contracts_version = kwargs.pop("tplus_contracts_version", None)
+        contract_container = load_tplus_contract_container(
+            cls.NAME, version=tplus_contracts_version
+        )
+        instance = sender.deploy(contract_container, *args, **kwargs)
         chain_id = cls.chain_manager.chain_id
-        return cls(default_deployer=sender, chain_id=chain_id, address=instance.address)
+
+        if version := tplus_contracts_version:
+            kwargs["tplus_contracts_version"] = version
+
+        return cls(default_deployer=sender, chain_id=chain_id, address=instance.address, **kwargs)
 
     @classmethod
     def deploy_dev(cls):
@@ -186,6 +200,11 @@ class TPlusContract(TPlusMixin):
 
         chain_id = self._chain_id or self.chain_manager.chain_id
         return self.get_address(chain_id=chain_id)
+
+    @property
+    def tplus_contracts_project(self) -> "Project":
+        # Overridden.
+        return load_tplus_contracts_project(version=self._tplus_contracts_version)
 
     @property
     def _contract_container(self) -> "ContractContainer":
@@ -396,7 +415,7 @@ class DepositVault(TPlusContract):
             raise  # Error as-is.
 
     @classmethod
-    def deploy(cls, *args, sender: AccountAPI) -> "DepositVault":
+    def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "DepositVault":
         owner = args[0] if args else sender
         address = sender.get_deployment_address()
         separator = (
@@ -408,7 +427,7 @@ class DepositVault(TPlusContract):
             )._domain_separator_
         )
 
-        instance = super().deploy(owner, separator, sender=sender)
+        instance = super().deploy(owner, separator, sender=sender, **kwargs)
 
         if instance.address != address:
             # Shouldn't happen - but just in case, as this will cause hard to detect problems.
