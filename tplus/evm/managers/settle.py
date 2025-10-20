@@ -24,6 +24,10 @@ if TYPE_CHECKING:
     from tplus.utils.user import User
 
 
+DEFAULT_WAIT_SECONDS = 10  # Seconds
+DEFAULT_WAIT_INTERVAL = 1  # Seconds
+
+
 class SettlementManager(ChainConnectedManager):
     """
     Integrates the clearing-engine client with the vault contract via Ape to
@@ -110,7 +114,7 @@ class SettlementManager(ChainConnectedManager):
         amount_in: AmountPair,
         asset_out: "AssetIdentifier",
         amount_out: AmountPair,
-        **tx_kwargs,
+        **kwargs,
     ) -> "ReceiptAPI":
         """
         Initializes a settlement, waits for the approval from the clearing-engine and submits
@@ -121,7 +125,7 @@ class SettlementManager(ChainConnectedManager):
             amount_in (AmountPair): Both the normalized and atomic amounts for the amount going into the protocol.
             asset_out (AssetIdentifier): The ID of the asset leaving the protocol.
             amount_out (AmountPair): Both the normalized and atomic amounts for the amount leaving the protocol.
-            tx_kwargs (dict[str, Any]): Additional tx properties to pass to the ``executeAtomicSettlement()`` e.g.
+            kwargs (dict[str, Any]): Additional tx properties to pass to the ``executeAtomicSettlement()`` e.g.
               ``gas=`` or ``required_confirmations=``.
 
         Return:
@@ -129,8 +133,10 @@ class SettlementManager(ChainConnectedManager):
         """
         # Initialize the settlement in the clearing-engine. If the user passes solvency checks,
         # approval signatures will eventually become available.
-        tx_kwargs.setdefault("sender", self.ape_account)
-        tx_kwargs.setdefault("required_confirmations", 0)
+        wait_timeout = kwargs.pop("wait_timeout", DEFAULT_WAIT_SECONDS)
+        wait_interval = kwargs.pop("wait_interval", DEFAULT_WAIT_INTERVAL)
+        kwargs.setdefault("sender", self.ape_account)
+        kwargs.setdefault("required_confirmations", 0)
 
         request = TxSettlementRequest.create_signed(
             {
@@ -146,7 +152,9 @@ class SettlementManager(ChainConnectedManager):
 
         # Wait for the approvals using a re-try/timeout approach.
         # NOTE: Hopefully we improve this in the clearing-engine.
-        approval: dict = await self.wait_for_settlement_approval()
+        approval: dict = await self.wait_for_settlement_approval(
+            timeout=wait_timeout, wait_interval=wait_interval
+        )
 
         nonce = approval["inner"]["nonce"]
         expiry = approval["expiry"]
@@ -178,7 +186,7 @@ class SettlementManager(ChainConnectedManager):
             expiry,
             "",
             HexBytes(approval["inner"]["signature"]),
-            **tx_kwargs,
+            **kwargs,
         )
 
         # Update the CE.
@@ -188,19 +196,23 @@ class SettlementManager(ChainConnectedManager):
 
         return tx
 
-    async def wait_for_settlement_approval(self) -> dict:
+    async def wait_for_settlement_approval(
+        self, timeout: int = DEFAULT_WAIT_SECONDS, wait_interval: int = DEFAULT_WAIT_INTERVAL
+    ) -> dict:
         """
         Waits for the existence of settlement approvals. Returns the last of the first approvals
         that get returned from the clearing-engine's permissionless API.
+
+        Args:
+            timeout (int): The number of seconds to wait for the settlement approval.
+            wait_interval (int): The number of seconds to between checks.
 
         Returns:
             dict: clearing-engine approval data
         """
         # Get back the approvals. If it takes longer than 5 seconds, consider it not approved.
         # (shouldn't take too terribly long in practice).
-        timeout = 10
         started = int(time.time())
-        wait_time = 1
         while True:
             approvals = await self.get_approvals()
             if isinstance(approvals, list) and len(approvals) > 0:
@@ -218,7 +230,7 @@ class SettlementManager(ChainConnectedManager):
                 # 3. Your settler account does not have enough credits in the CE.
                 raise Exception("Settlement initialization failed. Check server logs.")
 
-            await asyncio.sleep(wait_time)
+            await asyncio.sleep(wait_interval)
 
     async def check_for_new_vaults(self):
         await self.ce.vaults.update()
