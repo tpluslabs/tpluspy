@@ -56,7 +56,6 @@ class SettlementManager(ChainConnectedManager):
         #       for the actual `.executeAtomicSettlement()` call because of the cb.
         self.settlement_vault = settlement_vault or self.vault
         self.logger = get_logger()
-        self.nonce = 0
 
     @cached_property
     def deposits(self):
@@ -195,8 +194,6 @@ class SettlementManager(ChainConnectedManager):
         if force_update:
             await self.ce.settlements.update(self.tplus_user.public_key, self.chain_id)
 
-        self.nonce += 1
-
         return tx
 
     async def wait_for_settlement_approval(
@@ -216,13 +213,14 @@ class SettlementManager(ChainConnectedManager):
         # Get back the approvals. If it takes longer than 5 seconds, consider it not approved.
         # (shouldn't take too terribly long in practice).
         started = int(time.time())
+        nonce = self.vault.settlementCounts(self.tplus_user.public_key)
         while True:
             approvals = await self.get_approvals()
             if isinstance(approvals, list) and len(approvals) > 0:
-                for approval in approvals[::-1]:
-                    if approval["inner"]["nonce"] == self.nonce:
-                        return approvals[-1]
-                    elif approval["inner"]["nonce"] < self.nonce:
+                for approval in sorted(approvals, key=lambda a: a["inner"]["nonce"], reverse=True):
+                    if approval["inner"]["nonce"] == nonce:
+                        return approval
+                    elif approval["inner"]["nonce"] < nonce:
                         # No need to search rest of list.
                         break
 
