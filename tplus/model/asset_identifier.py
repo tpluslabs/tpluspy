@@ -97,12 +97,17 @@ class ChainAddress(RootModel[str]):
             return key == self.chain_id
 
         elif isinstance(key, str) and key.startswith("0x"):
-            key_bytes = bytes.fromhex(key)
-            if len(key_bytes) == 20:
-                # EVM style.
-                return bytes.fromhex(self.evm_address) == key_bytes
+            key_str = key.lstrip("0x")
+            if len(key_str) % 2 != 0:
+                key_str = f"0{key_str}"
 
-            return bytes.fromhex(self.address) == key_bytes
+            key_bytes = bytes.fromhex(key_str)
+            addr = self.evm_address if len(key_bytes) == 20 else self.address
+            addr = addr.lstrip("0x")
+            if len(addr) % 2 != 0:
+                addr = f"0{addr}"
+
+            return bytes.fromhex(addr) == key_bytes
 
         # Attemps from the other side before returning False.
         return NotImplemented
