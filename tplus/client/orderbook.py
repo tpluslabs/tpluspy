@@ -109,6 +109,10 @@ class OrderBookClient(BaseClient):
             return cached
 
         response = await self._request("GET", f"/market/{asset_id}")
+
+        if "asset_id" not in response:
+            raise ValueError(f"Invalid market data: {response}")
+
         market = parse_market(response)
         self._market_cache[key] = market
         return market
