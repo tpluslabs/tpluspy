@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, ClassVar, cast
 import yaml
 from ape.api.accounts import AccountAPI
 from ape.exceptions import ContractLogicError, ContractNotFoundError, ProjectError
+from ape.managers.project import Project
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
@@ -21,7 +22,7 @@ from tplus.utils.bytes32 import to_bytes32
 if TYPE_CHECKING:
     from ape.api.transactions import ReceiptAPI
     from ape.contracts.base import ContractContainer, ContractInstance
-    from ape.managers.project import LocalProject, Project
+    from ape.managers.project import LocalProject
 
 CHAIN_MAP = {
     1: "ethereum:mainnet",
@@ -98,23 +99,50 @@ def load_tplus_contracts_project(version: str | None = None) -> "LocalProject":
         return ManagerAccessMixin.local_project
 
     # Load the project from dependencies.
+    try:
+        project = _load_tplus_contracts_from_dependencies(version=version)
+    except Exception:
+        if version:
+            # If specifying a version, this has to have worked or else it is a mistake.
+            raise
+
+        # Use manifest that comes with tpluspy.
+        project = _load_tplus_contracts_from_manifest()
+
+    try:
+        project.load_contracts()  # Ensure is compiled.
+    except Exception:
+        if version:
+            # If specifying a version, this has to have worked or else it is a mistake.
+            raise
+
+        # Compiling failed for some reason. Just use the manifest, which is already compiled.
+        project = _load_tplus_contracts_from_manifest()
+
+    return project
+
+
+def _load_tplus_contracts_from_dependencies(version: str | None = None) -> dict:
     available_versions = ManagerAccessMixin.local_project.dependencies["tplus-contracts"]
     if version:
-        project = available_versions[version]
-    else:
-        # Select first one.
-        if not (version_key := next(iter(available_versions), None)):
-            raise ProjectError("Please install the t+ contracts project")
+        return available_versions[version]
 
-        project = available_versions[version_key]
+    # Select first one.
+    if not (version_key := next(iter(available_versions), None)):
+        raise ProjectError("Please install the t+ contracts project")
 
-    project.load_contracts()  # Ensure is compiled.
-    return project
+    return available_versions[version_key]
+
+
+def _load_tplus_contracts_from_manifest() -> Project:
+    # Use manifest that comes with tpluspy.
+    manifest_path = Path(__file__).parent / "manifests" / "tplus-contracts.json"
+    return Project.from_manifest(manifest_path)
 
 
 def load_tplus_contract_container(name: str, version: str | None = None) -> "ContractContainer":
     project = load_tplus_contracts_project(version=version)
-    return project.get_contract(name)
+    return project.contracts.get(name)
 
 
 def get_dev_default_owner() -> AccountAPI:
@@ -208,7 +236,7 @@ class TPlusContract(TPlusMixin):
 
     @property
     def _contract_container(self) -> "ContractContainer":
-        return self.tplus_contracts_project.get_contract(self.name)
+        return self.tplus_contracts_project.contracts.get(self.name)
 
     @property
     def contract(self) -> "ContractInstance":
@@ -220,7 +248,10 @@ class TPlusContract(TPlusMixin):
         except ContractNotExists:
             if self.chain_manager.provider.network.is_local:
                 # If simulating, deploy it now.
-                return self.deploy_dev()
+                instance = self.deploy_dev()
+                self._address = instance.address
+                self._deployments[self.chain_manager.chain_id] = instance
+                return instance
 
             raise  # This error.
 
