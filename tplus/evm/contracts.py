@@ -40,7 +40,10 @@ NETWORK_MAP = {
         "sepolia": 421614,
     },
 }
-DEFAULT_DEPLOYMENTS: dict = {42161: {"Registry": REGISTRY_ADDRESS}}
+LATEST_ARB_DEPOSIT_VAULT = "0x375C66030F096f2E2a5d7DCC87dA0866c56124f7"
+DEFAULT_DEPLOYMENTS: dict = {
+    42161: {"Registry": REGISTRY_ADDRESS, "DepositVault": LATEST_ARB_DEPOSIT_VAULT}
+}
 
 
 class TplusDeployments:
