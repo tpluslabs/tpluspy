@@ -1,7 +1,7 @@
 import json
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.trades import parse_trade_event, TradeConfirmedEvent
+from tplus.model.trades import TradeConfirmedEvent, parse_trade_event
 
 
 def test_parse_trade_event():
