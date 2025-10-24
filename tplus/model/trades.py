@@ -132,7 +132,7 @@ def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
 def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
     """Parses a trade event dictionary from the WebSocket stream."""
     if len(data.keys()) == 0:
-        raise ValueError(f"Empty trade event")
+        raise ValueError("Empty trade event")
 
     event_type = list(data.keys())[0]
 
