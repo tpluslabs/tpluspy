@@ -53,20 +53,7 @@ def parse_trades(data: list[dict]) -> list[Trade]:
 
 def parse_user_trades(data: list[dict]) -> list[UserTrade]:
     """Parse user trade data into UserTrade objects."""
-    return [
-        UserTrade(
-            asset_id=AssetIdentifier(item["asset_id"]),
-            trade_id=item["trade_id"],
-            order_id=item["order_id"],
-            price=float(item["price"]),
-            quantity=float(item["quantity"]),
-            timestamp_ns=int(item["timestamp_ns"]),
-            is_maker=bool(item["is_maker"]),
-            is_buyer=bool(item["is_buyer"]),
-            status=item["status"],
-        )
-        for item in data
-    ]
+    return [UserTrade.model_validate(item) for item in data]
 
 
 class BaseTradeEvent(BaseModel):
