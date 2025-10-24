@@ -131,14 +131,18 @@ def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
 
 def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
     """Parses a trade event dictionary from the WebSocket stream."""
-    event_type = data.get("event_type")
-    payload = data.get("payload", {})
+    if len(data.keys()) == 0:
+        raise ValueError(f"Empty trade event")
 
-    if not event_type or not isinstance(payload, dict):
+    event_type = list(data.keys())[0]
+
+    if not event_type or event_type not in ["Confirmed", "Pending"]:
         raise ValueError(f"Invalid trade event structure: {data}")
 
+    payload = data.get(event_type)
+
     try:
-        if event_type == "PENDING":
+        if event_type == "Pending":
             return TradePendingEvent(
                 order_id=payload["order_id"],
                 match_id=payload["match_id"],
@@ -147,7 +151,7 @@ def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
                 timestamp_ns=int(payload["timestamp_ns"]),
             )
 
-        elif event_type == "CONFIRMED":
+        elif event_type == "Confirmed":
             parsed_trade = parse_single_trade(payload)
             return TradeConfirmedEvent(trade=parsed_trade)
 
