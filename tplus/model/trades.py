@@ -76,22 +76,25 @@ class BaseTradeEvent(BaseModel):
 class TradePendingEvent(BaseTradeEvent):
     """Represents a trade that has occurred but is awaiting final confirmation."""
 
-    event_type: Literal["PENDING"] = Field(default="PENDING")
-    order_id: str
-    match_id: str  # Or some identifier for the match
-    price: float
-    quantity: int
-    timestamp_ns: int
+    event_type: Literal["Pending"] = Field(default="Pending")
+    trade: Trade
 
 
 class TradeConfirmedEvent(BaseTradeEvent):
     """Represents a finalized trade."""
 
-    event_type: Literal["CONFIRMED"] = Field(default="CONFIRMED")
+    event_type: Literal["Confirmed"] = Field(default="Confirmed")
     trade: Trade
 
 
-TradeEvent = TradePendingEvent | TradeConfirmedEvent
+class TradeRollbackedEvent(BaseTradeEvent):
+    """Represents a finalized trade."""
+
+    event_type: Literal["Rollbacked"] = Field(default="Rollbacked")
+    trade: Trade
+
+
+TradeEvent = TradePendingEvent | TradeConfirmedEvent | TradeRollbackedEvent
 
 
 def parse_single_trade(item: dict[str, Any]) -> Trade:
@@ -131,35 +134,25 @@ def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
 
 def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
     """Parses a trade event dictionary from the WebSocket stream."""
-    if len(data.keys()) == 0:
+    if not data:
         raise ValueError("Empty trade event")
 
     event_type = list(data.keys())[0]
-
-    if not event_type or event_type not in ["Confirmed", "Pending"]:
+    if not event_type or event_type not in ["Confirmed", "Pending", "Rollbacked"]:
         raise ValueError(f"Invalid trade event structure: {data}")
 
-    payload = data.get(event_type)
-
-    if payload is None:
+    if not (payload := data.get(event_type)):
         raise ValueError("Payload not present")
 
     try:
+        parsed_trade = parse_single_trade(payload)
         if event_type == "Pending":
-            return TradePendingEvent(
-                order_id=payload["order_id"],
-                match_id=payload["match_id"],
-                price=float(payload["price"]),
-                quantity=int(payload["quantity"]),
-                timestamp_ns=int(payload["timestamp_ns"]),
-            )
-
+            return TradePendingEvent(trade=parsed_trade)
         elif event_type == "Confirmed":
-            parsed_trade = parse_single_trade(payload)
             return TradeConfirmedEvent(trade=parsed_trade)
 
-        else:
-            raise ValueError(f"Unknown trade event type: {event_type}")
+        # No other option, already validated above.
+        return TradeRollbackedEvent(trade=parsed_trade)
 
     except (KeyError, ValueError, TypeError) as e:
         raise ValueError(f"Invalid data for trade event type {event_type}: {data}") from e
