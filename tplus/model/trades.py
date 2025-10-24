@@ -141,6 +141,9 @@ def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
 
     payload = data.get(event_type)
 
+    if payload is None:
+        raise ValueError("Payload not present")
+
     try:
         if event_type == "Pending":
             return TradePendingEvent(
