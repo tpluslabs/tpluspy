@@ -4,8 +4,10 @@ import pytest
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.trades import (
+    Trade,
     TradeConfirmedEvent,
     TradePendingEvent,
+    TradeRollbackedEvent,
     parse_single_trade,
     parse_trade_event,
 )
@@ -13,8 +15,8 @@ from tplus.model.trades import (
 
 @pytest.fixture(scope="module")
 def make_trade():
-    def fn(ty: str):
-        return f'{{"asset_id":"82af49447d8a07e3bd95bd0d56f35241523fbab1000000000000000000000000@000000000000a4b1","trade_id":122519,"price":"3862.36934070","quantity":"0.01000000","timestamp_ns":1761283013888453220,"buyer_is_maker":false,"status":"{ty}"}}'
+    def fn(ty: str, buyer_is_maker: bool = False) -> Trade:
+        return f'{{"asset_id":"82af49447d8a07e3bd95bd0d56f35241523fbab1000000000000000000000000@000000000000a4b1","trade_id":122519,"price":"3862.36934070","quantity":"0.01000000","timestamp_ns":1761283013888453220,"buyer_is_maker":{str(buyer_is_maker).lower()},"status":"{ty}"}}'
 
     return fn
 
@@ -31,7 +33,7 @@ def assert_trade(evt, type: str):
     assert evt.trade.status == type
 
 
-@pytest.mark.parametrize("evt_type", (TradeConfirmedEvent, TradePendingEvent, TradeConfirmedEvent))
+@pytest.mark.parametrize("evt_type", (TradeConfirmedEvent, TradePendingEvent, TradeRollbackedEvent))
 def test_parse_trade_event(evt_type, make_trade):
     evt_str = evt_type.model_fields["event_type"].default
     trade = make_trade(evt_str)
@@ -41,7 +43,12 @@ def test_parse_trade_event(evt_type, make_trade):
     assert_trade(evt, evt_str)
 
 
-def test_parse_trade(make_trade):
-    data = json.loads(make_trade("Pending"))
+@pytest.mark.parametrize("evt_type", ("Pending", "Confirmed", "Rollbacked"))
+def test_parse_single_trade(evt_type, make_trade):
+    data = json.loads(make_trade(evt_type))
     trade = parse_single_trade(data)
+    assert trade.status == evt_type
     assert not trade.buyer_is_maker
+    data = make_trade(evt_type, True)
+    trade = parse_single_trade(json.loads(data))
+    assert trade.buyer_is_maker

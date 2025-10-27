@@ -87,18 +87,9 @@ TradeEvent = TradePendingEvent | TradeConfirmedEvent | TradeRollbackedEvent
 def parse_single_trade(item: dict[str, Any]) -> Trade:
     """Parses a single trade dictionary into a Trade object."""
     try:
-        return Trade(
-            asset_id=AssetIdentifier(item["asset_id"]),
-            trade_id=item["trade_id"],
-            order_id=item.get("order_id", ""),
-            price=float(item["price"]),
-            quantity=float(item["quantity"]),
-            timestamp_ns=int(item["timestamp_ns"]),
-            buyer_is_maker=bool(item.get("buyer_is_maker", False)),
-            status=item.get("status", "Confirmed"),
-        )
-    except (KeyError, ValueError, TypeError) as e:
-        raise ValueError(f"Invalid single trade data: {item}. Err={e}") from e
+        return Trade.model_validate(item)
+    except Exception as err:
+        raise ValueError(f"Invalid single trade data: {item}. Err={err}") from err
 
 
 def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
