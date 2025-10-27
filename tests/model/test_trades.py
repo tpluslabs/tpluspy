@@ -3,7 +3,7 @@ import json
 import pytest
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.trades import TradeConfirmedEvent, TradePendingEvent, parse_trade_event
+from tplus.model.trades import TradeConfirmedEvent, TradePendingEvent, parse_trade_event, parse_single_trade
 
 
 @pytest.fixture(scope="module")
@@ -34,3 +34,9 @@ def test_parse_trade_event(evt_type, make_trade):
     evt = parse_trade_event(json.loads(raw_msg))
     assert isinstance(evt, evt_type)
     assert_trade(evt, evt_str)
+
+
+def test_parse_trade(make_trade):
+    data = json.loads(make_trade("Pending"))
+    trade = parse_single_trade(data)
+    assert not trade.buyer_is_maker

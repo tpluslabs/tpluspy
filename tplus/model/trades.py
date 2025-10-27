@@ -94,11 +94,11 @@ def parse_single_trade(item: dict[str, Any]) -> Trade:
             price=float(item["price"]),
             quantity=float(item["quantity"]),
             timestamp_ns=int(item["timestamp_ns"]),
-            buyer_is_maker=bool(item.get("buyer_is_maker", item.get("is_maker", False))),
+            buyer_is_maker=bool(item.get("buyer_is_maker", False)),
             status=item.get("status", "Confirmed"),
         )
     except (KeyError, ValueError, TypeError) as e:
-        raise ValueError(f"Invalid single trade data: {item}") from e
+        raise ValueError(f"Invalid single trade data: {item}. Err={e}") from e
 
 
 def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
