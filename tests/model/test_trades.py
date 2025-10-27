@@ -3,7 +3,12 @@ import json
 import pytest
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.trades import TradeConfirmedEvent, TradePendingEvent, parse_trade_event, parse_single_trade
+from tplus.model.trades import (
+    TradeConfirmedEvent,
+    TradePendingEvent,
+    parse_single_trade,
+    parse_trade_event,
+)
 
 
 @pytest.fixture(scope="module")
