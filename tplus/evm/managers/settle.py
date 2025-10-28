@@ -72,6 +72,7 @@ class SettlementManager(ChainConnectedManager):
         vaults: bool = True,
         decimals: Sequence["AssetIdentifier"] | None = None,
         deposits: bool = True,
+        settlements: bool = True,
     ):
         """
         Do any initial set up on a fresh CE, such as check for new vaults and deposits.
@@ -82,14 +83,18 @@ class SettlementManager(ChainConnectedManager):
         if dec := decimals:
             await self.update_decimals(dec)
 
-        # Finally, ingest the deposits that you should have already made by running `ape run deposit`, else this won't
+        # Ingest the deposits that you should have already made by running `ape run deposit`, else this won't
         # do anything for the CE, but you can always run `ape run ingest deposits` separately.
         if deposits:
-            await self.check_for_new_deposits()
+            await self.sync_deposits()
+
+        # Ingest past settlements or else the nonce and user balances will be wrong.
+        if settlements:
+            await self.sync_settlements()
 
     async def ensure_vault_registered(self, check_for_new_vaults: bool) -> None:
         if check_for_new_vaults:
-            await self.check_for_new_vaults()
+            await self.sync_vaults()
 
             await asyncio.sleep(2)  # Give CE time to register vaults.
 
@@ -233,11 +238,14 @@ class SettlementManager(ChainConnectedManager):
 
             await asyncio.sleep(wait_interval)
 
-    async def check_for_new_vaults(self):
+    async def sync_vaults(self):
         await self.ce.vaults.update()
 
-    async def check_for_new_deposits(self):
+    async def sync_deposits(self):
         await self.ce.deposits.update(self.tplus_user.public_key, self.chain_id)
+
+    async def sync_settlements(self):
+        await self.ce.settlements.update(self.tplus_user.public_key, self.chain_id)
 
     async def update_decimals(self, assets: Sequence["AssetIdentifier"]):
         await self.ce.decimals.update(
