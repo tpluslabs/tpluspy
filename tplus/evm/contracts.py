@@ -425,8 +425,21 @@ class DepositVault(TPlusContract):
         try:
             return self.contract.deposit(user, token, amount, **tx_kwargs)
         except ContractLogicError as err:
-            if erc20_err_name := _decode_erc20_error(err.message):
+            err_id = err.message
+            if erc20_err_name := _decode_erc20_error(err_id):
                 raise ContractLogicError(erc20_err_name) from err
+
+            elif err_id == "0x203d82d8":
+                raise ContractLogicError("Signature expired") from err
+
+            elif err_id.startswith("0x06427aeb"):
+                raise ContractLogicError("Invalid nonce") from err
+
+            elif err_id == "0x8baa579f":
+                raise ContractLogicError("Invalid signature") from err
+
+            elif err_id == "0xc32d1d76":
+                raise ContractLogicError("Not executor") from err
 
             raise  # Error as-is.
 
