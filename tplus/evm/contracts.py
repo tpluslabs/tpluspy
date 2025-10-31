@@ -435,13 +435,14 @@ class DepositVault(TPlusContract):
         self,
         settlement: dict,
         user: UserPublicKey,
+        expiry: int,
         data: HexBytes,
         signature: HexBytes,
         **tx_kwargs,
     ) -> "ReceiptAPI":
         try:
             return self.contract.executeAtomicSettlement(
-                settlement, user, data, signature, **tx_kwargs
+                settlement, user, expiry, data, signature, **tx_kwargs
             )
         except ContractLogicError as err:
             err_id = err.message
