@@ -90,7 +90,11 @@ class SettlementManager(ChainConnectedManager):
         settlements: bool = True,
     ):
         return self.chaindata.prefetch_chaindata(
-            vaults=vaults, assets=assets, decimals=decimals, deposits=deposits, settlements=settlements
+            vaults=vaults,
+            assets=assets,
+            decimals=decimals,
+            deposits=deposits,
+            settlements=settlements,
         )
 
     async def settle(

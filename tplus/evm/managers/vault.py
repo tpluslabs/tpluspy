@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+from ape.types.address import AddressType
+
 from tplus.client import ClearingEngineClient
 from tplus.evm.address import public_key_to_address
 from tplus.evm.contracts import DepositVault
@@ -12,7 +14,6 @@ if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
     from ape.api.transactions import ReceiptAPI
     from ape.contracts.base import ContractInstance
-    from ape.types.address import AddressType
 
 
 class VaultOwner(ChainConnectedManager):
@@ -82,6 +83,7 @@ class VaultOwner(ChainConnectedManager):
         """
         Allow a user to settler. Requires being the vault contract owner.
         """
+        executor = self.conversion_manager.convert(executor, AddressType)
         tx_kwargs.setdefault("sender", self.owner)
         tx = self.vault.setSettlerExecutor(settler, executor, **tx_kwargs)
 
@@ -101,3 +103,9 @@ class VaultOwner(ChainConnectedManager):
             )
 
         return tx
+
+    async def register_depositor(
+        self, depositor: "AddressType | str | AccountAPI | ContractInstance"
+    ) -> "ReceiptAPI":
+        depositor = self.conversion_manager.convert(depositor, AddressType)
+        return self.vault.setDepositorStatus(depositor, True, sender=self.owner)
