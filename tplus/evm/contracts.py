@@ -1,11 +1,12 @@
 import os
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import yaml
 from ape.api.accounts import AccountAPI
-from ape.exceptions import ContractLogicError, ContractNotFoundError, ProjectError
+from ape.api.convert import ConvertibleAPI
+from ape.exceptions import ContractLogicError, ContractNotFoundError, ConversionError, ProjectError
 from ape.managers.project import Project
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
@@ -166,7 +167,7 @@ class TPlusMixin(ManagerAccessMixin):
         return load_tplus_contracts_project()
 
 
-class TPlusContract(TPlusMixin):
+class TPlusContract(TPlusMixin, ConvertibleAPI):
     """
     An abstraction around a t+ contract.
     """
@@ -268,6 +269,15 @@ class TPlusContract(TPlusMixin):
             return deployer
 
         raise ValueError(f"Cannot deploy '{self.name}' - No default deployer configured.")
+
+    def is_convertible(self, to_type: type) -> bool:
+        return to_type is AddressType
+
+    def convert_to(self, to_type: type) -> Any:
+        if to_type is AddressType:
+            return self.address
+
+        raise ConversionError(f"Cannot convert '{self.name}' to '{to_type}'.")
 
     def set_chain(self, chain_id: int):
         self._chain_id = chain_id
