@@ -91,7 +91,7 @@ class VaultOwner(ChainConnectedManager):
 
             await wait_for_condition(
                 update_fn=lambda: ce.settlements.update_approved_settlers(
-                    self.chain_id, self.vault
+                    self.chain_id, self.vault.address
                 ),
                 get_fn=lambda: ce.settlements.get_approved_settlers(self.chain_id),
                 check_fn=lambda settlers: settler in settlers,
