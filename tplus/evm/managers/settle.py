@@ -179,7 +179,7 @@ class SettlementManager(ChainConnectedManager):
         )
 
         # Execute the settlement on-chain.
-        tx = self.settlement_vault.executeAtomicSettlement(
+        tx = self.settlement_vault.execute_atomic_settlement(
             {
                 "tokenIn": asset_in.evm_address,
                 "amountIn": amount_in.atomic,
