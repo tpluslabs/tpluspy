@@ -207,7 +207,7 @@ class TPlusContract(TPlusMixin):
     @classmethod
     def deploy_dev(cls):
         owner = get_dev_default_owner()
-        return cls.deploy(owner)
+        return cls.deploy(owner, sender=owner)
 
     def __repr__(self) -> str:
         return f"<{self.name}>"
