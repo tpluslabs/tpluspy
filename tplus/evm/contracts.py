@@ -453,8 +453,8 @@ class DepositVault(TPlusContract):
             return self.contract.executeAtomicSettlement(
                 settlement, user, expiry, data, signature, **tx_kwargs
             )
-        except ContractLogicError as err:
-            err_id = err.message
+        except Exception as err:
+            err_id = getattr(err, "message", "")
             if erc20_err_name := _decode_erc20_error(err.message):
                 raise ContractLogicError(erc20_err_name) from err
 
