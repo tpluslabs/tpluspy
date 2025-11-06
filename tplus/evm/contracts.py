@@ -1,18 +1,19 @@
 import os
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import yaml
 from ape.api.accounts import AccountAPI
-from ape.exceptions import ContractLogicError, ContractNotFoundError, ProjectError
+from ape.api.convert import ConvertibleAPI
+from ape.exceptions import ContractLogicError, ContractNotFoundError, ConversionError, ProjectError
 from ape.managers.project import Project
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
-from tplus.evm.constants import REGISTRY_ADDRESS
+from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
 from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
@@ -40,7 +41,6 @@ NETWORK_MAP = {
         "sepolia": 421614,
     },
 }
-LATEST_ARB_DEPOSIT_VAULT = "0x375C66030F096f2E2a5d7DCC87dA0866c56124f7"
 DEFAULT_DEPLOYMENTS: dict = {
     42161: {"Registry": REGISTRY_ADDRESS, "DepositVault": LATEST_ARB_DEPOSIT_VAULT}
 }
@@ -167,7 +167,7 @@ class TPlusMixin(ManagerAccessMixin):
         return load_tplus_contracts_project()
 
 
-class TPlusContract(TPlusMixin):
+class TPlusContract(TPlusMixin, ConvertibleAPI):
     """
     An abstraction around a t+ contract.
     """
@@ -269,6 +269,15 @@ class TPlusContract(TPlusMixin):
             return deployer
 
         raise ValueError(f"Cannot deploy '{self.name}' - No default deployer configured.")
+
+    def is_convertible(self, to_type: type) -> bool:
+        return to_type is AddressType
+
+    def convert_to(self, to_type: type) -> Any:
+        if to_type is AddressType:
+            return self.address
+
+        raise ConversionError(f"Cannot convert '{self.name}' to '{to_type}'.")
 
     def set_chain(self, chain_id: int):
         self._chain_id = chain_id
@@ -444,8 +453,8 @@ class DepositVault(TPlusContract):
             return self.contract.executeAtomicSettlement(
                 settlement, user, expiry, data, signature, **tx_kwargs
             )
-        except ContractLogicError as err:
-            err_id = err.message
+        except Exception as err:
+            err_id = getattr(err, "message", "")
             if erc20_err_name := _decode_erc20_error(err.message):
                 raise ContractLogicError(erc20_err_name) from err
 
