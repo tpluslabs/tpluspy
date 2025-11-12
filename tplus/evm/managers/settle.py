@@ -89,7 +89,7 @@ class SettlementManager(ChainConnectedManager):
         deposits: bool = True,
         settlements: bool = True,
     ):
-        return self.chaindata.prefetch_chaindata(
+        return await self.chaindata.prefetch_chaindata(
             vaults=vaults,
             assets=assets,
             decimals=decimals,
