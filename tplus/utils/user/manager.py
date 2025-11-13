@@ -3,7 +3,8 @@ from getpass import getpass
 from pathlib import Path
 from typing import Optional
 
-from ecdsa import Ed25519, SigningKey  # type: ignore
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # type: ignore
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat  # type: ignore
 
 from tplus.utils.user.ed_keyfile import decrypt_keyfile, encrypt_keyfile
 from tplus.utils.user.model import User
@@ -40,10 +41,11 @@ class UserManager:
 
     def generate(self, name: str, password=None) -> "User":
         path = self.get_non_existing_path(name)
-        sk = SigningKey.generate(curve=Ed25519)
+        sk = Ed25519PrivateKey.generate()
         password = password or getpass(f"Enter new password for '{name}': ")
-        _store(path, password, sk.privkey.private_key)
-        return User(private_key=sk.privkey.private_key)
+        private_key_bytes = sk.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+        _store(path, password, private_key_bytes)
+        return User(private_key=sk)
 
     def load(self, name: str, password=None) -> "User":
         path = self._get_existing_path(name)

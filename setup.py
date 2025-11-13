@@ -19,7 +19,6 @@ setup(
     include_package_data=True,
     install_requires=[
         "cryptography>=44.0.1",
-        "ecdsa>=0.17",
         "eth-pydantic-types>=0.2.2,<0.3",
         "eth-utils>=5.1.0,<6",
         "httpx>=0.20",

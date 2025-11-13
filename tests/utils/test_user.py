@@ -1,4 +1,5 @@
-from ecdsa import SigningKey  # type: ignore
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # type: ignore
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # type: ignore
 
 from tplus.utils.user import User
 
@@ -14,6 +15,9 @@ class TestUser:
         assert actual == expected
 
     def test_init_with_signing_key(self):
-        signing_key = SigningKey.generate()
+        signing_key = Ed25519PrivateKey.generate()
         user = User(private_key=signing_key)
-        assert user.public_key == signing_key.verifying_key.to_string().hex()
+        assert (
+            user.public_key
+            == signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+        )
