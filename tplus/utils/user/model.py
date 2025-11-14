@@ -1,6 +1,9 @@
 from functools import cached_property
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # type: ignore
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # type: ignore
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # type: ignore
 
 from tplus.model.types import UserPublicKey
@@ -12,10 +15,13 @@ SEED_SIZE = 32
 
 class User:
     def __init__(self, private_key: str | bytes | Ed25519PrivateKey | None = None):
+        self._provided_vk_bytes: bytes | None = None
         if private_key:
             if isinstance(private_key, str | bytes):
                 private_key_bytes = privkey_to_bytes(private_key)
                 if len(private_key_bytes) == 2 * SEED_SIZE:
+                    # If a 64-byte key (seed + public key) is provided, keep both parts.
+                    self._provided_vk_bytes = private_key_bytes[SEED_SIZE:]
                     private_key_bytes = private_key_bytes[:SEED_SIZE]
                 elif len(private_key_bytes) != SEED_SIZE:
                     raise ValueError(
@@ -29,15 +35,23 @@ class User:
         else:
             self.sk = Ed25519PrivateKey.generate()
 
-        self.vk = self.sk.public_key()
-
     def __repr__(self) -> str:
         return f"<User {self.public_key}>"
 
     @cached_property
+    def vk(self) -> Ed25519PublicKey:
+        # Prefer the provided public key (when available) and validate it once.
+        if self._provided_vk_bytes is not None:
+            derived_vk_bytes = self.sk.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            if derived_vk_bytes != self._provided_vk_bytes:
+                raise ValueError("Provided Ed25519 public key does not match derived key from seed")
+            return Ed25519PublicKey.from_public_bytes(self._provided_vk_bytes)
+        return self.sk.public_key()
+
+    @cached_property
     def public_key(self) -> UserPublicKey:
         # NOTE: Should effectively be the same as a `str` since base-type.
-        return UserPublicKey(self.pubkey())
+        return UserPublicKey(self.vk.public_bytes(Encoding.Raw, PublicFormat.Raw).hex())
 
     @cached_property
     def public_key_vec(self) -> list[int]:
@@ -45,7 +59,7 @@ class User:
 
     # Legacy: use `.public_key` (cached).
     def pubkey(self) -> str:
-        return self.vk.public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+        return self.public_key
 
     # Legacy: use `.public_key_vec` (cached).
     def pubkey_vec(self) -> list[int]:
