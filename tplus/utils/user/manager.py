@@ -4,7 +4,11 @@ from pathlib import Path
 from typing import Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # type: ignore
-from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat  # type: ignore
+from cryptography.hazmat.primitives.serialization import (  # type: ignore
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+)
 
 from tplus.utils.user.ed_keyfile import decrypt_keyfile, encrypt_keyfile
 from tplus.utils.user.model import User
