@@ -1,25 +1,35 @@
 from functools import cached_property
 
-from ecdsa import Ed25519, SigningKey  # type: ignore
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # type: ignore
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # type: ignore
 
 from tplus.model.types import UserPublicKey
 from tplus.utils.hex import str_to_vec
 from tplus.utils.user.validate import privkey_to_bytes
 
+SEED_SIZE = 32
+
 
 class User:
-    def __init__(self, private_key: str | bytes | SigningKey | None = None):
+    def __init__(self, private_key: str | bytes | Ed25519PrivateKey | None = None):
         if private_key:
             if isinstance(private_key, str | bytes):
                 private_key_bytes = privkey_to_bytes(private_key)
-                self.sk = SigningKey.from_string(private_key_bytes, curve=Ed25519)
-            elif isinstance(private_key, SigningKey):
+                if len(private_key_bytes) == 2 * SEED_SIZE:
+                    private_key_bytes = private_key_bytes[:SEED_SIZE]
+                elif len(private_key_bytes) != SEED_SIZE:
+                    raise ValueError(
+                        "Ed25519 private keys must be 32 bytes (seed) or 64 bytes (seed+pubkey)"
+                    )
+                self.sk = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+            elif isinstance(private_key, Ed25519PrivateKey):
                 self.sk = private_key
-
+            else:
+                raise TypeError(f"Unsupported private key type: {type(private_key)!r}")
         else:
-            self.sk = SigningKey.generate(curve=Ed25519)
+            self.sk = Ed25519PrivateKey.generate()
 
-        self.vk = self.sk.verifying_key
+        self.vk = self.sk.public_key()
 
     def __repr__(self) -> str:
         return f"<User {self.public_key}>"
@@ -35,7 +45,7 @@ class User:
 
     # Legacy: use `.public_key` (cached).
     def pubkey(self) -> str:
-        return self.vk.to_string().hex()
+        return self.vk.public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
 
     # Legacy: use `.public_key_vec` (cached).
     def pubkey_vec(self) -> list[int]:

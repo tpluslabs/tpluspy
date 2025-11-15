@@ -8,6 +8,7 @@ from hexbytes import HexBytes
 
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
+from tplus.evm.managers.chaindata import ChainDataFetcher
 from tplus.evm.managers.deposit import DepositManager
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.logger import get_logger
@@ -58,7 +59,7 @@ class SettlementManager(ChainConnectedManager):
         self.logger = get_logger()
 
     @cached_property
-    def deposits(self):
+    def deposits(self) -> DepositManager:
         return DepositManager(
             self.ape_account,
             self.tplus_user,
@@ -67,45 +68,34 @@ class SettlementManager(ChainConnectedManager):
             clearing_engine=self.ce,
         )
 
-    async def prefetch_chaindata(
-        self,
-        vaults: bool = True,
-        decimals: Sequence["AssetIdentifier"] | None = None,
-        deposits: bool = True,
-    ):
-        """
-        Do any initial set up on a fresh CE, such as check for new vaults and deposits.
-        """
-        await self.ensure_vault_registered(check_for_new_vaults=vaults)
-
-        # Next, force the decimals to update. This isn't really needed but helps things run consistently from the go.
-        if dec := decimals:
-            await self.update_decimals(dec)
-
-        # Finally, ingest the deposits that you should have already made by running `ape run deposit`, else this won't
-        # do anything for the CE, but you can always run `ape run ingest deposits` separately.
-        if deposits:
-            await self.check_for_new_deposits()
-
-    async def ensure_vault_registered(self, check_for_new_vaults: bool) -> None:
-        if check_for_new_vaults:
-            await self.check_for_new_vaults()
-
-            await asyncio.sleep(2)  # Give CE time to register vaults.
-
-        for attempt in range(2):  # Try up to 2 times
-            ce_vaults = await self.ce.vaults.get()
-            if ce_vaults:
-                return
-
-            await asyncio.sleep(2)
-
-        raise ValueError("Vault never registered.")
+    @cached_property
+    def chaindata(self) -> ChainDataFetcher:
+        return ChainDataFetcher(
+            self.tplus_user,
+            self.ce,
+            self.chain_id,
+        )
 
     async def deposit(
         self, token: "str | AddressType | ContractInstance", amount: int, wait: bool = False
     ):
         await self.deposits.deposit(token, amount, wait=wait)
+
+    async def prefetch_chaindata(
+        self,
+        vaults: bool = True,
+        assets: bool = True,
+        decimals: Sequence["AssetIdentifier"] | None = None,
+        deposits: bool = True,
+        settlements: bool = True,
+    ):
+        return await self.chaindata.prefetch_chaindata(
+            vaults=vaults,
+            assets=assets,
+            decimals=decimals,
+            deposits=deposits,
+            settlements=settlements,
+        )
 
     async def settle(
         self,
@@ -174,7 +164,7 @@ class SettlementManager(ChainConnectedManager):
         )
 
         # Execute the settlement on-chain.
-        tx = self.settlement_vault.executeAtomicSettlement(
+        tx = self.settlement_vault.execute_atomic_settlement(
             {
                 "tokenIn": asset_in.evm_address,
                 "amountIn": amount_in.atomic,
@@ -232,18 +222,6 @@ class SettlementManager(ChainConnectedManager):
                 raise Exception("Settlement initialization failed. Check server logs.")
 
             await asyncio.sleep(wait_interval)
-
-    async def check_for_new_vaults(self):
-        await self.ce.vaults.update()
-
-    async def check_for_new_deposits(self):
-        await self.ce.deposits.update(self.tplus_user.public_key, self.chain_id)
-
-    async def update_decimals(self, assets: Sequence["AssetIdentifier"]):
-        await self.ce.decimals.update(
-            list(assets),
-            [self.chain_id],
-        )
 
     async def init_settlement(self, request: "TxSettlementRequest"):
         return await self.ce.settlements.init_settlement(request)

@@ -1,4 +1,6 @@
 import pytest
+from ape import convert
+from ape.types.address import AddressType
 from eth_utils import keccak, to_hex
 
 from tplus.evm.constants import REGISTRY_ADDRESS
@@ -9,6 +11,11 @@ from tplus.model.asset_identifier import ChainAddress
 
 
 class TestTplusContract:
+    def test_convert_to_address(self):
+        address = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
+        contract = TPlusContract("foo", address=address)
+        assert convert(contract, AddressType) == address
+
     def test_address_not_exists(self):
         class FooContract(TPlusContract):
             NAME = "foo"

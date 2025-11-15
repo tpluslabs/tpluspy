@@ -1,18 +1,19 @@
 import os
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import yaml
 from ape.api.accounts import AccountAPI
-from ape.exceptions import ContractLogicError, ContractNotFoundError, ProjectError
+from ape.api.convert import ConvertibleAPI
+from ape.exceptions import ContractLogicError, ContractNotFoundError, ConversionError, ProjectError
 from ape.managers.project import Project
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
-from tplus.evm.constants import REGISTRY_ADDRESS
+from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
 from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
@@ -40,7 +41,9 @@ NETWORK_MAP = {
         "sepolia": 421614,
     },
 }
-DEFAULT_DEPLOYMENTS: dict = {42161: {"Registry": REGISTRY_ADDRESS}}
+DEFAULT_DEPLOYMENTS: dict = {
+    42161: {"Registry": REGISTRY_ADDRESS, "DepositVault": LATEST_ARB_DEPOSIT_VAULT}
+}
 
 
 class TplusDeployments:
@@ -164,7 +167,7 @@ class TPlusMixin(ManagerAccessMixin):
         return load_tplus_contracts_project()
 
 
-class TPlusContract(TPlusMixin):
+class TPlusContract(TPlusMixin, ConvertibleAPI):
     """
     An abstraction around a t+ contract.
     """
@@ -204,7 +207,7 @@ class TPlusContract(TPlusMixin):
     @classmethod
     def deploy_dev(cls):
         owner = get_dev_default_owner()
-        return cls.deploy(owner)
+        return cls.deploy(owner, sender=owner)
 
     def __repr__(self) -> str:
         return f"<{self.name}>"
@@ -266,6 +269,15 @@ class TPlusContract(TPlusMixin):
             return deployer
 
         raise ValueError(f"Cannot deploy '{self.name}' - No default deployer configured.")
+
+    def is_convertible(self, to_type: type) -> bool:
+        return to_type is AddressType
+
+    def convert_to(self, to_type: type) -> Any:
+        if to_type is AddressType:
+            return self.address
+
+        raise ConversionError(f"Cannot convert '{self.name}' to '{to_type}'.")
 
     def set_chain(self, chain_id: int):
         self._chain_id = chain_id
@@ -422,7 +434,8 @@ class DepositVault(TPlusContract):
         try:
             return self.contract.deposit(user, token, amount, **tx_kwargs)
         except ContractLogicError as err:
-            if erc20_err_name := _decode_erc20_error(err.message):
+            err_id = err.message
+            if erc20_err_name := _decode_erc20_error(err_id):
                 raise ContractLogicError(erc20_err_name) from err
 
             raise  # Error as-is.
@@ -431,19 +444,33 @@ class DepositVault(TPlusContract):
         self,
         settlement: dict,
         user: UserPublicKey,
+        expiry: int,
         data: HexBytes,
         signature: HexBytes,
         **tx_kwargs,
     ) -> "ReceiptAPI":
         try:
             return self.contract.executeAtomicSettlement(
-                settlement, user, data, signature, **tx_kwargs
+                settlement, user, expiry, data, signature, **tx_kwargs
             )
-        except ContractLogicError as err:
+        except Exception as err:
+            err_id = getattr(err, "message", "")
             if erc20_err_name := _decode_erc20_error(err.message):
                 raise ContractLogicError(erc20_err_name) from err
 
-            raise  # Error as-is.
+            elif err_id == "0x203d82d8":
+                raise ContractLogicError("Signature expired") from err
+
+            elif err_id.startswith("0x06427aeb"):
+                raise ContractLogicError("Invalid nonce") from err
+
+            elif err_id == "0x8baa579f":
+                raise ContractLogicError("Invalid signature") from err
+
+            elif err_id == "0xc32d1d76":
+                raise ContractLogicError("Not executor") from err
+
+            raise  # Error as-is
 
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "DepositVault":
