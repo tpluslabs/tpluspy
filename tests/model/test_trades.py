@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -25,8 +26,8 @@ def assert_trade(evt, type: str):
         "82af49447d8a07e3bd95bd0d56f35241523fbab1000000000000000000000000@000000000000a4b1"
     )
     assert evt.trade.trade_id == 122519
-    assert evt.trade.price == 3862.36934070
-    assert evt.trade.quantity == 0.01
+    assert evt.trade.price == Decimal("3862.36934070")
+    assert evt.trade.quantity == Decimal("0.01")
     assert evt.trade.timestamp_ns == 1761283013888453220
     assert not evt.trade.buyer_is_maker
     assert evt.trade.status == type
