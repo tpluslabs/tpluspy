@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -22,8 +23,8 @@ class OrderBookDiff(BaseModel):
 class PriceLevelUpdate(BaseModel):
     asset_id: AssetIdentifier
     side: Literal["Ask", "Bid"]
-    price_level: float  # Assuming price is an integer
-    quantity: float  # New quantity at this level (0 means level removed)
+    price_level: Decimal
+    quantity: Decimal
 
 
 def parse_price_level_update(data: dict[str, Any]) -> PriceLevelUpdate:
@@ -33,8 +34,8 @@ def parse_price_level_update(data: dict[str, Any]) -> PriceLevelUpdate:
         return PriceLevelUpdate(
             asset_id=AssetIdentifier(data["asset_id"]),
             side=data["side"],  # Assuming 'Ask' or 'Bid'
-            price_level=int(data["price_level"]),
-            quantity=int(data["quantity"]),
+            price_level=Decimal(data["price_level"]),
+            quantity=Decimal(data["quantity"]),
         )
     except (KeyError, ValueError, TypeError) as e:
         # Log the error and the problematic data

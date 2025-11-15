@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -9,8 +10,8 @@ class Trade(BaseModel):
     asset_id: AssetIdentifier
     trade_id: int
     order_id: str = ""  # Optional for basic trades
-    price: float  # Stored as float for convenience, comes as string from API
-    quantity: float
+    price: Decimal
+    quantity: Decimal
     timestamp_ns: int
     buyer_is_maker: bool = Field(..., description="True if the buyer was the maker")
     status: Literal["Pending", "Confirmed", "Rollbacked"] = "Confirmed"
@@ -22,8 +23,8 @@ class UserTrade(BaseModel):
     asset_id: AssetIdentifier
     trade_id: int
     order_id: str
-    price: float  # Stored as float for convenience, comes as string from API
-    quantity: float
+    price: Decimal
+    quantity: Decimal
     timestamp_ns: int
     is_maker: bool = Field(..., description="True if this user was the maker")
     is_buyer: bool = Field(..., description="True if this user was the buyer")
@@ -41,8 +42,8 @@ def parse_trades(data: list[dict]) -> list[Trade]:
             asset_id=AssetIdentifier(item["asset_id"]),
             trade_id=item["trade_id"],
             order_id=item.get("order_id", ""),
-            price=float(item["price"]),
-            quantity=float(item["quantity"]),
+            price=Decimal(item["price"]),
+            quantity=Decimal(item["quantity"]),
             timestamp_ns=int(item["timestamp_ns"]),
             buyer_is_maker=item.get("buyer_is_maker", item.get("is_maker", False)),
             status=item.get("status", "Confirmed"),
@@ -99,8 +100,8 @@ def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
             asset_id=AssetIdentifier(item["asset_id"]),
             trade_id=item["trade_id"],
             order_id=item["order_id"],
-            price=float(item["price"]),
-            quantity=float(item["quantity"]),
+            price=Decimal(item["price"]),
+            quantity=Decimal(item["quantity"]),
             timestamp_ns=int(item["timestamp_ns"]),
             is_maker=bool(item["is_maker"]),
             is_buyer=bool(item["is_buyer"]),
