@@ -35,6 +35,7 @@ class InnerSettlementRequest(BaseSettlement):
     """
 
     tplus_user: UserPublicKey
+    settler: UserPublicKey
     chain_id: ChainID
 
     @classmethod
@@ -48,6 +49,7 @@ class InnerSettlementRequest(BaseSettlement):
         decimals_out: int,
         tplus_user: UserPublicKey,
         chain: ChainID | int,
+        settler: UserPublicKey | None = None,
     ) -> "InnerSettlementRequest":
         """
         Create a request using raw amounts by first normalizing them to the CE.
@@ -65,6 +67,8 @@ class InnerSettlementRequest(BaseSettlement):
               settlement request.
             chain (:class:`~tplus.models.types.ChainID`): The blockchain network identifier where the
               settlement will occur.
+            settler (:class:`~tplus.models.types.UserPublicKey`): The settler tplus account. If not provided, uses the
+              same account as ``tplus_user``.
 
         Returns:
             InnerSettlementRequest: A normalized settlement request ready for processing.
@@ -81,6 +85,7 @@ class InnerSettlementRequest(BaseSettlement):
                 "asset_out": asset_out,
                 "amount_out": normalize_to_inventory(amount_out, decimals_out, "down"),
                 "tplus_user": tplus_user,
+                "settler": settler or tplus_user,
                 "chain_id": chain,
             }
         )
@@ -89,11 +94,13 @@ class InnerSettlementRequest(BaseSettlement):
         base_data = self.model_dump(mode="json", exclude_none=True)
 
         user = base_data.pop("tplus_user")
+        settler = base_data.pop("settler")
         chain_id = base_data.pop("chain_id", None)
 
         # NOTE: The order here matters!
         payload = {
             "tplus_user": user,
+            "settler": settler,
             **base_data,
             "chain_id": chain_id,
         }
@@ -135,6 +142,8 @@ class TxSettlementRequest(BaseModel):
         if isinstance(inner, dict):
             if "tplus_user" not in inner:
                 inner["tplus_user"] = signer.public_key
+            if "settler" not in inner:
+                inner["settler"] = signer.public_key
 
             inner = InnerSettlementRequest.model_validate(inner)
 
