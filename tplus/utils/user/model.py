@@ -46,7 +46,7 @@ class User:
             if derived_vk_bytes != self._provided_vk_bytes:
                 raise ValueError("Provided Ed25519 public key does not match derived key from seed")
             return Ed25519PublicKey.from_public_bytes(self._provided_vk_bytes)
-        return self.sk.public_key()
+        return self.sk.public_key
 
     @cached_property
     def public_key(self) -> UserPublicKey:
