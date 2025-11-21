@@ -23,6 +23,7 @@ def create_market_order_ob_request_payload(
     quote_quantity: MarketQuoteQuantity | None = None,
     fill_or_kill: bool = False,
     trigger: TriggerAbove | TriggerBelow | None = None,
+    account: int | None = 0,
 ) -> CreateOrderRequest:
     side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
 
@@ -40,6 +41,7 @@ def create_market_order_ob_request_payload(
         side=side_normalized,
         trigger=trigger,
         creation_timestamp_ns=time.time_ns(),
+        account=account,
     )
 
     sign_payload_json = order.signable_part()

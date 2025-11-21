@@ -43,6 +43,7 @@ class Order(BaseModel):
     trigger: TriggerAbove | TriggerBelow | None = None
     creation_timestamp_ns: int
     canceled: bool = False
+    account: int | None = None
 
     def signable_part(self) -> str:
         return self.model_dump_json(exclude={"canceled"})
