@@ -13,7 +13,11 @@ from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
-from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
+from tplus.evm.constants import (
+    LATEST_ARB_DEPOSIT_VAULT,
+    LATEST_ARB_SEPOLIA_DEPOSIT_VAULT,
+    REGISTRY_ADDRESS,
+)
 from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
@@ -42,7 +46,8 @@ NETWORK_MAP = {
     },
 }
 DEFAULT_DEPLOYMENTS: dict = {
-    42161: {"Registry": REGISTRY_ADDRESS, "DepositVault": LATEST_ARB_DEPOSIT_VAULT}
+    42161: {"Registry": REGISTRY_ADDRESS, "DepositVault": LATEST_ARB_DEPOSIT_VAULT},
+    421614: {"DepositVault": LATEST_ARB_SEPOLIA_DEPOSIT_VAULT},
 }
 
 
