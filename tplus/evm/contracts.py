@@ -188,8 +188,15 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     ) -> None:
         self._deployments: dict[int, ContractInstance] = {}
         self._default_deployer = default_deployer
-        self._chain_id = chain_id
         self._address = address
+
+        if chain_id is None:
+            try:
+                chain_id = self.chain_manager.chain_id
+            except Exception:
+                chain_id = None
+
+        self._chain_id = chain_id
         self._tplus_contracts_version = tplus_contracts_version
 
         if address is not None and chain_id is not None:
@@ -213,6 +220,10 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     def deploy_dev(cls):
         owner = get_dev_default_owner()
         return cls.deploy(owner, sender=owner)
+
+    @classmethod
+    def at(cls, address: str, **kwargs) -> "TPlusContract":
+        return cls(address=address, **kwargs)
 
     def __repr__(self) -> str:
         return f"<{self.name}>"
