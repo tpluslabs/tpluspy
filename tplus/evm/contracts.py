@@ -16,6 +16,7 @@ from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import (
     LATEST_ARB_DEPOSIT_VAULT,
     LATEST_ARB_SEPOLIA_DEPOSIT_VAULT,
+    LATEST_UNI_SEPOLIA_DEPOSIT_VAULT,
     REGISTRY_ADDRESS,
 )
 from tplus.evm.eip712 import Domain
@@ -48,6 +49,7 @@ NETWORK_MAP = {
 DEFAULT_DEPLOYMENTS: dict = {
     42161: {"Registry": REGISTRY_ADDRESS, "DepositVault": LATEST_ARB_DEPOSIT_VAULT},
     421614: {"DepositVault": LATEST_ARB_SEPOLIA_DEPOSIT_VAULT},
+    1301: {"DepositVault": LATEST_UNI_SEPOLIA_DEPOSIT_VAULT},
 }
 
 
