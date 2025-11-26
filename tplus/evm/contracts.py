@@ -13,7 +13,12 @@ from ape.utils.basemodel import ManagerAccessMixin
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
-from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
+from tplus.evm.constants import (
+    LATEST_ARB_DEPOSIT_VAULT,
+    LATEST_ARB_SEPOLIA_DEPOSIT_VAULT,
+    LATEST_UNI_SEPOLIA_DEPOSIT_VAULT,
+    REGISTRY_ADDRESS,
+)
 from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
@@ -42,7 +47,9 @@ NETWORK_MAP = {
     },
 }
 DEFAULT_DEPLOYMENTS: dict = {
-    42161: {"Registry": REGISTRY_ADDRESS, "DepositVault": LATEST_ARB_DEPOSIT_VAULT}
+    42161: {"Registry": REGISTRY_ADDRESS, "DepositVault": LATEST_ARB_DEPOSIT_VAULT},
+    421614: {"DepositVault": LATEST_ARB_SEPOLIA_DEPOSIT_VAULT},
+    1301: {"DepositVault": LATEST_UNI_SEPOLIA_DEPOSIT_VAULT},
 }
 
 
@@ -183,8 +190,15 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     ) -> None:
         self._deployments: dict[int, ContractInstance] = {}
         self._default_deployer = default_deployer
-        self._chain_id = chain_id
         self._address = address
+
+        if chain_id is None:
+            try:
+                chain_id = self.chain_manager.chain_id
+            except Exception:
+                chain_id = None
+
+        self._chain_id = chain_id
         self._tplus_contracts_version = tplus_contracts_version
 
         if address is not None and chain_id is not None:
@@ -208,6 +222,10 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     def deploy_dev(cls):
         owner = get_dev_default_owner()
         return cls.deploy(owner, sender=owner)
+
+    @classmethod
+    def at(cls, address: str, **kwargs) -> "TPlusContract":
+        return cls(address=address, **kwargs)
 
     def __repr__(self) -> str:
         return f"<{self.name}>"
