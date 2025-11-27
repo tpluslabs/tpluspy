@@ -10,6 +10,7 @@ class CancelOrder(BaseModel):
     order_id: str
     asset_id: AssetIdentifier  # Or str if only string form is signed
     signer: UserPublicKey  # Public key of the signer, included in the signed payload
+    protocol_version: int = 1
 
 
 class CancelOrderRequest(BaseModel):
