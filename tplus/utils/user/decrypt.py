@@ -91,15 +91,32 @@ def decrypt_settlement_approval(
     nonce_bytes = encrypted_data[32:44]
     encrypted_payload = encrypted_data[44:]
 
+    # Validate that encrypted payload is long enough to contain an authentication tag (16 bytes for GCM)
+    if len(encrypted_payload) < 16:
+        raise ValueError(
+            f"Encrypted payload too short: {len(encrypted_payload)} bytes (expected at least 16 for GCM tag)"
+        )
+
     # Convert Ed25519 private key to X25519
     x25519_private_key = ed25519_to_x25519_private_key(ed25519_private_key)
 
     from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 
-    ephemeral_public_key = X25519PublicKey.from_public_bytes(ephemeral_public_key_bytes)
+    # Parse ephemeral public key - may raise ValueError for invalid bytes
+    try:
+        ephemeral_public_key = X25519PublicKey.from_public_bytes(ephemeral_public_key_bytes)
+    except (ValueError, Exception) as e:
+        raise ValueError(
+            f"Failed to decrypt settlement approval (invalid ephemeral public key): {e}"
+        ) from e
 
     # Perform X25519 ECDH to derive shared secret
-    shared_secret = x25519_private_key.exchange(ephemeral_public_key)
+    try:
+        shared_secret = x25519_private_key.exchange(ephemeral_public_key)
+    except Exception as e:
+        raise ValueError(
+            f"Failed to decrypt settlement approval (ECDH exchange failed): {e}"
+        ) from e
 
     # Derive encryption key from shared secret using SHA-256
     encryption_key = hashlib.sha256(shared_secret).digest()
@@ -109,11 +126,12 @@ def decrypt_settlement_approval(
     cipher = AES.new(encryption_key, AES.MODE_GCM, nonce=nonce_bytes)
     try:
         decrypted_data = cipher.decrypt(encrypted_payload)
-    except ValueError as e:
-        # ValueError is raised if authentication fails
+
+    except ValueError as err:
         raise ValueError(
-            f"Failed to decrypt settlement approval (authentication failed): {e}"
-        ) from e
+            f"Failed to decrypt settlement approval (authentication failed): {err}"
+        ) from err
+
     except Exception as e:
         raise ValueError(f"Failed to decrypt settlement approval: {e}") from e
 
