@@ -1,4 +1,4 @@
-import asyncio
+import json
 import time
 from collections.abc import Sequence
 from functools import cached_property
@@ -8,12 +8,14 @@ from hexbytes import HexBytes
 
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
+from tplus.evm.exceptions import SettlementApprovalTimeout
 from tplus.evm.managers.chaindata import ChainDataFetcher
 from tplus.evm.managers.deposit import DepositManager
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.logger import get_logger
 from tplus.model.settlement import TxSettlementRequest
 from tplus.utils.amount import AmountPair
+from tplus.utils.user.decrypt import decrypt_settlement_approval
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -140,8 +142,6 @@ class SettlementManager(ChainConnectedManager):
         )
         await self.init_settlement(request)
 
-        # Wait for the approvals using a re-try/timeout approach.
-        # NOTE: Hopefully we improve this in the clearing-engine.
         approval: dict = await self.wait_for_settlement_approval(
             timeout=wait_timeout, wait_interval=wait_interval
         )
@@ -186,42 +186,72 @@ class SettlementManager(ChainConnectedManager):
 
         return tx
 
-    async def wait_for_settlement_approval(
-        self, timeout: int = DEFAULT_WAIT_SECONDS, wait_interval: int = DEFAULT_WAIT_INTERVAL
-    ) -> dict:
+    async def wait_for_settlement_approval(self, timeout: int = DEFAULT_WAIT_SECONDS) -> dict:
         """
-        Waits for the existence of settlement approvals. Returns the last of the first approvals
-        that get returned from the clearing-engine's permissionless API.
+        Waits for the existence of settlement approvals via WebSocket. Returns the approval
+        matching the current settlement nonce.
 
         Args:
             timeout (int): The number of seconds to wait for the settlement approval.
-            wait_interval (int): The number of seconds to between checks.
 
         Returns:
             dict: clearing-engine approval data
         """
-        # Get back the approvals. If it takes longer than 5 seconds, consider it not approved.
-        # (shouldn't take too terribly long in practice).
         started = int(time.time())
-        nonce = self.vault.settlementCounts(self.tplus_user.public_key)
-        while True:
-            approvals = await self.get_approvals()
-            if isinstance(approvals, list) and len(approvals) > 0:
-                for approval in sorted(approvals, key=lambda a: a["inner"]["nonce"], reverse=True):
-                    if approval["inner"]["nonce"] == nonce:
-                        return approval
-                    elif approval["inner"]["nonce"] < nonce:
-                        # No need to search rest of list.
-                        break
+        expected_nonce = self.vault.settlementCounts(self.tplus_user.public_key)
 
-            elif int(time.time()) - started > timeout:
-                # It would be nice if the CE gave us some sort of error here. But here are some things to check:
-                # 1. Do you have a client running from the tplus core repo? e.g. arbitrum-client or threshold-client.
-                # 2. Are you using a settler that is approved on the vault?
-                # 3. Your settler account does not have enough credits in the CE.
-                raise Exception("Settlement initialization failed. Check server logs.")
+        self.logger.info(
+            f"Waiting for settlement approval via WebSocket. Expected nonce: {expected_nonce}"
+        )
 
-            await asyncio.sleep(wait_interval)
+        try:
+            async for message in self.ce.settlements.stream_approvals(self.tplus_user.public_key):
+                if int(time.time()) - started > timeout:
+                    raise SettlementApprovalTimeout(timeout, expected_nonce)
+
+                approval = self._decrypt_settlement_approval_message(message)
+                if approval is None:
+                    continue
+
+                # Check if this approval matches the expected nonce
+                if approval.get("inner", {}).get("nonce") == expected_nonce:
+                    self.logger.info(
+                        f"Received settlement approval for nonce {expected_nonce} via WebSocket"
+                    )
+                    return approval
+
+                self.logger.debug(
+                    f"Received approval for nonce {approval.get('inner', {}).get('nonce')}, "
+                    f"expected {expected_nonce}, continuing to wait..."
+                )
+
+        except SettlementApprovalTimeout:
+            raise
+
+        except Exception as err:
+            elapsed = int(time.time()) - started
+            if elapsed >= timeout:
+                raise SettlementApprovalTimeout(timeout, expected_nonce) from err
+
+            raise
+
+    def _decrypt_settlement_approval_message(self, message: dict) -> dict | None:
+        """
+        Decrypt and parse a settlement approval message from the WebSocket.
+
+        Args:
+            message: The raw message dictionary from the WebSocket containing encrypted_data.
+
+        Returns:
+            dict: The decrypted approval dictionary, or None if decryption/parsing fails.
+        """
+        try:
+            encrypted_data_bytes = bytes.fromhex(message["encrypted_data"])
+            decrypted_json = decrypt_settlement_approval(encrypted_data_bytes, self.tplus_user.sk)
+            return json.loads(decrypted_json)
+        except Exception as err:
+            self.logger.warning(f"Failed to decrypt or parse settlement approval message: {err}")
+            return None
 
     async def init_settlement(self, request: "TxSettlementRequest"):
         return await self.ce.settlements.init_settlement(request)
