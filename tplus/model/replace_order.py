@@ -16,6 +16,7 @@ class ReplaceOrderDetails(BaseModel):
     new_trigger: TriggerAbove | TriggerBelow | None = None
     book_quantity_decimals: int | None = None  # Assuming i8 maps to int
     book_price_decimals: int | None = None  # Assuming i8 maps to int
+    protocol_version: int = 1
 
     # Pydantic serializes Optional[None] to null by default.
     # If specific fields must be present even if null, they don't need exclude_none.
