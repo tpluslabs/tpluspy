@@ -1,3 +1,6 @@
+import json
+from collections.abc import AsyncIterator
+
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.settlement import BatchSettlementRequest, TxSettlementRequest
@@ -45,6 +48,40 @@ class SettlementClient(BaseClearingEngineClient):
         # Unknown. Return + log whatever it is and let it fail elsewhere.
         self.logger.error(f"Unknown result format for {prefix} response: {result}.")
         return result  # type: ignore
+
+    async def stream_approvals(self, user_hex: str) -> AsyncIterator[dict]:
+        """
+        Stream settlement approvals for a given user via WebSocket.
+
+        This connects to the `/settlement/approvals/{user_hex}` WebSocket endpoint
+        and yields settlement approval messages as they are received. Messages
+        are encrypted and need to be decrypted using the user's Ed25519 private key.
+
+        Args:
+            user_hex: The settler's public key in hex format (no 0x prefix).
+
+        Yields:
+            dict: Settlement approval messages with the following structure:
+                - reference: str - hex-encoded settlement hash
+                - signature: dict - the approval signature
+                - encrypted_data: str - hex-encoded encrypted approval JSON
+        """
+        path = f"settlement/approvals/{user_hex}"
+        websocket_cm = await self._open_ws(path)
+
+        async with websocket_cm as websocket:
+            async for message in websocket:
+                try:
+                    data = json.loads(message)
+                except json.JSONDecodeError:
+                    self.logger.warning(
+                        f"Received non-JSON message on {path} stream: {message[:100]}…"
+                    )
+
+                if isinstance(data, dict) and data.get("type") in self.CONTROL_MESSAGE_TYPES:
+                    continue
+
+                yield data
 
     async def init_batch_settlement(self, request: dict | BatchSettlementRequest):
         """

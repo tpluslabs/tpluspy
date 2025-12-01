@@ -1,6 +1,6 @@
-import asyncio
-import time
-from collections.abc import Sequence
+import json
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -14,6 +14,7 @@ from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.logger import get_logger
 from tplus.model.settlement import TxSettlementRequest
 from tplus.utils.amount import AmountPair
+from tplus.utils.user.decrypt import decrypt_settlement_approval
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -25,8 +26,18 @@ if TYPE_CHECKING:
     from tplus.utils.user import User
 
 
-DEFAULT_WAIT_SECONDS = 10  # Seconds
-DEFAULT_WAIT_INTERVAL = 1  # Seconds
+@dataclass
+class SettlementInfo:
+    """
+    Information about a settlement after initialization.
+    Used to track and match approvals with their corresponding settlements.
+    """
+
+    asset_in: "AssetIdentifier"
+    amount_in: AmountPair
+    asset_out: "AssetIdentifier"
+    amount_out: AmountPair
+    expected_nonce: int
 
 
 class SettlementManager(ChainConnectedManager):
@@ -97,36 +108,51 @@ class SettlementManager(ChainConnectedManager):
             settlements=settlements,
         )
 
-    async def settle(
+    def _decrypt_settlement_approval_message(self, message: dict) -> dict | None:
+        """
+        Decrypt and parse a settlement approval message from the WebSocket.
+
+        Args:
+            message: The raw message dictionary from the WebSocket containing encrypted_data.
+
+        Returns:
+            dict: The decrypted approval dictionary, or None if decryption/parsing fails.
+        """
+        try:
+            encrypted_data_bytes = bytes.fromhex(message["encrypted_data"])
+            decrypted_json = decrypt_settlement_approval(encrypted_data_bytes, self.tplus_user.sk)
+            return json.loads(decrypted_json)
+        except Exception as err:
+            self.logger.warning(f"Failed to decrypt or parse settlement approval message: {err}")
+            return None
+
+    async def init_settlement(self, request: "TxSettlementRequest"):
+        return await self.ce.settlements.init_settlement(request)
+
+    async def init_settlement_async(
         self,
         asset_in: "AssetIdentifier",
         amount_in: AmountPair,
         asset_out: "AssetIdentifier",
         amount_out: AmountPair,
-        **kwargs,
-    ) -> "ReceiptAPI":
+    ) -> SettlementInfo:
         """
-        Initializes a settlement, waits for the approval from the clearing-engine and submits
-        the final settlement on-chain.
+        Initialize a settlement asynchronously without waiting for approval.
+
+        This method initializes the settlement in the clearing-engine and returns
+        settlement information that can be used to track and match approvals later.
 
         Args:
-            asset_in (AssetIdentifier): The ID of the asset in going into the protocol.
-            amount_in (AmountPair): Both the normalized and atomic amounts for the amount going into the protocol.
-            asset_out (AssetIdentifier): The ID of the asset leaving the protocol.
-            amount_out (AmountPair): Both the normalized and atomic amounts for the amount leaving the protocol.
-            kwargs (dict[str, Any]): Additional tx properties to pass to the ``executeAtomicSettlement()`` e.g.
-              ``gas=`` or ``required_confirmations=``.
+            asset_in: The ID of the asset in going into the protocol.
+            amount_in: Both the normalized and atomic amounts for the amount going into the protocol.
+            asset_out: The ID of the asset leaving the protocol.
+            amount_out: Both the normalized and atomic amounts for the amount leaving the protocol.
 
-        Return:
-            ReceiptAPI
+        Returns:
+            SettlementInfo: Information about the settlement including the expected nonce.
         """
-        # Initialize the settlement in the clearing-engine. If the user passes solvency checks,
-        # approval signatures will eventually become available.
-        wait_timeout = kwargs.pop("wait_timeout", DEFAULT_WAIT_SECONDS)
-        wait_interval = kwargs.pop("wait_interval", DEFAULT_WAIT_INTERVAL)
-        force_update = kwargs.pop("force_update", False)
-        kwargs.setdefault("sender", self.ape_account)
-        kwargs.setdefault("required_confirmations", 0)
+        # Get the expected nonce (current count before this settlement - it will increment after init)
+        expected_nonce = self.vault.settlementCounts(self.tplus_user.public_key)
 
         request = TxSettlementRequest.create_signed(
             {
@@ -140,24 +166,59 @@ class SettlementManager(ChainConnectedManager):
         )
         await self.init_settlement(request)
 
-        # Wait for the approvals using a re-try/timeout approach.
-        # NOTE: Hopefully we improve this in the clearing-engine.
-        approval: dict = await self.wait_for_settlement_approval(
-            timeout=wait_timeout, wait_interval=wait_interval
+        self.logger.info(
+            f"Initialized settlement - Asset in: {asset_in.evm_address}, "
+            f"Amount in: {amount_in.atomic}, Asset out: {asset_out.evm_address}, "
+            f"Amount out: {amount_out.atomic}, Expected nonce: {expected_nonce}"
         )
 
+        return SettlementInfo(
+            asset_in=asset_in,
+            amount_in=amount_in,
+            asset_out=asset_out,
+            amount_out=amount_out,
+            expected_nonce=expected_nonce,
+        )
+
+    async def execute_settlement(
+        self,
+        settlement_info: SettlementInfo,
+        approval: dict,
+        **kwargs,
+    ) -> "ReceiptAPI":
+        """
+        Execute a settlement on-chain using the provided approval.
+
+        Args:
+            settlement_info: The settlement information from initialization.
+            approval: The decrypted approval dictionary from the clearing-engine.
+            kwargs: Additional tx properties to pass to ``executeAtomicSettlement()`` e.g.
+              ``gas=`` or ``required_confirmations=``.
+
+        Returns:
+            ReceiptAPI: The transaction receipt.
+        """
         nonce = approval["inner"]["nonce"]
         expiry = approval["expiry"]
 
+        # Validate that the approval matches the expected nonce
+        if nonce != settlement_info.expected_nonce:
+            raise ValueError(
+                f"Approval nonce {nonce} does not match expected nonce {settlement_info.expected_nonce}"
+            )
+
+        kwargs.setdefault("sender", self.ape_account)
+        kwargs.setdefault("required_confirmations", 0)
+
         self.logger.info(
-            "Settlement data: "
+            "Executing settlement: "
             f"Vault: {self.vault.address}, "
             f"Chain ID: {self.chain_id}, "
             f"User: {self.tplus_user.public_key}, "
-            f"Asset in: {asset_in.evm_address}, "
-            f"Amount in: {amount_in.atomic}, "
-            f"Asset out: {asset_out.evm_address}, "
-            f"Amount out: {amount_out.atomic}, "
+            f"Asset in: {settlement_info.asset_in.evm_address}, "
+            f"Amount in: {settlement_info.amount_in.atomic}, "
+            f"Asset out: {settlement_info.asset_out.evm_address}, "
+            f"Amount out: {settlement_info.amount_out.atomic}, "
             f"Nonce: {nonce}, "
             f"Expiry: {expiry}, "
             f"Domain separator: {self.vault.domain_separator.hex()}"
@@ -166,10 +227,10 @@ class SettlementManager(ChainConnectedManager):
         # Execute the settlement on-chain.
         tx = self.settlement_vault.execute_atomic_settlement(
             {
-                "tokenIn": asset_in.evm_address,
-                "amountIn": amount_in.atomic,
-                "tokenOut": asset_out.evm_address,
-                "amountOut": amount_out.atomic,
+                "tokenIn": settlement_info.asset_in.evm_address,
+                "amountIn": settlement_info.amount_in.atomic,
+                "tokenOut": settlement_info.asset_out.evm_address,
+                "amountOut": settlement_info.amount_out.atomic,
                 "nonce": nonce,
             },
             HexBytes(self.tplus_user.public_key),
@@ -179,52 +240,76 @@ class SettlementManager(ChainConnectedManager):
             **kwargs,
         )
 
-        # Typically, core has websockets running handling the events and shouldn't need to manually call
-        # the update methods.
-        if force_update:
-            await self.ce.settlements.update(self.tplus_user.public_key, self.chain_id)
-
         return tx
-
-    async def wait_for_settlement_approval(
-        self, timeout: int = DEFAULT_WAIT_SECONDS, wait_interval: int = DEFAULT_WAIT_INTERVAL
-    ) -> dict:
-        """
-        Waits for the existence of settlement approvals. Returns the last of the first approvals
-        that get returned from the clearing-engine's permissionless API.
-
-        Args:
-            timeout (int): The number of seconds to wait for the settlement approval.
-            wait_interval (int): The number of seconds to between checks.
-
-        Returns:
-            dict: clearing-engine approval data
-        """
-        # Get back the approvals. If it takes longer than 5 seconds, consider it not approved.
-        # (shouldn't take too terribly long in practice).
-        started = int(time.time())
-        nonce = self.vault.settlementCounts(self.tplus_user.public_key)
-        while True:
-            approvals = await self.get_approvals()
-            if isinstance(approvals, list) and len(approvals) > 0:
-                for approval in sorted(approvals, key=lambda a: a["inner"]["nonce"], reverse=True):
-                    if approval["inner"]["nonce"] == nonce:
-                        return approval
-                    elif approval["inner"]["nonce"] < nonce:
-                        # No need to search rest of list.
-                        break
-
-            elif int(time.time()) - started > timeout:
-                # It would be nice if the CE gave us some sort of error here. But here are some things to check:
-                # 1. Do you have a client running from the tplus core repo? e.g. arbitrum-client or threshold-client.
-                # 2. Are you using a settler that is approved on the vault?
-                # 3. Your settler account does not have enough credits in the CE.
-                raise Exception("Settlement initialization failed. Check server logs.")
-
-            await asyncio.sleep(wait_interval)
-
-    async def init_settlement(self, request: "TxSettlementRequest"):
-        return await self.ce.settlements.init_settlement(request)
 
     async def get_approvals(self) -> list[dict]:
         return await self.ce.settlements.get_signatures(self.tplus_user.public_key)
+
+
+class SettlementApprovalHandler:
+    """
+    Handles settlement approval stream independently from settlement initialization.
+    Can be run in a separate async task to process approvals as they arrive.
+    """
+
+    def __init__(
+        self,
+        settlement_manager: SettlementManager,
+    ):
+        self.settlement_manager = settlement_manager
+        self.logger = settlement_manager.logger
+
+    async def handle_approvals(
+        self,
+        pending_settlements: dict[int, SettlementInfo],
+        on_approval_received: (
+            "Callable[[SettlementInfo, dict], Awaitable[None] | None] | None"
+        ) = None,
+    ) -> None:
+        """
+        Continuously listen for settlement approvals and match them with pending settlements.
+
+        Args:
+            pending_settlements: Dictionary mapping nonce -> SettlementInfo for settlements
+              waiting for approval. Approved settlements will be removed from this dict.
+            on_approval_received: Optional callback function that will be called when an approval
+              is received. Called with (settlement_info, approval_dict). If not provided,
+              approvals will just be logged.
+        """
+        self.logger.info(
+            f"Starting approval handler for user {self.settlement_manager.tplus_user.public_key}"
+        )
+
+        async for message in self.settlement_manager.ce.settlements.stream_approvals(
+            self.settlement_manager.tplus_user.public_key
+        ):
+            approval = self.settlement_manager._decrypt_settlement_approval_message(message)
+            if approval is None:
+                continue
+
+            nonce = approval.get("inner", {}).get("nonce")
+            if nonce is None:
+                continue
+
+            # Check if we have a pending settlement for this nonce
+            settlement_info = pending_settlements.get(nonce)
+            if settlement_info is None:
+                self.logger.debug(f"Received approval for unknown nonce {nonce}, ignoring")
+                continue
+
+            self.logger.info(f"Received approval for nonce {nonce}")
+
+            # Remove from pending
+            del pending_settlements[nonce]
+
+            # Call callback if provided
+            if on_approval_received:
+                try:
+                    result = on_approval_received(settlement_info, approval)
+                    if isinstance(result, Awaitable):
+                        await result
+                except Exception as err:
+                    self.logger.error(
+                        f"Error in on_approval_received callback for nonce {nonce}: {err}",
+                        exc_info=True,
+                    )
