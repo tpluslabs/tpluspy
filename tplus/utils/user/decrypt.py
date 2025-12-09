@@ -5,8 +5,9 @@ Utilities for decrypting settlement approval messages encrypted to Ed25519 publi
 import hashlib
 import json
 
+from Crypto.Cipher import AES
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 
@@ -99,8 +100,6 @@ def decrypt_settlement_approval(
 
     # Convert Ed25519 private key to X25519
     x25519_private_key = ed25519_to_x25519_private_key(ed25519_private_key)
-
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 
     # Parse ephemeral public key - may raise ValueError for invalid bytes
     try:
