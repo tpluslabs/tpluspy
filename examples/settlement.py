@@ -22,7 +22,7 @@ async def init_settlement(client, tplus_user):
         "chain_id": CHAIN_ID,
     }
     settlement = TxSettlementRequest.create_signed(inner, tplus_user)
-    await client.settlements.init_settlement(settlement)
+    await client.settlements._init_settlement(settlement)
 
 
 async def main():

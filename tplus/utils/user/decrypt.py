@@ -3,8 +3,8 @@ Utilities for decrypting settlement approval messages encrypted to Ed25519 publi
 """
 
 import hashlib
+import json
 
-from Crypto.Cipher import AES
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
@@ -55,7 +55,7 @@ def ed25519_to_x25519_private_key(ed25519_key: Ed25519PrivateKey) -> X25519Priva
 
 def decrypt_settlement_approval(
     encrypted_data: bytes, ed25519_private_key: Ed25519PrivateKey
-) -> bytes:
+) -> dict:
     """
     Decrypt a settlement approval message that was encrypted to an Ed25519 public key.
 
@@ -76,7 +76,7 @@ def decrypt_settlement_approval(
         ed25519_private_key: The Ed25519 private key of the settler
 
     Returns:
-        The decrypted approval JSON bytes
+        The decrypted approval JSON dictionary
 
     Raises:
         ValueError: If encrypted_data is too short or decryption fails
@@ -135,4 +135,5 @@ def decrypt_settlement_approval(
     except Exception as e:
         raise ValueError(f"Failed to decrypt settlement approval: {e}") from e
 
-    return decrypted_data
+    json_data = decrypted_data.decode("utf-8")
+    return json.loads(json_data)

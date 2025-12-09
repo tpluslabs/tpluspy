@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 from tplus.utils.user.decrypt import decrypt_settlement_approval, ed25519_to_x25519_private_key
 
 
-def encrypt_to_ed25519_public_key_proper(
+def encrypt_to_ed25519_public_key(
     data: bytes, recipient_ed25519_private: Ed25519PrivateKey
 ) -> tuple[bytes, Ed25519PrivateKey]:
     """
@@ -56,7 +56,7 @@ class TestDecryptSettlementApproval:
             "chain_id": 42161,
         }
         approval_json = json.dumps(approval_data, separators=(",", ":")).encode("utf-8")
-        encrypted_data, recipient_key = encrypt_to_ed25519_public_key_proper(
+        encrypted_data, recipient_key = encrypt_to_ed25519_public_key(
             approval_json, recipient_private_key
         )
         decrypted_data = decrypt_settlement_approval(encrypted_data, recipient_key)
@@ -79,7 +79,7 @@ class TestDecryptSettlementApproval:
         approval_data = {"inner": {"signature": [1] * 64, "nonce": 42}, "expiry": 1000000}
         approval_json = json.dumps(approval_data, separators=(",", ":")).encode("utf-8")
 
-        encrypted_data, _ = encrypt_to_ed25519_public_key_proper(approval_json, correct_key)
+        encrypted_data, _ = encrypt_to_ed25519_public_key(approval_json, correct_key)
         decrypted_data = decrypt_settlement_approval(encrypted_data, wrong_key)
         assert decrypted_data != approval_json
 
