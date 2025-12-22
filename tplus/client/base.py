@@ -124,6 +124,8 @@ class BaseClient:
 
             if response.status_code == 204:
                 return {}
+            if response.status_code in {401, 403}:
+                raise Exception(f"Access forbidden.")
             if not response.content:
                 return {}
 
