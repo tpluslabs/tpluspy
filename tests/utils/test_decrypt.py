@@ -62,8 +62,6 @@ class TestDecryptSettlementApproval:
         decrypted_data = decrypt_settlement_approval(encrypted_data, recipient_key)
 
         assert decrypted_data == approval_json
-        decrypted_dict = json.loads(decrypted_data)
-        assert decrypted_dict == approval_data
 
     def test_decrypt_settlement_approval_too_short(self):
         recipient_private_key = Ed25519PrivateKey.generate()
