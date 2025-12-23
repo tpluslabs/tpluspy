@@ -48,7 +48,7 @@ setup(
         "evm": [
             "ape-tokens",
             "click",
-            "eip712",
+            "eip712<3",
             "eth-ape>=0.8.32,<0.9",
             "hexbytes>=1.3.1,<2",
         ],
