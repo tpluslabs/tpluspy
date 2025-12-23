@@ -1,16 +1,26 @@
-from eip712.messages import EIP712Message
+from typing import TYPE_CHECKING
+
+from eip712.messages import EIP712Domain, EIP712Message
+from eth_pydantic_types import abi
+
+if TYPE_CHECKING:
+    from ape.types.address import AddressType
 
 
-class Domain(EIP712Message):
-    _name_ = "MyrtleWyckoff"
-    _version_ = "1.0.0"
+def Domain(chain_id: int, verifying_contract: "AddressType") -> EIP712Domain:
+    return EIP712Domain(
+        name="MyrtleWyckoff",
+        version="1.0.0",
+        chainId=chain_id,
+        verifyingContract=verifying_contract,
+    )
 
 
-class Order(Domain):
-    tokenOut: "address"  # type: ignore
-    amountOut: "uint256"  # type: ignore
-    tokenIn: "address"  # type: ignore
-    amountIn: "uint256"  # type: ignore
-    user: "bytes32"  # type: ignore
-    nonce: "uint256"  # type: ignore
-    validUntil: "uint256"  # type: ignore
+class Order(EIP712Message):
+    tokenOut: abi.address
+    amountOut: abi.uint256
+    tokenIn: abi.address
+    amountIn: abi.uint256
+    user: abi.bytes32
+    nonce: abi.uint256
+    validUntil: abi.uint256
