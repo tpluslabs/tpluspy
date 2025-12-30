@@ -80,8 +80,8 @@ class TestDecryptSettlementApproval:
         approval_json = json.dumps(approval_data, separators=(",", ":")).encode("utf-8")
 
         encrypted_data, _ = encrypt_to_ed25519_public_key(approval_json, correct_key)
-        decrypted_data = decrypt_settlement_approval(encrypted_data, wrong_key)
-        assert decrypted_data != approval_json
+        with pytest.raises(ValueError):
+            decrypt_settlement_approval(encrypted_data, wrong_key)
 
     def test_ed25519_to_x25519_private_key_conversion(self):
         ed25519_key = Ed25519PrivateKey.generate()
