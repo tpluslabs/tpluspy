@@ -480,9 +480,9 @@ class DepositVault(TPlusContract):
             args[1]
             if len(args) > 1
             else Domain(
-                _chainId_=cls.chain_manager.chain_id,
-                _verifyingContract_=address,
-            )._domain_separator_
+                cls.chain_manager.chain_id,
+                address,
+            ).separator
         )
 
         instance = super().deploy(owner, separator, sender=sender, **kwargs)
