@@ -355,7 +355,7 @@ class OrderBookClient(BaseClient):
         page: int | None = None,
         limit: int | None = None,
         open_only: bool | None = None,
-    ) -> tuple[list[OrderResponse], list[dict[str, Any]]]:
+    ) -> list[OrderResponse]:
         """
         Get orders for a specific asset for the authenticated user (async).
         Handles 404 with empty list as "no orders" gracefully.
@@ -377,12 +377,12 @@ class OrderBookClient(BaseClient):
                 self.logger.error(
                     f"Received error when fetching orders for book {asset_id}: {response_data['error']}"
                 )
-                return [], []
+                return []
             if not isinstance(response_data, list):
                 self.logger.error(
                     f"Unexpected response type for book orders {asset_id}. Expected list, got {type(response_data).__name__}."
                 )
-                return [], []
+                return []
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404 and e.request.url.path == endpoint:
@@ -393,7 +393,7 @@ class OrderBookClient(BaseClient):
                             f"Received 404 with empty list for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
                             f"This is expected if the user has no orders for this asset yet. Treating as success with no orders."
                         )
-                        return [], []
+                        return []
                     else:
                         self.logger.warning(
                             f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "
@@ -407,7 +407,7 @@ class OrderBookClient(BaseClient):
             raise e
 
         parsed_orders = parse_orders(response_data)
-        return parsed_orders, response_data
+        return parsed_orders
 
     async def get_open_orders_for_book(
         self, asset_id: AssetIdentifier, *, limit: int = 1000, max_pages: int = 50
@@ -416,11 +416,11 @@ class OrderBookClient(BaseClient):
         page = 0
         open_orders: list[OrderResponse] = []
         while page < max_pages:
-            parsed, raw = await self.get_user_orders_for_book(
+            parsed = await self.get_user_orders_for_book(
                 asset_id, page=page, limit=limit, open_only=True
             )
             open_orders.extend(parsed)
-            if len(raw) < limit:
+            if len(parsed) < limit:
                 break
             page += 1
         return open_orders

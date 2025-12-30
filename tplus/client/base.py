@@ -124,6 +124,9 @@ class BaseClient:
 
             if response.status_code == 204:
                 return {}
+
+            response.raise_for_status()
+
             if not response.content:
                 return {}
 

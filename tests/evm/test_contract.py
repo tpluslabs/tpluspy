@@ -66,10 +66,7 @@ class TestDepositVault:
         # Sets domain separator automatically.
         instance = DepositVault.deploy(sender=owner)
 
-        expected = Domain(
-            _chainId_=chain.chain_id,
-            _verifyingContract_=instance.address,
-        )._domain_separator_
+        expected = Domain(chain.chain_id, instance.address).separator
 
         # Reads using `eth_getStorageAt()` RPC.
         actual = instance.domain_separator
