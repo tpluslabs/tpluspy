@@ -17,8 +17,7 @@ async def test_get_user_orders_for_book_404_empty(monkeypatch):
         public_key = "USER"
 
     client = DummyClient(user=DummyUser(), base_url="http://example.com")  # type: ignore
-    orders, raw = await client.get_user_orders_for_book(
+    orders = await client.get_user_orders_for_book(
         asset_id=type("A", (), {"__str__": lambda self: "200"})()
     )
     assert orders == []
-    assert raw == []
