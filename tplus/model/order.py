@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal
 
@@ -64,20 +65,20 @@ class OrderResponse(BaseModel):
     order_id: str
     base_asset: AssetIdentifier
     side: Side
-    limit_price: float | None
-    quantity: float | None
-    amount: float | None
-    max_sellable_amount: float | None
-    max_sellable_quantity: float | None
-    confirmed_filled_quantity: float
-    pending_filled_quantity: float
+    limit_price: Decimal | None
+    quantity: Decimal | None
+    amount: Decimal | None
+    max_sellable_amount: Decimal | None
+    max_sellable_quantity: Decimal | None
+    confirmed_filled_quantity: Decimal
+    pending_filled_quantity: Decimal
     good_until_timestamp_ns: int | None
     timestamp_ns: int
     in_flight: bool | None = None
     canceled: bool | None = None
     status: str
-    trigger_above_price: float | None
-    trigger_below_price: float | None
+    trigger_above_price: Decimal | None
+    trigger_below_price: Decimal | None
     trigger_touched: bool | None = None
     last_update_timestamp_ns: int | None
 
