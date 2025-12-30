@@ -64,13 +64,22 @@ class OrderResponse(BaseModel):
     order_id: str
     base_asset: AssetIdentifier
     side: Side
-    limit_price: int | None
-    quantity: int
-    confirmed_filled_quantity: int
-    pending_filled_quantity: int
+    limit_price: float | None
+    quantity: float | None
+    amount: float | None
+    max_sellable_amount: float | None
+    max_sellable_quantity: float | None
+    confirmed_filled_quantity: float
+    pending_filled_quantity: float
     good_until_timestamp_ns: int | None
     timestamp_ns: int
+    in_flight: bool | None = None
     canceled: bool | None = None
+    status: str
+    trigger_above_price: float | None
+    trigger_below_price: float | None
+    trigger_touched: bool | None = None
+    last_update_timestamp_ns: int | None
 
 
 def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
