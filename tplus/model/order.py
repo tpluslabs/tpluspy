@@ -72,6 +72,8 @@ class OrderResponse(BaseModel):
     max_sellable_quantity: Decimal | None
     confirmed_filled_quantity: Decimal
     pending_filled_quantity: Decimal
+    confirmed_filled_amount: Decimal
+    pending_filled_amount: Decimal
     good_until_timestamp_ns: int | None
     timestamp_ns: int
     in_flight: bool | None = None
