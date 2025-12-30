@@ -25,21 +25,24 @@ def encrypt_to_ed25519_public_key(
     ephemeral_private = X25519PrivateKey.generate()
     ephemeral_public = ephemeral_private.public_key()
 
-    # Convert recipient's Ed25519 private key to X25519
+    # Convert recipient Ed25519 to X25519
     recipient_x25519_private = ed25519_to_x25519_private_key(recipient_ed25519_private)
     recipient_x25519_public = recipient_x25519_private.public_key()
 
+    # ECDH
     shared_secret = ephemeral_private.exchange(recipient_x25519_public)
     encryption_key = hashlib.sha256(shared_secret).digest()
 
     nonce = os.urandom(12)
     cipher = AES.new(encryption_key, AES.MODE_GCM, nonce=nonce)
-    encrypted_payload = cipher.encrypt(data)
+
+    ciphertext, tag = cipher.encrypt_and_digest(data)
 
     result = bytearray()
     result.extend(ephemeral_public.public_bytes(Encoding.Raw, PublicFormat.Raw))
     result.extend(nonce)
-    result.extend(encrypted_payload)
+    result.extend(ciphertext)
+    result.extend(tag)
 
     return bytes(result), recipient_ed25519_private
 
@@ -60,8 +63,7 @@ class TestDecryptSettlementApproval:
             approval_json, recipient_private_key
         )
         decrypted_data = decrypt_settlement_approval(encrypted_data, recipient_key)
-
-        assert decrypted_data == approval_json
+        assert decrypted_data == approval_data
 
     def test_decrypt_settlement_approval_too_short(self):
         recipient_private_key = Ed25519PrivateKey.generate()
