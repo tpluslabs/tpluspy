@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 from tplus.utils.user.decrypt import decrypt_settlement_approval, ed25519_to_x25519_private_key
 
 
-def encrypt_to_ed25519_public_key_proper(
+def encrypt_to_ed25519_public_key(
     data: bytes, recipient_ed25519_private: Ed25519PrivateKey
 ) -> tuple[bytes, Ed25519PrivateKey]:
     """
@@ -25,21 +25,24 @@ def encrypt_to_ed25519_public_key_proper(
     ephemeral_private = X25519PrivateKey.generate()
     ephemeral_public = ephemeral_private.public_key()
 
-    # Convert recipient's Ed25519 private key to X25519
+    # Convert recipient Ed25519 to X25519
     recipient_x25519_private = ed25519_to_x25519_private_key(recipient_ed25519_private)
     recipient_x25519_public = recipient_x25519_private.public_key()
 
+    # ECDH
     shared_secret = ephemeral_private.exchange(recipient_x25519_public)
     encryption_key = hashlib.sha256(shared_secret).digest()
 
     nonce = os.urandom(12)
     cipher = AES.new(encryption_key, AES.MODE_GCM, nonce=nonce)
-    encrypted_payload = cipher.encrypt(data)
+
+    ciphertext, tag = cipher.encrypt_and_digest(data)
 
     result = bytearray()
     result.extend(ephemeral_public.public_bytes(Encoding.Raw, PublicFormat.Raw))
     result.extend(nonce)
-    result.extend(encrypted_payload)
+    result.extend(ciphertext)
+    result.extend(tag)
 
     return bytes(result), recipient_ed25519_private
 
@@ -56,14 +59,11 @@ class TestDecryptSettlementApproval:
             "chain_id": 42161,
         }
         approval_json = json.dumps(approval_data, separators=(",", ":")).encode("utf-8")
-        encrypted_data, recipient_key = encrypt_to_ed25519_public_key_proper(
+        encrypted_data, recipient_key = encrypt_to_ed25519_public_key(
             approval_json, recipient_private_key
         )
         decrypted_data = decrypt_settlement_approval(encrypted_data, recipient_key)
-
-        assert decrypted_data == approval_json
-        decrypted_dict = json.loads(decrypted_data)
-        assert decrypted_dict == approval_data
+        assert decrypted_data == approval_data
 
     def test_decrypt_settlement_approval_too_short(self):
         recipient_private_key = Ed25519PrivateKey.generate()
@@ -79,9 +79,9 @@ class TestDecryptSettlementApproval:
         approval_data = {"inner": {"signature": [1] * 64, "nonce": 42}, "expiry": 1000000}
         approval_json = json.dumps(approval_data, separators=(",", ":")).encode("utf-8")
 
-        encrypted_data, _ = encrypt_to_ed25519_public_key_proper(approval_json, correct_key)
-        decrypted_data = decrypt_settlement_approval(encrypted_data, wrong_key)
-        assert decrypted_data != approval_json
+        encrypted_data, _ = encrypt_to_ed25519_public_key(approval_json, correct_key)
+        with pytest.raises(ValueError):
+            decrypt_settlement_approval(encrypted_data, wrong_key)
 
     def test_ed25519_to_x25519_private_key_conversion(self):
         ed25519_key = Ed25519PrivateKey.generate()

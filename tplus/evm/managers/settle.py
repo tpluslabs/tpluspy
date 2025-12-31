@@ -1,4 +1,3 @@
-import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
@@ -119,17 +118,24 @@ class SettlementManager(ChainConnectedManager):
             dict: The decrypted approval dictionary, or None if decryption/parsing fails.
         """
         try:
-            encrypted_data_bytes = bytes.fromhex(message["encrypted_data"])
-            decrypted_json = decrypt_settlement_approval(encrypted_data_bytes, self.tplus_user.sk)
-            return json.loads(decrypted_json)
-        except Exception as err:
-            self.logger.warning(f"Failed to decrypt or parse settlement approval message: {err}")
+            encrypted_data = message["encrypted_data"]
+        except KeyError as err:
+            self.logger.warning(f"Missing expected key 'encrypted_data' in approval message: {err}")
             return None
 
-    async def init_settlement(self, request: "TxSettlementRequest"):
-        return await self.ce.settlements.init_settlement(request)
+        try:
+            encrypted_data_bytes = bytes.fromhex(encrypted_data)
+        except Exception as err:
+            self.logger.warning(f"Invalid hexbytes {encrypted_data}. Error: {err}")
+            return None
 
-    async def init_settlement_async(
+        try:
+            return decrypt_settlement_approval(encrypted_data_bytes, self.tplus_user.sk)
+        except Exception as err:
+            self.logger.warning(f"Failed to decrypt approval: {err}")
+            return None
+
+    async def init_settlement(
         self,
         asset_in: "AssetIdentifier",
         amount_in: AmountPair,
@@ -164,7 +170,7 @@ class SettlementManager(ChainConnectedManager):
             },
             self.tplus_user,
         )
-        await self.init_settlement(request)
+        await self._init_settlement(request)
 
         self.logger.info(
             f"Initialized settlement - Asset in: {asset_in.evm_address}, "
@@ -179,6 +185,9 @@ class SettlementManager(ChainConnectedManager):
             amount_out=amount_out,
             expected_nonce=expected_nonce,
         )
+
+    async def _init_settlement(self, request: "TxSettlementRequest"):
+        return await self.ce.settlements.init_settlement(request)
 
     async def execute_settlement(
         self,

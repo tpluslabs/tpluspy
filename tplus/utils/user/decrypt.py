@@ -3,10 +3,11 @@ Utilities for decrypting settlement approval messages encrypted to Ed25519 publi
 """
 
 import hashlib
+import json
 
 from Crypto.Cipher import AES
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
 
@@ -55,7 +56,7 @@ def ed25519_to_x25519_private_key(ed25519_key: Ed25519PrivateKey) -> X25519Priva
 
 def decrypt_settlement_approval(
     encrypted_data: bytes, ed25519_private_key: Ed25519PrivateKey
-) -> bytes:
+) -> dict:
     """
     Decrypt a settlement approval message that was encrypted to an Ed25519 public key.
 
@@ -76,7 +77,7 @@ def decrypt_settlement_approval(
         ed25519_private_key: The Ed25519 private key of the settler
 
     Returns:
-        The decrypted approval JSON bytes
+        The decrypted approval JSON dictionary
 
     Raises:
         ValueError: If encrypted_data is too short or decryption fails
@@ -91,48 +92,27 @@ def decrypt_settlement_approval(
     nonce_bytes = encrypted_data[32:44]
     encrypted_payload = encrypted_data[44:]
 
-    # Validate that encrypted payload is long enough to contain an authentication tag (16 bytes for GCM)
+    # Split ciphertext and tag
     if len(encrypted_payload) < 16:
-        raise ValueError(
-            f"Encrypted payload too short: {len(encrypted_payload)} bytes (expected at least 16 for GCM tag)"
-        )
+        raise ValueError("Encrypted payload too short to contain GCM tag")
+
+    ciphertext = encrypted_payload[:-16]
+    tag = encrypted_payload[-16:]
 
     # Convert Ed25519 private key to X25519
     x25519_private_key = ed25519_to_x25519_private_key(ed25519_private_key)
 
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+    ephemeral_public_key = X25519PublicKey.from_public_bytes(ephemeral_public_key_bytes)
+    shared_secret = x25519_private_key.exchange(ephemeral_public_key)
 
-    # Parse ephemeral public key - may raise ValueError for invalid bytes
-    try:
-        ephemeral_public_key = X25519PublicKey.from_public_bytes(ephemeral_public_key_bytes)
-    except (ValueError, Exception) as e:
-        raise ValueError(
-            f"Failed to decrypt settlement approval (invalid ephemeral public key): {e}"
-        ) from e
-
-    # Perform X25519 ECDH to derive shared secret
-    try:
-        shared_secret = x25519_private_key.exchange(ephemeral_public_key)
-    except Exception as e:
-        raise ValueError(
-            f"Failed to decrypt settlement approval (ECDH exchange failed): {e}"
-        ) from e
-
-    # Derive encryption key from shared secret using SHA-256
+    # Derive AES key
     encryption_key = hashlib.sha256(shared_secret).digest()
 
-    # Decrypt with AES-256-GCM
-    # PyCryptodome's GCM mode automatically handles authentication tag verification
+    # AES-GCM decrypt + verify
     cipher = AES.new(encryption_key, AES.MODE_GCM, nonce=nonce_bytes)
-    try:
-        decrypted_data = cipher.decrypt(encrypted_payload)
+    plaintext = cipher.decrypt(ciphertext)
 
-    except ValueError as err:
-        raise ValueError(
-            f"Failed to decrypt settlement approval (authentication failed): {err}"
-        ) from err
+    cipher.verify(tag)
 
-    except Exception as e:
-        raise ValueError(f"Failed to decrypt settlement approval: {e}") from e
-
-    return decrypted_data
+    json_data = plaintext.decode("utf-8")
+    return json.loads(json_data)
