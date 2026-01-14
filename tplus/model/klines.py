@@ -32,7 +32,7 @@ class KlineUpdate(BaseModel):
         )
 
 
-def parse_kline_update(data: list[dict[str, Any]]) -> List[KlineUpdate]:
+def parse_kline_update(data: list[dict[str, Any]]) -> list[KlineUpdate]:
     """Parses  a list of kline dictionaries into a List of KlineUpdate object."""
     try:
         return [
