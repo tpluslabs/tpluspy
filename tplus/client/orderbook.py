@@ -321,6 +321,10 @@ class OrderBookClient(BaseClient):
 
         self.logger.debug(f"Getting Klines for asset {asset_id}")
         response_data = await self._request("GET", endpoint, params=params_dict)
+
+        if not isinstance(response_data, list):
+            raise Exception("Invalide response from get_klines.")
+
         parsed_data = parse_kline_update(response_data)
         return parsed_data
 
