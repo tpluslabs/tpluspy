@@ -1,6 +1,6 @@
 import datetime
 from decimal import Decimal
-from typing import Any, List
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -33,7 +33,7 @@ class KlineUpdate(BaseModel):
         )
 
 
-def parse_kline_update(data: List[dict[str, Any]]) -> List[KlineUpdate]:
+def parse_kline_update(data: list[dict[str, Any]]) -> List[KlineUpdate]:
     """Parses  a list of kline dictionaries into a List of KlineUpdate object."""
     try:
         return [

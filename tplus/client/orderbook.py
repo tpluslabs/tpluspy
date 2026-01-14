@@ -6,7 +6,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from IPython.core.page import pager_page
@@ -307,7 +307,7 @@ class OrderBookClient(BaseClient):
             page: int | None = None,
             limit: int | None = None,
             end_timestamp_ns: int | None = None
-    ) -> List[KlineUpdate]:
+    ) -> list[KlineUpdate]:
         """
         Get K-line (candlestick) data for a given asset (async).
         """
