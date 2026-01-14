@@ -9,7 +9,6 @@ from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
 import httpx
-from IPython.core.page import pager_page
 
 if TYPE_CHECKING:  # imported for type annotations only
     import websockets
