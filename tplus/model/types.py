@@ -1,4 +1,8 @@
-from pydantic_core.core_schema import int_schema, no_info_before_validator_function, str_schema
+from pydantic_core.core_schema import (
+    no_info_before_validator_function,
+    no_info_plain_validator_function,
+    str_schema,
+)
 
 from tplus.utils.serializers import hex_serialize_no_prefix
 
@@ -76,12 +80,77 @@ def validate_hex_int(value, **kwargs):
     raise TypeError(type(value))
 
 
-class ChainID(int):
-    """
-    Validated integers, hex-str, and hex-bytes values.
-    Serialized to rust-like integer vec.
-    """
+class ChainID(str):
+    def __new__(cls, value: str):
+        # Always store as lowercase hex string
+        return super().__new__(cls, value.lower())
+
+    @property
+    def routing_id(self) -> int:
+        return int(self[:2], 16)
+
+    @property
+    def vm_id(self) -> int:
+        return int(self[2:], 16)
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, value, handler=None):
-        return no_info_before_validator_function(validate_hex_int, int_schema())
+    def from_parts(cls, routing_id: int, vm_id: int):
+        if not (0 <= routing_id < 256):
+            raise ValueError("routing_id must be 0-255")
+
+        elif not (0 <= vm_id < 2**64):
+            raise ValueError("vm_id must fit in 8 bytes")
+
+        return cls(f"{routing_id:02x}{vm_id:016x}")
+
+    def to_bytes(self) -> bytes:
+        return bytes.fromhex(self)
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        """
+        This tells Pydantic how to validate / coerce ChainID.
+        Accepts str, bytes, or dict.
+        """
+        return no_info_plain_validator_function(cls._validator)
+
+    @classmethod
+    def _validator(cls, value: str | bytes | dict) -> "ChainID":
+        if isinstance(value, str):
+            value = value.removeprefix("0x")
+            if len(value) != 18:
+                raise ValueError("Hex string must be exactly 18 chars (9 bytes)")
+
+            return cls(value)
+
+        elif isinstance(value, bytes):
+            if len(value) != 9:
+                raise ValueError("Bytes must be exactly 9 bytes")
+
+            return cls(value.hex())
+
+        elif isinstance(value, dict):
+            if "routing_id" not in value or "vm_id" not in value:
+                raise ValueError("Dict must contain routing_id and vm_id")
+
+            return cls.from_parts(int(value["routing_id"]), int(value["vm_id"]))
+
+        elif isinstance(value, list):
+            if len(value) != 9:
+                raise ValueError(
+                    f"List[int] must have exactly 9 elements (received {len(value)} elements)"
+                )
+
+            elif not all(isinstance(b, int) and 0 <= b < 256 for b in value):
+                raise ValueError("All list elements must be ints 0-255")
+
+            return cls(bytes(value).hex())
+
+        raise TypeError(f"Cannot coerce {type(value)} to ChainID")
+
+    def __eq__(self, other):
+        if not isinstance(other, ChainID):
+            if other.startswith("0x"):
+                other = other[2:]
+
+        return f"{self}" == other

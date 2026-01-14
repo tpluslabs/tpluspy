@@ -5,10 +5,10 @@ from tplus.model.asset_identifier import AssetIdentifier
 
 
 def _prep_request(
-    asset_ids: Sequence[str | AssetIdentifier] | str | AssetIdentifier, chains: list[int] | int
+    asset_ids: Sequence[str | AssetIdentifier] | str | AssetIdentifier, chains: list[str] | str
 ) -> dict:
-    asset_ids_seq = asset_ids if isinstance(asset_ids, Sequence) else [asset_ids]
-    chains = chains if isinstance(chains, Sequence) else [chains]
+    asset_ids_seq = [asset_ids] if isinstance(asset_ids, str) else asset_ids
+    chains = [chains] if isinstance(chains, str) else chains
     assets = []
     for asset in asset_ids_seq:
         if isinstance(asset, AssetIdentifier):

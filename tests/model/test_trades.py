@@ -16,14 +16,14 @@ from tplus.model.trades import (
 @pytest.fixture(scope="module")
 def make_trade():
     def fn(ty: str, buyer_is_maker: bool = False) -> str:
-        return f'{{"asset_id":"82af49447d8a07e3bd95bd0d56f35241523fbab1000000000000000000000000@000000000000a4b1","trade_id":122519,"price":"3862.36934070","quantity":"0.01000000","timestamp_ns":1761283013888453220,"buyer_is_maker":{str(buyer_is_maker).lower()},"status":"{ty}"}}'
+        return f'{{"asset_id":"82af49447d8a07e3bd95bd0d56f35241523fbab1000000000000000000000000@00000000000000a4b1","trade_id":122519,"price":"3862.36934070","quantity":"0.01000000","timestamp_ns":1761283013888453220,"buyer_is_maker":{str(buyer_is_maker).lower()},"status":"{ty}"}}'
 
     return fn
 
 
 def assert_trade(evt, type: str):
     assert evt.trade.asset_id == AssetIdentifier(
-        "82af49447d8a07e3bd95bd0d56f35241523fbab1000000000000000000000000@000000000000a4b1"
+        "82af49447d8a07e3bd95bd0d56f35241523fbab1000000000000000000000000@00000000000000a4b1"
     )
     assert evt.trade.trade_id == 122519
     assert evt.trade.price == Decimal("3862.36934070")

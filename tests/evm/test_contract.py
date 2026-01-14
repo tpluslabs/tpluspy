@@ -56,7 +56,7 @@ class TestDepositVault:
         assert deployer_nonce_after > deployer_nonce_before
 
     def test_from_chain_address(self):
-        address = ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1")
+        address = ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7")
         vault = DepositVault.from_chain_address(address)
         assert vault.address == address.evm_address
 
