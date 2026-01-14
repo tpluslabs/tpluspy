@@ -301,22 +301,22 @@ class OrderBookClient(BaseClient):
             ) from e
 
     async def get_klines(
-            self,
-            asset_id: AssetIdentifier,
-            page: int | None = None,
-            limit: int | None = None,
-            end_timestamp_ns: int | None = None
+        self,
+        asset_id: AssetIdentifier,
+        page: int | None = None,
+        limit: int | None = None,
+        end_timestamp_ns: int | None = None,
     ) -> list[KlineUpdate]:
         """
         Get K-line (candlestick) data for a given asset (async).
         """
         endpoint = f"/klines/{asset_id}"
         params_dict = {}
-        if page :
+        if page:
             params_dict["page"] = page
-        if limit :
+        if limit:
             params_dict["limit"] = limit
-        if end_timestamp_ns :
+        if end_timestamp_ns:
             params_dict["end_timestamp_ns"] = end_timestamp_ns
 
         self.logger.debug(f"Getting Klines for asset {asset_id}")
