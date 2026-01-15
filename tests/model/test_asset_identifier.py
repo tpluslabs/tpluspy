@@ -6,7 +6,7 @@ from tplus.model.asset_identifier import AssetIdentifier, ChainAddress
 class TestChainAddress:
     @pytest.fixture(scope="class")
     def chain_address(self):
-        return ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1")
+        return ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7")
 
     def test_address(self, chain_address):
         assert (
@@ -21,7 +21,7 @@ class TestChainAddress:
         assert chain_address.evm_address == "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
 
     def test_chain_id(self, chain_address):
-        assert chain_address.chain_id == 42161
+        assert chain_address.chain_id.vm_id == 11155111
 
 
 class TestAssetIdentifier:
@@ -35,7 +35,7 @@ class TestAssetIdentifier:
         Shows it automatically pads and utilizes an asset address str.
         """
         raw_str = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@00000000000000a4b1"
         )
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
@@ -45,11 +45,11 @@ class TestAssetIdentifier:
         """
         Shows it automatically pads and utilizes an asset address str.
         """
-        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000a4b1"
+        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@00000000000000a4b1"
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
         expected = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@00000000000000a4b1"
         )
         assert actual == expected
 
@@ -57,11 +57,13 @@ class TestAssetIdentifier:
         """
         Shows it automatically pads and utilizes an asset address str.
         """
-        raw_str = "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@a4b1"
+        raw_str = (
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@00000000000000a4b1"
+        )
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
         expected = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@00000000000000a4b1"
         )
         assert actual == expected
 
@@ -69,24 +71,24 @@ class TestAssetIdentifier:
         """
         Shows it automatically pads and utilizes an asset address str.
         """
-        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1"
+        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@00000000000000a4b1"
         asset_id = AssetIdentifier(raw_str)
         actual = asset_id.model_dump()
         expected = (
-            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000a4b1"
+            "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@00000000000000a4b1"
         )
         assert actual == expected
 
     def test_address_chain_str_full_circle(self):
         addr = "0x0000000000000000000000000000000000000000"
-        asset_str = f"{addr}@1"
+        asset_str = f"{addr}@000000000000000001"
         model = AssetIdentifier(asset_str)
 
         # Note: `mode_dump()` calls our custom model serializer.
         data = model.model_dump()
 
         expected = (
-            "0000000000000000000000000000000000000000000000000000000000000000@0000000000000001"
+            "0000000000000000000000000000000000000000000000000000000000000000@000000000000000001"
         )
         assert data == expected
 
@@ -139,8 +141,13 @@ class TestAssetIdentifier:
     def test_contains(self):
         addr = "62622E77D1349Face943C6e7D5c01C61465FE1dc"
         long_addr = f"{addr}000000000000000000000000"
-        asset_id = AssetIdentifier(f"{addr}@a4b1")
+        asset_id = AssetIdentifier(f"{addr}@00000000000000a4b1")
         assert addr in asset_id
         assert bytes.fromhex(addr) in asset_id
         assert long_addr in asset_id
         assert bytes.fromhex(long_addr) in asset_id
+
+    def test_chain_id_too_small(self):
+        raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1"
+        with pytest.raises(ValueError):
+            _ = AssetIdentifier(raw_str)

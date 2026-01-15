@@ -5,10 +5,10 @@ from tplus.model.asset_identifier import AssetIdentifier
 
 
 def _prep_request(
-    asset_ids: Sequence[str | AssetIdentifier] | str | AssetIdentifier, chains: list[int] | int
+    asset_ids: Sequence[str | AssetIdentifier] | str | AssetIdentifier, chains: list[str] | str
 ) -> dict:
-    asset_ids_seq = asset_ids if isinstance(asset_ids, Sequence) else [asset_ids]
-    chains = chains if isinstance(chains, Sequence) else [chains]
+    asset_ids_seq = [asset_ids] if isinstance(asset_ids, str) else asset_ids
+    chains = [chains] if isinstance(chains, str) else chains
     assets = []
     for asset in asset_ids_seq:
         if isinstance(asset, AssetIdentifier):
@@ -34,13 +34,13 @@ class DecimalClient(BaseClearingEngineClient):
     APIs related to decimals.
     """
 
-    async def get(self, asset_id: list[str | AssetIdentifier], chains: list[int]) -> dict:
+    async def get(self, asset_id: list[str | AssetIdentifier], chains: list[str]) -> dict:
         """
         Get CE cached decimals for the given assets and chains.
 
         Args:
             asset_id (list[str | AssetIdentifier]): Asset identifiers.
-            chains (list[int]): Chains identifiers.
+            chains (list[str]): Chains identifiers.
 
         Returns:
             A mapping of asset Ids => chains => decimals.
@@ -48,7 +48,7 @@ class DecimalClient(BaseClearingEngineClient):
         request = _prep_request(asset_id, chains)
         return await self._get("decimals", json_data=request)
 
-    async def update(self, asset_id: list[str | AssetIdentifier], chains: list[int]):
+    async def update(self, asset_id: list[str | AssetIdentifier], chains: list[str]):
         """
         Request that the CE update cache decimals for the given assets and chains.
         """

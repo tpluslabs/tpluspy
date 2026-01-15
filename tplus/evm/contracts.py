@@ -188,7 +188,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         self._tplus_contracts_version = tplus_contracts_version
 
         if address is not None and chain_id is not None:
-            self._deployments[chain_id] = self._contract_container.at(address)
+            self._deployments[f"{chain_id}"] = self._contract_container.at(address)
 
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "TPlusContract":

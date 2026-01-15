@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import RootModel, model_serializer, model_validator
 
+from tplus.model.types import ChainID
+
 
 def _parse_asset_from_dict(data: dict) -> str:
     if "Address" in data:
@@ -42,22 +44,15 @@ def parse_chain_address(data: str) -> str:
 
     if address.startswith("0x"):
         address = address[2:]
+    if chain_part.startswith("0x"):
+        chain_part = chain_part[2:]
+    if len(chain_part) != 18:
+        raise ValueError("ChainID must contain 1 byte routing ID and 8 bytes VM ID.")
 
     # Ensure address is 32 bytes (standard EVM uses 20, but we support multiple chains).
     address = bytes.fromhex(address).ljust(32, b"\x00").hex()
 
-    try:
-        chain_id = int(chain_part)
-    except ValueError:
-        # If not a decimal, assume it's already a hex string.
-        # Return with address part normalized (no "0x" prefix).
-        chain_hex = bytes.fromhex(chain_part).rjust(8, b"\x00").hex()
-
-    else:
-        num_bytes = ((chain_id.bit_length() + 7) // 8) or 1
-        chain_hex = chain_id.to_bytes(num_bytes, "big").rjust(8, b"\x00").hex()
-
-    return f"{address}@{chain_hex}"
+    return f"{address}@{chain_part}"
 
 
 def _validate_chain_address(chain_address: str) -> str:
@@ -134,8 +129,8 @@ class ChainAddress(RootModel[str]):
         return to_checksum_address(address)
 
     @cached_property
-    def chain_id(self) -> int:
-        return int(self.root.split("@")[-1], 16)
+    def chain_id(self) -> str:
+        return ChainID(self.root.split("@")[-1])
 
 
 class AssetIdentifier(ChainAddress):
