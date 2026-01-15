@@ -300,13 +300,33 @@ class OrderBookClient(BaseClient):
                 f"Could not parse API response dictionary for order book snapshot: {response}"
             ) from e
 
-    async def get_klines(self, asset_id: AssetIdentifier) -> dict[str, Any]:
+    async def get_klines(
+        self,
+        asset_id: AssetIdentifier,
+        page: int | None = None,
+        limit: int | None = None,
+        end_timestamp_ns: int | None = None,
+    ) -> list[KlineUpdate]:
         """
         Get K-line (candlestick) data for a given asset (async).
         """
         endpoint = f"/klines/{asset_id}"
+        params_dict = {}
+        if page:
+            params_dict["page"] = page
+        if limit:
+            params_dict["limit"] = limit
+        if end_timestamp_ns:
+            params_dict["end_timestamp_ns"] = end_timestamp_ns
+
         self.logger.debug(f"Getting Klines for asset {asset_id}")
-        return await self._request("GET", endpoint)
+        response_data = await self._request("GET", endpoint, params=params_dict)
+
+        if not isinstance(response_data, list):
+            raise Exception("Invalide response from get_klines.")
+
+        parsed_data = parse_kline_update(response_data)
+        return parsed_data
 
     async def get_user_trades(self) -> list[UserTrade]:
         """

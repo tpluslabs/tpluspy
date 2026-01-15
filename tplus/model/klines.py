@@ -1,4 +1,5 @@
 import datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel
@@ -7,37 +8,45 @@ from pydantic import BaseModel
 class KlineUpdate(BaseModel):
     """Represents a single K-line (candlestick) update from the WebSocket stream."""
 
-    asset_id: int
-    timestamp: int  # Unix timestamp (e.g., seconds or milliseconds)
-    open: int
-    high: int
-    low: int
-    close: int
-    volume: int
-    # Optional: Add interval if provided by the stream
-    # interval: str
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal
+
+    open_timestamp_ns: int
+    close_timestamp_ns: int
 
     @property
-    def datetime(self) -> datetime.datetime:
-        """Converts the timestamp to a Python datetime object (assuming seconds)."""
-        # Adjust unit if the timestamp is in milliseconds (e.g., / 1000)
-        return datetime.datetime.fromtimestamp(self.timestamp, tz=datetime.timezone.utc)
-
-
-def parse_kline_update(data: dict[str, Any]) -> KlineUpdate:
-    """Parses a dictionary into a KlineUpdate object."""
-    try:
-        # Assuming the keys match the dataclass fields directly
-        # Perform necessary type conversions (e.g., int)
-        return KlineUpdate(
-            asset_id=int(data["asset_id"]),  # Assuming asset_id is part of the kline message
-            timestamp=int(data["timestamp"]),
-            open=int(data["open"]),
-            high=int(data["high"]),
-            low=int(data["low"]),
-            close=int(data["close"]),
-            volume=int(data["volume"]),
+    def open_datetime(self) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(
+            self.open_timestamp_ns / 1_000_000_000,
+            tz=datetime.timezone.utc,
         )
+
+    @property
+    def close_datetime(self) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(
+            self.close_timestamp_ns / 1_000_000_000,
+            tz=datetime.timezone.utc,
+        )
+
+
+def parse_kline_update(data: list[dict[str, Any]]) -> list[KlineUpdate]:
+    """Parses  a list of kline dictionaries into a List of KlineUpdate object."""
+    try:
+        return [
+            KlineUpdate(
+                open=Decimal(item["open"]),
+                high=Decimal(item["high"]),
+                low=Decimal(item["low"]),
+                close=Decimal(item["close"]),
+                volume=Decimal(item["volume"]),
+                open_timestamp_ns=int(item["open_timestamp_ns"]),
+                close_timestamp_ns=int(item["close_timestamp_ns"]),
+            )
+            for item in data
+        ]
     except (KeyError, ValueError, TypeError) as e:
         print(f"Error parsing KlineUpdate: {e}. Data: {data}")
         raise ValueError(f"Invalid KlineUpdate data received: {data}") from e
