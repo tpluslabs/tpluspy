@@ -28,12 +28,12 @@ class TradeTarget(BaseModel):
     """Whether to spend from spot balance (True) or margin balance (False)."""
 
     @classmethod
-    def main_spot(cls) -> "TradeTarget":
+    def main_spot(cls) -> TradeTarget:
         """Trade target set to main account spending spot balance."""
         return cls(account=0, is_spot=True)
 
     @classmethod
-    def margin_spot(cls) -> "TradeTarget":
+    def margin_spot(cls) -> TradeTarget:
         """Trade target set to margin account spending spot balance."""
         return cls(account=1, is_spot=True)
 
