@@ -28,14 +28,19 @@ class TradeTarget(BaseModel):
     """Whether to spend from spot balance (True) or margin balance (False)."""
 
     @classmethod
-    def main_spot(cls) -> TradeTarget:
+    def main_account_spot_trade(cls) -> TradeTarget:
         """Trade target set to main account spending spot balance."""
         return cls(account=0, is_spot=True)
 
     @classmethod
-    def margin_spot(cls) -> TradeTarget:
+    def margin_account_spot_trade(cls) -> TradeTarget:
         """Trade target set to margin account spending spot balance."""
         return cls(account=1, is_spot=True)
+
+    @classmethod
+    def margin_account_margin_trade(cls) -> TradeTarget:
+        """Trade target set to margin account spending margin balance."""
+        return cls(account=1, is_spot=False)
 
 
 class Side(str, Enum):
@@ -66,7 +71,7 @@ class Order(BaseModel):
     trigger: TriggerAbove | TriggerBelow | None = None
     creation_timestamp_ns: int
     canceled: bool = False
-    target: TradeTarget = TradeTarget.margin_spot()
+    target: TradeTarget = TradeTarget.margin_account_spot_trade()
     protocol_version: int = 1
 
     def signable_part(self) -> str:
