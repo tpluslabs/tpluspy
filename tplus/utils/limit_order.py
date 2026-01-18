@@ -29,7 +29,7 @@ def create_limit_order_ob_request_payload(
         limit_price=price,
         time_in_force=actual_time_in_force,
     )
-    actual_target = TradeTarget.margin_spot() if target is None else target
+    actual_target = TradeTarget.margin_account_spot_trade() if target is None else target
     order = Order(
         signer=signer.public_key,
         order_id=order_id,

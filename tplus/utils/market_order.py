@@ -31,7 +31,7 @@ def create_market_order_ob_request_payload(
         quantity=MarketQuantity(base_asset=base_quantity, quote_asset=quote_quantity),
         fill_or_kill=fill_or_kill,
     )
-    actual_target = TradeTarget.margin_spot() if target is None else target
+    actual_target = TradeTarget.margin_account_spot_trade() if target is None else target
     order = Order(
         signer=signer.public_key,
         order_id=order_id,
