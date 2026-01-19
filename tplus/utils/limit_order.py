@@ -2,7 +2,7 @@ import time
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC, GTD, IOC, LimitOrderDetails
-from tplus.model.order import CreateOrderRequest, Order, Side
+from tplus.model.order import CreateOrderRequest, Order, Side, TradeTarget
 from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 from tplus.utils.user import User
 
@@ -18,7 +18,7 @@ def create_limit_order_ob_request_payload(
     order_id: str,
     time_in_force: GTC | GTD | IOC | None = None,
     trigger: TriggerAbove | TriggerBelow | None = None,
-    account: int | None = 0,
+    target: TradeTarget | None = None,
 ) -> CreateOrderRequest:
     side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
 
@@ -29,6 +29,7 @@ def create_limit_order_ob_request_payload(
         limit_price=price,
         time_in_force=actual_time_in_force,
     )
+    actual_target = TradeTarget.margin_account_spot_trade() if target is None else target
     order = Order(
         signer=signer.public_key,
         order_id=order_id,
@@ -39,7 +40,7 @@ def create_limit_order_ob_request_payload(
         side=side_normalized,
         trigger=trigger,
         creation_timestamp_ns=time.time_ns(),
-        account=account,
+        target=actual_target,
     )
     sign_payload_json = order.signable_part()
     signature_bytes = signer.sign(sign_payload_json)

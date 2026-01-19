@@ -16,6 +16,33 @@ from tplus.model.types import UserPublicKey
 logger = logging.getLogger(__name__)
 
 
+class TradeTarget(BaseModel):
+    """Identifies which sub-account and balance type to use for a trade.
+
+    Corresponds to the Rust TradeTarget struct in orderbook_messages.
+    """
+
+    account: int = 0
+    """Offset into trader's subaccounts (0 = main account, 1 = margin account)."""
+    is_spot: bool = True
+    """Whether to spend from spot balance (True) or margin balance (False)."""
+
+    @classmethod
+    def main_account_spot_trade(cls) -> TradeTarget:
+        """Trade target set to main account spending spot balance."""
+        return cls(account=0, is_spot=True)
+
+    @classmethod
+    def margin_account_spot_trade(cls) -> TradeTarget:
+        """Trade target set to margin account spending spot balance."""
+        return cls(account=1, is_spot=True)
+
+    @classmethod
+    def margin_account_margin_trade(cls) -> TradeTarget:
+        """Trade target set to margin account spending margin balance."""
+        return cls(account=1, is_spot=False)
+
+
 class Side(str, Enum):
     BUY = "Buy"
     SELL = "Sell"
@@ -44,7 +71,7 @@ class Order(BaseModel):
     trigger: TriggerAbove | TriggerBelow | None = None
     creation_timestamp_ns: int
     canceled: bool = False
-    account: int | None = None
+    target: TradeTarget = TradeTarget.margin_account_spot_trade()
     protocol_version: int = 1
 
     def signable_part(self) -> str:

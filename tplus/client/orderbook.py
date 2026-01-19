@@ -23,6 +23,7 @@ from tplus.model.order import (
     OrderEvent,
     OrderOperationResponse,
     OrderResponse,
+    TradeTarget,
     parse_order_event,
     parse_orders,
 )
@@ -124,7 +125,7 @@ class OrderBookClient(BaseClient):
         quote_quantity: int | None = None,
         fill_or_kill: bool = False,
         asset_id: AssetIdentifier | None = None,
-        account: int | None = 0,
+        target: TradeTarget | None = None,
     ) -> OrderOperationResponse:
         """
         Create a market order (async). Uses WS /control if enabled.
@@ -155,7 +156,7 @@ class OrderBookClient(BaseClient):
             base_quantity=base_qty_model,
             quote_quantity=quote_qty_model,
             fill_or_kill=fill_or_kill,
-            account=account,
+            target=target,
         )
         self.logger.debug(
             f"Sending Market Order (Asset {asset_id}): BaseQty={base_quantity}, QuoteQty={quote_quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
@@ -176,7 +177,7 @@ class OrderBookClient(BaseClient):
         side: str,
         time_in_force: GTC | GTD | IOC | None = None,
         asset_id: AssetIdentifier | None = None,
-        account: int | None = 0,
+        target: TradeTarget | None = None,
     ) -> OrderOperationResponse:
         """
         Create a limit order (async). Uses WS /control if enabled.
@@ -196,7 +197,7 @@ class OrderBookClient(BaseClient):
             asset_identifier=asset_id_unwrapped,
             order_id=order_id,
             time_in_force=time_in_force,
-            account=account,
+            target=target,
         )
         self.logger.debug(
             f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
