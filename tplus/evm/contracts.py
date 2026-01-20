@@ -188,7 +188,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         self._tplus_contracts_version = tplus_contracts_version
 
         if address is not None and chain_id is not None:
-            self._deployments[chain_id] = self._contract_container.at(address)
+            self._deployments[f"{chain_id}"] = self._contract_container.at(address)
 
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "TPlusContract":
@@ -367,32 +367,6 @@ class Registry(TPlusContract):
             index, (asset_address, chain_id, max_deposit), sender=sender
         )
 
-    def add_vault(self, address: AddressType, chain_id: int | None = None, **kwargs):
-        if not isinstance(address, str):
-            # Allow ENS or certain classes to work.
-            address = self.conversion_manager.convert(address, AddressType)
-
-        chain_id = self.chain_manager.chain_id if chain_id is None else chain_id
-        return self.contract.addVault(address, chain_id, **kwargs)
-
-    def get_vaults(self) -> list[tuple[bytes, int]]:
-        return [(r.vaultAddress, r.chain) for r in self.contract.getVaults()]
-
-    def get_evm_vaults(self) -> list[tuple[AddressType, int]]:
-        result = []
-        for res in self.get_vaults():
-            addr = res[0]
-            if addr[20:] == b"\x00" * 12:
-                addr_bytes = addr[:20]
-                addr_str = f"0x{addr_bytes.hex()}"
-
-                # Checksum it.
-                checksummed_addr = self.network_manager.ethereum.decode_address(addr_str)
-
-                result.append((checksummed_addr, res[1]))
-
-        return result
-
 
 class DepositVault(TPlusContract):
     NAME = "DepositVault"
@@ -528,5 +502,40 @@ def _decode_erc20_error(err: str) -> str | None:
     return None
 
 
+class CredentialManager(TPlusContract):
+    """
+    Manages Vaults and contract secrets.
+    """
+
+    NAME = "CredentialManager"
+
+    def add_vault(self, address: AddressType, chain_id: int | None = None, **kwargs):
+        if not isinstance(address, str):
+            # Allow ENS or certain classes to work.
+            address = self.conversion_manager.convert(address, AddressType)
+
+        chain_id = self.chain_manager.chain_id if chain_id is None else chain_id
+        return self.contract.addVault(address, chain_id, **kwargs)
+
+    def get_vaults(self) -> list[tuple[bytes, int]]:
+        return [(r.vaultAddress, r.chain) for r in self.contract.getVaults()]
+
+    def get_evm_vaults(self) -> list[tuple[AddressType, int]]:
+        result = []
+        for res in self.get_vaults():
+            addr = res[0]
+            if addr[20:] == b"\x00" * 12:
+                addr_bytes = addr[:20]
+                addr_str = f"0x{addr_bytes.hex()}"
+
+                # Checksum it.
+                checksummed_addr = self.network_manager.ethereum.decode_address(addr_str)
+
+                result.append((checksummed_addr, res[1]))
+
+        return result
+
+
 registry = Registry()
 vault = DepositVault()
+credential_manager = CredentialManager()

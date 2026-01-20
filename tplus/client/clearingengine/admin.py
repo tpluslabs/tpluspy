@@ -14,10 +14,20 @@ class AdminClient(BaseClearingEngineClient):
         return await self._get("admin/verifying-key")
 
     async def modify_user_inventory(
-        self, user: "UserPublicKey", asset: "AssetIdentifier", balance: dict
+        self,
+        user: "UserPublicKey",
+        asset: "AssetIdentifier",
+        balance: dict,
+        sub_account_index: int = 1,
     ):
         """
         Admin-only API for testing.
+
+        Args:
+            user: The user's public key
+            asset: The asset identifier
+            balance: Dict with "credits" and "liabilities" keys
+            sub_account_index: The sub-account index (0=main, 1=margin). Defaults to 1 (margin).
         """
         if not isinstance(user, UserPublicKey):
             user = UserPublicKey.__validate_user__(user)
@@ -26,7 +36,13 @@ class AdminClient(BaseClearingEngineClient):
 
         asset = asset.model_dump()
         await self._post(
-            "admin/inventory/modify", json_data={"user": user, "asset": asset, "balance": balance}
+            "admin/inventory/modify",
+            json_data={
+                "user": user,
+                "asset": asset,
+                "balance": balance,
+                "sub_account_index": sub_account_index,
+            },
         )
 
     async def get_user_inventory(self, user: "UserPublicKey"):

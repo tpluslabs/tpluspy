@@ -68,11 +68,9 @@ def to_hex(val, prefix: bool = False) -> str:
 
 def _str_to_hex(val: str, prefix: bool = False) -> str:
     return (
-        val
-        if val.startswith("0x")
-        else f"0x{val}"
-        if prefix
+        f"0x{val}"
+        if prefix and not val.startswith("0x")
         else val[2:]
-        if val.startswith("0x")
+        if not prefix and val.startswith("0x")
         else val
     )

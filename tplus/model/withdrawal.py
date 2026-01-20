@@ -35,7 +35,7 @@ class WithdrawalRequest(BaseModel):
         signer: "User",
         asset: AssetIdentifier | str,
         amount: int,
-        chain_id: int,
+        chain_id: str,
     ) -> "WithdrawalRequest":
         if not isinstance(asset, AssetIdentifier):
             if asset.startswith("0x") and "@" not in asset:
