@@ -54,7 +54,7 @@ class AdminClient(BaseClearingEngineClient):
 
         return await self._get(f"admin/inventory/{user}")
 
-    async def set_asset_config(self, asset_index: int, chain_id: int, max_deposits: str, address: str, max_1hr_deposits: str):
+    async def set_asset_config(self, asset_index, chain_id: str, max_deposits: str, address: str, max_1hr_deposits: str):
         config = {"address": address,
                   "max_deposits": max_deposits,
                   "max_1hr_deposits": max_1hr_deposits
@@ -89,7 +89,7 @@ class AdminClient(BaseClearingEngineClient):
             "collateral_factor": collateral_factor,
             "liability_factor": liability_factor,
             "max_collateral": max_collateral,
-            "max_spot_open_interest": max_total_open_interest_notional,
+            "max_total_open_interest_notional": max_total_open_interest_notional,
             "max_open_interest": max_open_interest,
             "max_utilization": max_utilization,
             "isolated_only": isolated_only,
