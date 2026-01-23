@@ -74,7 +74,7 @@ def parse_user_inventory(data: dict) -> UserInventory:
             margin=margin,
         )
 
-        return UserInventory(
-            accounts=accounts,
-            is_mm=data["is_mm"],
-        )
+    return UserInventory(
+        accounts=accounts,
+        is_mm=data["is_mm"],
+    )
