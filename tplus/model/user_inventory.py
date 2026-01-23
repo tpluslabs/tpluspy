@@ -7,7 +7,7 @@ from tplus.model.asset_identifier import AssetIdentifier
 
 class Spot(BaseModel):
     """Represents a single spot account with multiple assets"""
-    spot_account_balance: dict[AssetIdentifier, int]
+    spot_account_balance: dict[str, int]
 
 class Balance(BaseModel):
     """Represents either credits or liabilities for given asset"""
@@ -22,7 +22,7 @@ class MarginPosition(BaseModel):
 
 class Margin(BaseModel):
     """Represents a single margin account: Collection of margin postions"""
-    margins: dict[AssetIdentifier, MarginPosition]
+    margins: dict[str, MarginPosition]
 
 class UserAccount(BaseModel):
     """Represents a single user account: Combination of spot and margin accounts"""
