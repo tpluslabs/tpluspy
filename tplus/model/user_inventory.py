@@ -43,14 +43,14 @@ def parse_user_inventory(data: dict) -> UserInventory:
 
         # ---- Spot parsing ----
         spot_balances = {
-            AssetIdentifier(asset_id): balance
+            asset_id: balance
             for asset_id, balance in account_data.get("spot", {}).items()
         }
         spot = Spot(spot_account_balance=spot_balances)
 
         # ---- Margin parsing ----
         margin_positions = {
-            AssetIdentifier(asset_id): MarginPosition(
+            asset_id: MarginPosition(
                 asset=Balance(**position["asset"]),
                 quote=Balance(**position["quote"]),
             )
