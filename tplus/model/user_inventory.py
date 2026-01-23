@@ -2,8 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from tplus.model.asset_identifier import AssetIdentifier
-
 
 class Spot(BaseModel):
     """Represents a single spot account with multiple assets"""
