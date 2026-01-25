@@ -1,4 +1,5 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
+from tplus.model.types import ChainID
 from tplus.model.withdrawal import WithdrawalRequest
 
 
@@ -46,7 +47,7 @@ class WithdrawalClient(BaseClearingEngineClient):
         self.logger.error(f"Unknown result format for {prefix} response: {result}.")
         return result  # type: ignore
 
-    async def update(self, user: str, chain_id: int):
+    async def update(self, user: str, chain_id: ChainID):
         """
         Request the CE check for new completed deposits for the given user on
         the given chain.

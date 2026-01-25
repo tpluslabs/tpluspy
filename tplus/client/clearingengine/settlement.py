@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.settlement import BatchSettlementRequest, TxSettlementRequest
+from tplus.model.types import ChainID
 
 
 class SettlementClient(BaseClearingEngineClient):
@@ -97,7 +98,7 @@ class SettlementClient(BaseClearingEngineClient):
         json_data = request.model_dump(mode="json")
         await self._post("settlement/batch", json_data=json_data)
 
-    async def update(self, user: str, chain_id: int):
+    async def update(self, user: str, chain_id: ChainID):
         """
         Request that the CE check the deposit vault for new settlements for
         the given user.
@@ -109,7 +110,7 @@ class SettlementClient(BaseClearingEngineClient):
         request = {"user": user, "chain_id": chain_id}
         await self._post("settlement/update", json_data=request)
 
-    async def update_approved_settlers(self, chain_id: int, vault_address: str):
+    async def update_approved_settlers(self, chain_id: ChainID, vault_address: str):
         """
         Request that the CE check the deposit vault for new approved settlers.
 
@@ -121,7 +122,7 @@ class SettlementClient(BaseClearingEngineClient):
         json_data = request.model_dump(mode="json")
         await self._post("settlers/update", json_data=json_data)
 
-    async def get_approved_settlers(self, chain_id: int) -> list[str]:
+    async def get_approved_settlers(self, chain_id: ChainID) -> list[str]:
         """
         Request that the CE check the deposit vault for new approved settlers.
 

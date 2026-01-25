@@ -3,11 +3,16 @@ from typing import TYPE_CHECKING
 from eip712.messages import EIP712Domain, EIP712Message
 from eth_pydantic_types import abi
 
+from tplus.model.types import ChainID
+
 if TYPE_CHECKING:
     from ape.types.address import AddressType
 
 
-def Domain(chain_id: int, verifying_contract: "AddressType") -> EIP712Domain:
+def Domain(chain_id: int | ChainID, verifying_contract: "AddressType") -> EIP712Domain:
+    if not isinstance(chain_id, int):
+        chain_id = chain_id.vm_id
+
     return EIP712Domain(
         name="MyrtleWyckoff",
         version="1.0.0",

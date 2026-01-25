@@ -17,7 +17,7 @@ from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
 from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
-from tplus.model.types import UserPublicKey
+from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
 
 if TYPE_CHECKING:
@@ -80,10 +80,16 @@ class TplusDeployments:
 
         return result
 
-    def __getitem__(self, chain_id: int):
+    def __getitem__(self, chain_id: int | ChainID) -> "ContractInstance":
+        if not isinstance(chain_id, int):
+            chain_id = chain_id.vm_id
+
         return self.deployments[chain_id]
 
-    def get(self, chain_id: int, default=None):
+    def get(self, chain_id: int | ChainID, default=None):
+        if not isinstance(chain_id, int):
+            chain_id = chain_id.vm_id
+
         return self.deployments.get(chain_id, default)
 
 
@@ -177,7 +183,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     def __init__(
         self,
         default_deployer: AccountAPI | None = None,
-        chain_id: int | None = None,
+        chain_id: ChainID | None = None,
         address: str | None = None,
         tplus_contracts_version: str | None = None,
     ) -> None:
@@ -229,7 +235,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         if address := self._address:
             return address
 
-        chain_id = self._chain_id or self.chain_manager.chain_id
+        chain_id = self._chain_id or ChainID.evm(self.chain_manager.chain_id)
         return self.get_address(chain_id=chain_id)
 
     @property
@@ -279,22 +285,22 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
         raise ConversionError(f"Cannot convert '{self.name}' to '{to_type}'.")
 
-    def set_chain(self, chain_id: int):
+    def set_chain(self, chain_id: ChainID) -> None:
         self._chain_id = chain_id
 
-    def get_contract(self, chain_id: int | None = None) -> "ContractInstance":
+    def get_contract(self, chain_id: ChainID | None = None) -> "ContractInstance":
         """
         Load a contact instance for the given chain ID. Defaults to currently
         connected chain.
 
         Args:
-            chain_id (int | None): The chain ID. Defaults to currently connected
+            chain_id (ChainID | None): The chain ID. Defaults to currently connected
               chain.
 
         Returns:
             ContractInstance
         """
-        chain_id = chain_id or self._chain_id or self.chain_manager.chain_id
+        chain_id = chain_id or self._chain_id or ChainID.evm(self.chain_manager.chain_id)
         if chain_id in self._deployments:
             # Get previously cached instance.
             return self._deployments[chain_id]
@@ -307,11 +313,11 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
         return contract_container
 
-    def get_address(self, chain_id: int | None = None) -> str:
+    def get_address(self, chain_id: ChainID | None = None) -> str:
         if self._address and self._chain_id and chain_id == self._chain_id:
             return self._address
 
-        chain_id = chain_id or self._chain_id or self.chain_manager.chain_id
+        chain_id = chain_id or self._chain_id or ChainID.evm(self.chain_manager.chain_id)
         try:
             return TPLUS_DEPLOYMENTS[chain_id][self.name]
         except KeyError:
@@ -321,9 +327,9 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 class Registry(TPlusContract):
     NAME = "Registry"
 
-    def get_assets(self, chain_id: int | None = None) -> list["ContractInstance"]:
-        connected_chain = self.chain_manager.chain_id
-        if connected_chain != chain_id and chain_id == 11155111:
+    def get_assets(self, chain_id: ChainID | None = None) -> list["ContractInstance"]:
+        connected_chain = ChainID.evm(self.chain_manager.chain_id)
+        if connected_chain.vm_id != chain_id and chain_id == ChainID.evm(11155111):
             with self.network_manager.ethereum.sepolia.use_default_provider():
                 return self._get_assets()
 
@@ -509,12 +515,12 @@ class CredentialManager(TPlusContract):
 
     NAME = "CredentialManager"
 
-    def add_vault(self, address: AddressType, chain_id: int | None = None, **kwargs):
+    def add_vault(self, address: AddressType, chain_id: ChainID | None = None, **kwargs):
         if not isinstance(address, str):
             # Allow ENS or certain classes to work.
             address = self.conversion_manager.convert(address, AddressType)
 
-        chain_id = self.chain_manager.chain_id if chain_id is None else chain_id
+        chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         return self.contract.addVault(address, chain_id, **kwargs)
 
     def get_vaults(self) -> list[tuple[bytes, int]]:

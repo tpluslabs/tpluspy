@@ -7,7 +7,7 @@ from tplus.evm.address import public_key_to_address
 from tplus.evm.contracts import DepositVault
 from tplus.evm.eip712 import Domain
 from tplus.evm.managers.evm import ChainConnectedManager
-from tplus.model.types import UserPublicKey
+from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:
@@ -26,11 +26,11 @@ class VaultOwner(ChainConnectedManager):
         self,
         owner: "AccountAPI",
         vault: DepositVault | None = None,
-        chain_id: int | None = None,
+        chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
     ):
         self.owner = owner
-        self.chain_id = chain_id or self.chain_manager.chain_id
+        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         self.vault = vault or DepositVault(chain_id=self.chain_id)
         self.ce = clearing_engine
 
