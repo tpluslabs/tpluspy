@@ -19,7 +19,7 @@ class AdminClient(BaseClearingEngineClient):
         asset: "AssetIdentifier",
         base_balance: dict,
         quote_balance: dict,
-        spot_balance: int,
+        spot_balance: str,
         sub_account_index: int = 1,
     ):
         """
