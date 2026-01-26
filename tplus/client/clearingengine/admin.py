@@ -38,15 +38,6 @@ class AdminClient(BaseClearingEngineClient):
 
         asset = asset.model_dump()
 
-        json_data = {
-            "user": user,
-            "asset": asset,
-            "balance": base_balance,
-            "quote_balance": quote_balance,
-            "spot": spot_balance,
-            "sub_account_index": sub_account_index,
-        }
-
         await self._post(
             "admin/inventory/modify",
             json_data={
