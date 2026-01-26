@@ -85,6 +85,9 @@ class ChainID(str):
         # Always store as lowercase hex string
         return super().__new__(cls, value.lower())
 
+    def __hash__(self):
+        return hash(str(self))
+
     @property
     def routing_id(self) -> int:
         return int(self[:2], 16)

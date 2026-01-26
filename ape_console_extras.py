@@ -3,6 +3,8 @@ This file is the *magic* behind making `registry` and `deposit_vault` automatica
 in the `ape console` session.
 """
 
+import os
+
 from tplus.evm.contracts import registry, vault
 
 
@@ -19,9 +21,9 @@ def ape_init_extras():
         from tplus.utils.user import load_user
 
         if chain.provider.network.is_dev:
-            if tplus_user := load_user():
+            if tplus_user := load_user(password=os.environ.get("TPLUSPY_USER_PASSWORD")):
                 clearing_engine = ClearingEngineClient(tplus_user, "http://127.0.0.1:3032")
-                res["clearing_engine"] = clearing_engine
+                res["ce"] = clearing_engine
                 res["tplus_user"] = tplus_user
 
         else:
