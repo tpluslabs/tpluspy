@@ -46,8 +46,6 @@ class AdminClient(BaseClearingEngineClient):
             "spot": spot_balance,
             "sub_account_index": sub_account_index,
         }
-        print(f'This is to verify json_data from modify_user_inventory:')
-        print(f'{json_data}')
 
         await self._post(
             "admin/inventory/modify",
