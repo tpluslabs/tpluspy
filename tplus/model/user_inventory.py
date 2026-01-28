@@ -19,8 +19,7 @@ class Balance(BaseModel):
 class MarginPosition(BaseModel):
     """Represents a single margin position: what is borrowed to buy what"""
 
-    """should be base - not asset"""
-    asset: Balance
+    base: Balance
     quote: Balance
 
 
