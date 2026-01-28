@@ -59,7 +59,7 @@ def parse_user_inventory(data: dict) -> UserInventory:
         # ---- Margin parsing ----
         margin_positions = {
             asset_id: MarginPosition(
-                asset=Balance(**position["asset"]),
+                base=Balance(**position["base"]),
                 quote=Balance(**position["quote"]),
             )
             for asset_id, position in account_data.get("margins", {}).items()
