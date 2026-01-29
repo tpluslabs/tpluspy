@@ -145,7 +145,11 @@ def _load_tplus_contracts_from_manifest() -> Project:
 
 def load_tplus_contract_container(name: str, version: str | None = None) -> "ContractContainer":
     project = load_tplus_contracts_project(version=version)
-    return project.contracts.get(name)
+    contract = project.contracts.get(name)
+    if contract is None:
+        raise ValueError(f"Missing contract '{name}' from tplus contracts project.")
+
+    return contract
 
 
 def get_dev_default_owner() -> AccountAPI:
