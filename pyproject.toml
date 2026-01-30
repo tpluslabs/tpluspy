@@ -26,6 +26,9 @@ write_to = "tplus/version.py"
 python_files = "test_*.py"
 testpaths = "tests"
 timeout = 300
+markers = """
+integration: integration tests that hit external systems
+"""
 
 [tool.ruff]
 target-version = "py310"

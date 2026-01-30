@@ -85,6 +85,9 @@ class ChainID(str):
         # Always store as lowercase hex string
         return super().__new__(cls, value.lower())
 
+    def __hash__(self):
+        return hash(str(self))
+
     @property
     def routing_id(self) -> int:
         return int(self[:2], 16)
@@ -94,7 +97,11 @@ class ChainID(str):
         return int(self[2:], 16)
 
     @classmethod
-    def from_parts(cls, routing_id: int, vm_id: int):
+    def evm(cls, vm_id: int) -> "ChainID":
+        return cls.from_parts(0, vm_id)
+
+    @classmethod
+    def from_parts(cls, routing_id: int, vm_id: int) -> "ChainID":
         if not (0 <= routing_id < 256):
             raise ValueError("routing_id must be 0-255")
 

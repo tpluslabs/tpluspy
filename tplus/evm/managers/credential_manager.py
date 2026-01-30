@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from ape.utils.basemodel import ManagerAccessMixin
 
 from tplus.evm.contracts import CredentialManager
+from tplus.model.types import ChainID
 from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:
@@ -21,11 +22,11 @@ class CredentialManagerOwner(ManagerAccessMixin):
         self,
         owner: "AccountAPI",
         credential_manager: CredentialManager | None = None,
-        chain_id: int | None = None,
+        chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
     ):
         self.owner = owner
-        self.chain_id = chain_id or self.chain_manager.chain_id
+        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
 
         if credential_manager is None:
             self.credential_manager = CredentialManager(chain_id=self.chain_id)

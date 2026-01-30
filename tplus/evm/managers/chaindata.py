@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.managers.evm import ChainConnectedManager
+from tplus.model.types import ChainID
 
 if TYPE_CHECKING:
     from tplus.model.asset_identifier import AssetIdentifier
@@ -19,13 +20,13 @@ class ChainDataFetcher(ChainConnectedManager):
         self,
         tplus_user: "User",
         clearing_engine: ClearingEngineClient | None = None,
-        chain_id: int | None = None,
+        chain_id: ChainID | None = None,
     ):
         self.tplus_user = tplus_user
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient(
             self.tplus_user, "http://127.0.0.1:3032"
         )
-        self.chain_id = self.chain_manager.chain_id if chain_id is None else chain_id
+        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
 
     async def prefetch_chaindata(
         self,

@@ -32,6 +32,7 @@ setup(
             "pytest>=8.0",
             "pytest-timeout>=2.2.0,<3",
             "pytest-mock",
+            "pytest-asyncio",
             "anyio>=4",
             "pytest-anyio>=0.0.0",
             "trio>=0.24",

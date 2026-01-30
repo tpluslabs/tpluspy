@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainConnectedManager
+from tplus.model.types import ChainID
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -19,12 +20,12 @@ class DepositManager(ChainConnectedManager):
         account: "AccountAPI",
         tplus_user: "User",
         vault: DepositVault | None = None,
-        chain_id: int | None = None,
+        chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
     ):
         self.account = account
         self.tplus_user = tplus_user
-        self.chain_id = chain_id or self.chain_manager.chain_id
+        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         self.ce = clearing_engine
         self.vault = vault if vault else DepositVault(chain_id=self.chain_id)
 
