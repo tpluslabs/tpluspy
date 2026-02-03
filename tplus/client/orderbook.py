@@ -699,3 +699,12 @@ class OrderBookClient(BaseClient):
         """
         async for trade in self.stream_user_finalized_trades(user_id=user_id):
             yield trade
+
+
+    async def get_user_solvency(self) -> dict[str, Any]:
+        """
+        Get solvency for the authenticated user (async).
+        """
+        endpoint = f"/solvency/user/{self.user.public_key}"
+        self.logger.debug(f"Getting Solvency for user {self.user.public_key}")
+        return await self._request("GET", endpoint)
