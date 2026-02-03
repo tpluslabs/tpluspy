@@ -142,6 +142,6 @@ class AdminClient(BaseClearingEngineClient):
         }
 
         await self._post(
-            "admin/last-trade-price/modify",
+            "admin/last-trade-prices/modify",
             json_data={"prices": prices}
         )
