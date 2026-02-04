@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+
 class AccountSolvency(BaseModel):
     """Represents solvency of  a single user account"""
     """Example: {'is_solvent': True, 'distance_from_liquidation': '400000.000000'}"""
