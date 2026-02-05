@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from pydantic import BaseModel
 
 
@@ -6,7 +8,7 @@ class AccountSolvency(BaseModel):
 
     """Example: {'is_solvent': True, 'distance_from_liquidation': '400000.000000'}"""
     is_solvent: bool
-    distance_from_liquidation: int
+    distance_from_liquidation: Decimal
 
 
 class UserSolvency(BaseModel):
@@ -22,7 +24,7 @@ def parse_user_solvency(data: dict) -> UserSolvency:
     for account_id, account_data in data.get("accounts", {}).items():
         accounts[int(account_id)] = AccountSolvency(
             is_solvent=account_data["is_solvent"],
-            distance_from_liquidation=int(float(account_data["distance_from_liquidation"])),
+            distance_from_liquidation=Decimal(account_data["distance_from_liquidation"]),
         )
 
     return UserSolvency(accounts=accounts)

@@ -726,5 +726,5 @@ class OrderBookClient(BaseClient):
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_user_solvency.")
 
-        parsed__data: UserSolvency = parse_user_solvency(response_data)
-        return parsed__data
+        parsed_data: UserSolvency = parse_user_solvency(response_data)
+        return parsed_data
