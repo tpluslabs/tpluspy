@@ -13,7 +13,7 @@ import httpx
 from tplus.client.base import BaseClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.klines import KlineUpdate, parse_kline_update
-from tplus.model.limit_order import GTD, GTC, IOC
+from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
 from tplus.model.market_order import (
     MarketBaseQuantity,
@@ -56,6 +56,7 @@ from tplus.utils.signing import (
 
 if TYPE_CHECKING:
     import websockets
+
     from tplus.utils.user import User
 
 
@@ -713,7 +714,6 @@ class OrderBookClient(BaseClient):
         async for trade in self.stream_user_finalized_trades(user_id=user_id):
             yield trade
 
-
     async def get_user_solvency(self) -> UserSolvency:
         """
         Get solvency for the authenticated user (async).
@@ -726,5 +726,5 @@ class OrderBookClient(BaseClient):
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_user_solvency.")
 
-        parsed__data:UserSolvency = parse_user_solvency(response_data)
+        parsed__data: UserSolvency = parse_user_solvency(response_data)
         return parsed__data
