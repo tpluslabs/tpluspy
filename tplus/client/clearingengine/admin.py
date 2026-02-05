@@ -126,6 +126,7 @@ class AdminClient(BaseClearingEngineClient):
                        }
         )
 
+
     async def set_oracle_prices(self, asset_id: AssetIdentifier, asset_price:str, asset_price_decimals:int):
         prices= {
             str(asset_id): {"price": asset_price, "decimals":asset_price_decimals}
