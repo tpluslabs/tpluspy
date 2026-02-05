@@ -42,7 +42,7 @@ jobs:
         run: mypy .
 
       - name: Client Tests
-        run: pytest tests --ignore=tests/evm
+        run: pytest tests -m "not integration" --ignore=tests/evm
 
 # TODO: Uncomment when/if this actually matters (dependency-heavy)
 #      - name: EVM Tests

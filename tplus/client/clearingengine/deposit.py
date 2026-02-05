@@ -1,4 +1,5 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
+from tplus.model.types import ChainID
 
 
 class DepositClient(BaseClearingEngineClient):
@@ -6,7 +7,7 @@ class DepositClient(BaseClearingEngineClient):
     APIs related to deposits.
     """
 
-    async def update(self, user: str, chain_id: int):
+    async def update(self, user: str, chain_id: ChainID):
         """
         Request that the CE check the deposit vault for new deposits for
         the given user.

@@ -125,7 +125,7 @@ class BaseClient:
             if response.status_code == 204:
                 return {}
 
-            response.raise_for_status()
+            raise_for_status_with_body(response)
 
             if not response.content:
                 return {}
@@ -350,3 +350,16 @@ class BaseClient:
         Async context manager exit.
         """
         await self.close()
+
+
+def raise_for_status_with_body(response: httpx.Response) -> None:
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as err:
+        body = response.text.strip()
+        msg = f"{err} | Response body: {body}" if body else str(err)
+        raise httpx.HTTPStatusError(
+            msg,
+            request=err.request,
+            response=err.response,
+        ) from None

@@ -28,6 +28,11 @@ class TestChainID:
         model_json = model.model_dump_json()
         assert model_json == '{"chain_id":"000000000000aa36a7"}'
 
+        # Ensure is hashable.
+        chain_id = ChainID("000000000000aa36a7")
+        my_dict = {chain_id: 123}
+        assert my_dict[chain_id] == 123
+
 
 class TestUserPublicKey:
     @pytest.mark.parametrize(

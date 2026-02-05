@@ -12,6 +12,7 @@ from tplus.evm.managers.deposit import DepositManager
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.logger import get_logger
 from tplus.model.settlement import TxSettlementRequest
+from tplus.model.types import ChainID
 from tplus.utils.amount import AmountPair
 from tplus.utils.user.decrypt import decrypt_settlement_approval
 
@@ -50,7 +51,7 @@ class SettlementManager(ChainConnectedManager):
         tplus_user: "User",
         ape_account: "AccountAPI",
         clearing_engine: ClearingEngineClient | None = None,
-        chain_id: int | None = None,
+        chain_id: ChainID | None = None,
         vault: DepositVault | None = None,
         settlement_vault: DepositVault | None = None,
     ):
@@ -59,7 +60,7 @@ class SettlementManager(ChainConnectedManager):
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient(
             self.tplus_user, "http://127.0.0.1:3032"
         )
-        self.chain_id = self.chain_manager.chain_id if chain_id is None else chain_id
+        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         self.vault = vault or DepositVault(chain_id=self.chain_id)
 
         # NOTE: The user may want to use a different 'vault' instance for settling,
