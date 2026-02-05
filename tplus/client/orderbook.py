@@ -10,15 +10,15 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-if TYPE_CHECKING:  # imported for type annotations only
-    import websockets
-
 from tplus.client.base import BaseClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
-from tplus.model.market_order import MarketBaseQuantity, MarketQuoteQuantity
+from tplus.model.market_order import (
+    MarketBaseQuantity,
+    MarketQuoteQuantity,
+)
 from tplus.model.order import (
     OrderEvent,
     OrderOperationResponse,
@@ -37,12 +37,26 @@ from tplus.model.trades import (
     parse_trade_event,
     parse_trades,
 )
-from tplus.utils.limit_order import create_limit_order_ob_request_payload
-from tplus.utils.market_order import create_market_order_ob_request_payload
-from tplus.utils.replace_order import create_replace_order_ob_request_payload
-from tplus.utils.signing import create_cancel_order_ob_request_payload
+from tplus.model.user_solvency import (
+    UserSolvency,
+    parse_user_solvency,
+)
+from tplus.utils.limit_order import (
+    create_limit_order_ob_request_payload,
+)
+from tplus.utils.market_order import (
+    create_market_order_ob_request_payload,
+)
+from tplus.utils.replace_order import (
+    create_replace_order_ob_request_payload,
+)
+from tplus.utils.signing import (
+    create_cancel_order_ob_request_payload,
+)
 
 if TYPE_CHECKING:
+    import websockets
+
     from tplus.utils.user import User
 
 
@@ -699,3 +713,18 @@ class OrderBookClient(BaseClient):
         """
         async for trade in self.stream_user_finalized_trades(user_id=user_id):
             yield trade
+
+    async def get_user_solvency(self) -> UserSolvency:
+        """
+        Get solvency for the authenticated user (async).
+        """
+        endpoint = f"/solvency/user/{self.user.public_key}"
+
+        self.logger.debug(f"Getting Solvency for user {self.user.public_key}")
+        response_data = await self._request("GET", endpoint)
+
+        if not isinstance(response_data, dict):
+            raise Exception("Invalid response from get_user_solvency.")
+
+        parsed_data: UserSolvency = parse_user_solvency(response_data)
+        return parsed_data
