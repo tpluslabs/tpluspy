@@ -7,7 +7,7 @@ class DepositClient(BaseClearingEngineClient):
     APIs related to deposits.
     """
 
-    async def update(self, user: str, chain_id: ChainID):
+    async def update_nonce(self, user: str, chain_id: ChainID):
         """
         Request that the CE check the deposit vault for new deposits for
         the given user.
@@ -17,4 +17,4 @@ class DepositClient(BaseClearingEngineClient):
             chain_id (int): The chain ID to check.
         """
         request = {"user": user, "chain_id": chain_id}
-        await self._post("deposits/update", json_data=request)
+        await self._post("admin/deposits/update-nonce", json_data=request)

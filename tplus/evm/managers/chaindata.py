@@ -79,10 +79,10 @@ class ChainDataFetcher(ChainConnectedManager):
         await self.ce.assets.update()
 
     async def sync_deposits(self):
-        await self.ce.deposits.update(self.tplus_user.public_key, self.chain_id)
+        await self.ce.deposits.update_nonce(self.tplus_user.public_key, self.chain_id)
 
     async def sync_settlements(self):
-        await self.ce.settlements.update(self.tplus_user.public_key, self.chain_id)
+        await self.ce.settlements.update_nonce(self.tplus_user.public_key, self.chain_id)
 
     async def update_decimals(self, assets: Sequence["AssetIdentifier"]):
         await self.ce.decimals.update(
