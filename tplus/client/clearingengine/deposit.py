@@ -17,4 +17,4 @@ class DepositClient(BaseClearingEngineClient):
             chain_id (int): The chain ID to check.
         """
         request = {"user": user, "chain_id": chain_id}
-        await self._post("deposits/update", json_data=request)
+        await self._post("deposits/update-nonce", json_data=request)
