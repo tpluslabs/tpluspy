@@ -66,11 +66,13 @@ class AdminClient(BaseClearingEngineClient):
         max_deposits: str,
         address: str,
         max_1hr_deposits: str,
+        min_weight: str,
     ):
         config = {
             "address": address,
             "max_deposits": max_deposits,
             "max_1hr_deposits": max_1hr_deposits,
+            "min_weight": min_weight,
         }
 
         await self._post(
@@ -100,6 +102,7 @@ class AdminClient(BaseClearingEngineClient):
         base_funding_rate: int,
         skew_cliff: int,
         premium_clamp: int,
+        buffer_multiplier: int,
     ):
         risk_parameters = {
             "collateral_factor": collateral_factor,
@@ -121,6 +124,7 @@ class AdminClient(BaseClearingEngineClient):
             "base_funding_rate": base_funding_rate,
             "skew_cliff": skew_cliff,
             "premium_clamp": premium_clamp,
+            "buffer_multiplier": buffer_multiplier,
         }
         await self._post(
             "admin/risk-parameters/modify",
@@ -143,3 +147,13 @@ class AdminClient(BaseClearingEngineClient):
         prices = {str(asset_id): {"price": asset_last_price, "decimals": asset_last_price_decimals}}
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
+
+    async def set_trader_as_mm(self, user: UserPublicKey, is_mm: bool, timeout: int):
+        await self._post(
+            "admin/status/modify",
+            json_data={
+                "user": user,
+                "is_mm": is_mm,
+                "timeout": timeout,
+            },
+        )
