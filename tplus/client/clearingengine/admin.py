@@ -148,13 +148,12 @@ class AdminClient(BaseClearingEngineClient):
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
 
-    async def set_trader_as_mm(self, user: UserPublicKey, is_mm:bool, timeout:int):
-
+    async def set_trader_as_mm(self, user: UserPublicKey, is_mm: bool, timeout: int):
         await self._post(
             "admin/status/modify",
             json_data={
                 "user": user,
                 "is_mm": is_mm,
                 "timeout": timeout,
-            }
+            },
         )
