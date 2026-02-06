@@ -7,7 +7,7 @@ class DepositClient(BaseClearingEngineClient):
     APIs related to deposits.
     """
 
-    async def update(self, user: str, chain_id: ChainID):
+    async def update_nonce(self, user: str, chain_id: ChainID):
         """
         Request that the CE check the deposit vault for new deposits for
         the given user.
