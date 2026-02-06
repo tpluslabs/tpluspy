@@ -329,7 +329,7 @@ class Registry(TPlusContract):
 
     def get_assets(self, chain_id: ChainID | None = None) -> list["ContractInstance"]:
         connected_chain = ChainID.evm(self.chain_manager.chain_id)
-        if connected_chain.vm_id != chain_id and chain_id == ChainID.evm(11155111):
+        if connected_chain != chain_id and chain_id == ChainID.evm(11155111):
             with self.network_manager.ethereum.sepolia.use_default_provider():
                 return self._get_assets()
 
