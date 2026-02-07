@@ -219,6 +219,12 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         owner = get_dev_default_owner()
         return cls.deploy(owner, sender=owner)
 
+    def deploy_dev_and_set_deployment(self) -> "TPlusContract":
+        instance = self.deploy_dev()
+        self._address = instance.address
+        self._deployments[instance.address] = instance
+        return instance
+
     def __repr__(self) -> str:
         return f"<{self.name}>"
 
@@ -227,7 +233,11 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
             # First, try a regular attribute on the class
             return self.__getattribute__(attr_name)
         except AttributeError:
-            # Resort to something defined on the contract.
+            if attr_name.startswith("_"):
+                # Ignore internals, causes integration issues.
+                raise
+
+            # Try something defined on the contract.
             return getattr(self.contract, attr_name)
 
     @property
@@ -259,14 +269,15 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         try:
             return self.get_contract()
         except ContractNotExists:
-            if self.chain_manager.provider.network.is_local:
+            if self.is_local_network:
                 # If simulating, deploy it now.
-                instance = self.deploy_dev()
-                self._address = instance.address
-                self._deployments[self.chain_manager.chain_id] = instance
-                return instance
+                return self.deploy_dev_and_set_deployment()
 
             raise  # This error.
+
+    @property
+    def is_local_network(self) -> bool:
+        return self.chain_manager.provider.network.is_local
 
     @property
     def default_deployer(self) -> AccountAPI:
@@ -324,8 +335,11 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         chain_id = chain_id or self._chain_id or ChainID.evm(self.chain_manager.chain_id)
         try:
             return TPLUS_DEPLOYMENTS[chain_id][self.name]
-        except KeyError:
-            raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.")
+        except KeyError as err:
+            if self.is_local_network:
+                self.deploy_dev_and_set_deployment()
+
+            raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.") from err
 
 
 class Registry(TPlusContract):
