@@ -1,11 +1,5 @@
 """
-Integration tests for CE admin auth signature computation (secp256k1 ECDSA).
-
-Signs requests in Python and submits them to a running Clearing Engine,
-verifying the Rust side accepts our signatures.
-
-Mirrors the Rust implementation in:
-  bin/clearing-engine/src/permissionless/routes/auth.rs
+This mirrors the Rust implementation in bin/clearing-engine/src/permissionless/routes/auth.rs
 """
 
 import hashlib
@@ -21,6 +15,7 @@ SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD036
 SECP256K1_HALF_ORDER = SECP256K1_ORDER // 2
 
 CE_URL = "http://127.0.0.1:3032"
+# this one's the one from the ce.toml config
 OPERATOR_SECRET = "afa3fd40eafd3703780358990983f75930c87744455bf18a472012a04ae521ff"
 
 
