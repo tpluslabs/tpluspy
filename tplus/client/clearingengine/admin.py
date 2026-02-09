@@ -1,3 +1,5 @@
+import time
+
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.types import UserPublicKey
@@ -148,12 +150,28 @@ class AdminClient(BaseClearingEngineClient):
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
 
-    async def set_trader_as_mm(self, user: UserPublicKey, is_mm: bool, timeout: int):
+    async def set_trader_as_mm(
+        self,
+        user: UserPublicKey,
+        is_mm: bool,
+        timestamp_ns: int | None = None,
+    ):
+        if not isinstance(user, UserPublicKey):
+            user = UserPublicKey.__validate_user__(user)
+        ts = time.time_ns() if timestamp_ns is None else timestamp_ns
+        user_hex = str(user).replace("0x", "")
+        user_bytes = bytes.fromhex(user_hex).ljust(32, b"\x00")[:32]
+        payload = ts.to_bytes(8, "big") + user_bytes + (b"\x01" if is_mm else b"\x00")
+        sign_payload_str = payload.hex()
+        signature_bytes = self.user.sign(sign_payload_str)
         await self._post(
             "admin/status/modify",
             json_data={
-                "user": user,
-                "is_mm": is_mm,
-                "timeout": timeout,
+                "inner": {
+                    "user": user,
+                    "is_mm": is_mm,
+                    "timestamp_ns": ts,
+                },
+                "signature": signature_bytes.hex(),
             },
         )
