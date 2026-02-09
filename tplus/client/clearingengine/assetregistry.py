@@ -53,4 +53,5 @@ class AssetRegistryClient(BaseClearingEngineClient):
         """
         Get the fee account.
         """
-        return await self._get("fee-account")
+        account = await self._get("fee-account")
+        return f"{account}"
