@@ -531,8 +531,8 @@ class CredentialManager(TPlusContract):
 
         return cls.deploy(
             operators,
-            owner,
             threshold,
+            owner,
             registry_address,
             measurements,
             automata_verifier,
