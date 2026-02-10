@@ -1,4 +1,9 @@
+import hashlib
 import time
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import Prehashed, decode_dss_signature
 
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
@@ -6,6 +11,21 @@ from tplus.model.types import UserPublicKey
 
 
 class AdminClient(BaseClearingEngineClient):
+    def _load_operator_sk(operator_secret) -> ec.EllipticCurvePrivateKey:
+        secret_bytes = bytes.fromhex(operator_secret)
+        return ec.derive_private_key(int.from_bytes(secret_bytes, "big"), ec.SECP256K1())
+
+    def _sign(payload: bytes, sk: ec.EllipticCurvePrivateKey) -> str:
+        """SHA256 -> ECDSA sign -> low-S normalize -> compact r||s -> hex."""
+        SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+        SECP256K1_HALF_ORDER = SECP256K1_ORDER // 2
+        digest = hashlib.sha256(payload).digest()
+        sig_der = sk.sign(digest, ec.ECDSA(Prehashed(hashes.SHA256())))
+        r, s = decode_dss_signature(sig_der)
+        if s > SECP256K1_HALF_ORDER:
+            s = SECP256K1_ORDER - s
+        return (r.to_bytes(32, "big") + s.to_bytes(32, "big")).hex()
+
     async def get_verifying_key(self):
         """
         Get a clearing-engine's verifying key.
@@ -154,16 +174,18 @@ class AdminClient(BaseClearingEngineClient):
         self,
         user: UserPublicKey,
         is_mm: bool,
+        operator_secret: str,
         timestamp_ns: int | None = None,
     ):
         if not isinstance(user, UserPublicKey):
             user = UserPublicKey.__validate_user__(user)
         ts = time.time_ns() if timestamp_ns is None else timestamp_ns
-        user_hex = str(user).replace("0x", "")
-        user_bytes = bytes.fromhex(user_hex).ljust(32, b"\x00")[:32]
-        payload = ts.to_bytes(8, "big") + user_bytes + (b"\x01" if is_mm else b"\x00")
-        sign_payload_str = payload.hex()
-        signature_bytes = self.user.sign(sign_payload_str)
+
+        sk = AdminClient._load_operator_sk(operator_secret=operator_secret)
+        user_pubkey = bytes(range(32))
+        payload = ts.to_bytes(8, "big") + user_pubkey + b"\x01"
+        sig = AdminClient._sign(payload, sk)
+
         await self._post(
             "admin/status/modify",
             json_data={
@@ -172,6 +194,6 @@ class AdminClient(BaseClearingEngineClient):
                     "is_mm": is_mm,
                     "timestamp_ns": ts,
                 },
-                "signature": signature_bytes.hex(),
+                "signature": sig,
             },
         )
