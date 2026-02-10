@@ -165,7 +165,7 @@ class AdminClient(BaseClearingEngineClient):
         if asset_price:
             prices = {str(asset_id): {"price": asset_price, "decimals": asset_price_decimals}}
         else:
-            prices = {str(asset_id): {}}
+            prices = {str(asset_id): None}
 
         await self._post("admin/oracle-prices/modify", json_data={"prices": prices})
 
@@ -180,7 +180,7 @@ class AdminClient(BaseClearingEngineClient):
                 str(asset_id): {"price": asset_last_price, "decimals": asset_last_price_decimals}
             }
         else:
-            prices = {str(asset_id): {}}
+            prices = {str(asset_id): None}
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
 
