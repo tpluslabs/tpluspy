@@ -12,10 +12,13 @@ from tplus.utils.user import User
 
 
 class AdminClient(BaseClearingEngineClient):
+
+    @staticmethod
     def _load_operator_sk(operator_secret) -> ec.EllipticCurvePrivateKey:
         secret_bytes = bytes.fromhex(operator_secret)
         return ec.derive_private_key(int.from_bytes(secret_bytes, "big"), ec.SECP256K1())
 
+    @staticmethod
     def _sign(payload: bytes, sk: ec.EllipticCurvePrivateKey) -> str:
         """SHA256 -> ECDSA sign -> low-S normalize -> compact r||s -> hex."""
         SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
