@@ -1,6 +1,5 @@
 import hashlib
 import time
-from typing import Optional
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -161,7 +160,7 @@ class AdminClient(BaseClearingEngineClient):
         )
 
     async def set_oracle_prices(
-        self, asset_id: AssetIdentifier, asset_price: Optional[str], asset_price_decimals: int
+        self, asset_id: AssetIdentifier, asset_price: str | None, asset_price_decimals: int
     ):
         if asset_price:
             prices = {str(asset_id): {"price": asset_price, "decimals": asset_price_decimals}}
@@ -173,7 +172,7 @@ class AdminClient(BaseClearingEngineClient):
     async def set_last_trade(
         self,
         asset_id: AssetIdentifier,
-        asset_last_price: Optional[str],
+        asset_last_price: str | None,
         asset_last_price_decimals: int,
     ):
         if asset_last_price:
