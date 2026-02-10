@@ -101,7 +101,11 @@ class BaseClient:
             # credentials **once** and retry the request automatically. This keeps the
             # higher-level client APIs unaware of token lifetimes and greatly simplifies
             # consumer code.
-            if response.status_code in {401, 403} and not relative_url.startswith("/auth"):
+            if (
+                self.AUTH
+                and response.status_code in {401, 403}
+                and not relative_url.startswith("/auth")
+            ):
                 self.logger.info(
                     "Received %s for %s – refreshing auth token and retrying once.",
                     response.status_code,
