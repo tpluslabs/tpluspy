@@ -12,7 +12,6 @@ from tplus.utils.user import User
 
 
 class AdminClient(BaseClearingEngineClient):
-
     @staticmethod
     def _load_operator_sk(operator_secret) -> ec.EllipticCurvePrivateKey:
         secret_bytes = bytes.fromhex(operator_secret)
