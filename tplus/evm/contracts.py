@@ -15,7 +15,6 @@ from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
-from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.types import ChainID, UserPublicKey
@@ -459,18 +458,11 @@ class DepositVault(TPlusContract):
 
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "DepositVault":
-        owner = args[0] if args else sender
+        args = list(args)
+        args[0] = args[0] if args else sender
         address = sender.get_deployment_address()
-        separator = (
-            args[1]
-            if len(args) > 1
-            else Domain(
-                cls.chain_manager.chain_id,
-                address,
-            ).separator
-        )
 
-        instance = super().deploy(owner, separator, sender=sender, **kwargs)
+        instance = super().deploy(*args, sender=sender, **kwargs)
 
         if instance.address != address:
             # Shouldn't happen - but just in case, as this will cause hard to detect problems.
@@ -483,19 +475,30 @@ class DepositVault(TPlusContract):
         """
         Deploy and set up a development vault.
         """
+        credman = kwargs.get("credential_manager") or ZERO_ADDRESS
         sender = sender or cls.account_manager.test_accounts[0]
-        contract = cast(DepositVault, cls.deploy(sender=sender))
+        contract = cast(DepositVault, cls.deploy(sender, credman, sender=sender))
 
         # Set the owner as an admin who can approve settlements/withdrawals.
         # (we only do this in dev mode; irl the roles are different).
-        contract.set_admin_status(sender, True, sender)
+        credman_account = cls.account_manager[credman]
+        credman_account.balance += int(1e18)
+        contract.set_administrators([sender], credman_account)
 
         return contract
 
-    def set_admin_status(
-        self, admin: "AddressType", status: bool, vault_owner: AccountAPI
+    def set_administrators(
+        self,
+        administrators: list["AddressType"],
+        vault_owner: AccountAPI,
+        withdrawal_quorum: int | None = None,
     ) -> "ReceiptAPI":
-        return self.contract.setAdmin(admin, status, sender=vault_owner)
+        if withdrawal_quorum is None:
+            withdrawal_quorum = len(administrators)
+
+        return self.contract.setAdministrators(
+            administrators, withdrawal_quorum, sender=vault_owner
+        )
 
     def set_domain_separator(self, domain_separator: bytes, *, sender: AccountAPI) -> "ReceiptAPI":
         return self.contract.setDomainSeparator(domain_separator, sender=sender)

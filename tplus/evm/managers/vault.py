@@ -47,10 +47,10 @@ class VaultOwner(ChainConnectedManager):
 
         return self.vault.set_domain_separator(domain_separator, **tx_kwargs)
 
-    async def register_admin(
+    async def set_administrators(
         self,
-        admin_key: str | None = None,
-        verify: bool = False,
+        admin_keys: list[str] | None = None,
+        withdrawal_quorum: int | None = None,
         **tx_kwargs,
     ) -> "ReceiptAPI":
         """
@@ -59,18 +59,18 @@ class VaultOwner(ChainConnectedManager):
         """
         tx_kwargs.setdefault("sender", self.owner)
 
-        if admin_key is None:
+        if admin_keys is None:
             if self.ce is None:
                 raise ValueError("Either admin_key or self.ce must be specified")
 
-            admin_key = await self.ce.admin.get_verifying_key()
+            admin_keys = [await self.ce.admin.get_verifying_key()]
 
-        address = public_key_to_address(admin_key)
+        addresses = [public_key_to_address(k) for k in admin_keys]
 
-        tx = self.vault.setAdmin(address, True, **tx_kwargs)
-        if verify:
-            self.vault.isAdmin(address)
+        if withdrawal_quorum is None:
+            withdrawal_quorum = len(addresses)
 
+        tx = self.vault.setAdministrators(addresses, withdrawal_quorum, **tx_kwargs)
         return tx
 
     async def register_settler(
