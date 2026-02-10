@@ -1,5 +1,6 @@
 import hashlib
 import time
+from typing import Optional
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -160,16 +161,27 @@ class AdminClient(BaseClearingEngineClient):
         )
 
     async def set_oracle_prices(
-        self, asset_id: AssetIdentifier, asset_price: str, asset_price_decimals: int
+        self, asset_id: AssetIdentifier, asset_price: Optional[str], asset_price_decimals: int
     ):
-        prices = {str(asset_id): {"price": asset_price, "decimals": asset_price_decimals}}
+        if asset_price:
+            prices = {str(asset_id): {"price": asset_price, "decimals": asset_price_decimals}}
+        else:
+            prices = {str(asset_id): {}}
 
         await self._post("admin/oracle-prices/modify", json_data={"prices": prices})
 
     async def set_last_trade(
-        self, asset_id: AssetIdentifier, asset_last_price: str, asset_last_price_decimals: int
+        self,
+        asset_id: AssetIdentifier,
+        asset_last_price: Optional[str],
+        asset_last_price_decimals: int,
     ):
-        prices = {str(asset_id): {"price": asset_last_price, "decimals": asset_last_price_decimals}}
+        if asset_last_price:
+            prices = {
+                str(asset_id): {"price": asset_last_price, "decimals": asset_last_price_decimals}
+            }
+        else:
+            prices = {str(asset_id): {}}
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
 
