@@ -10,6 +10,7 @@ from ape.exceptions import ContractLogicError, ContractNotFoundError, Conversion
 from ape.managers.project import Project
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
+from ape.utils.misc import ZERO_ADDRESS
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
@@ -215,7 +216,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return cls(default_deployer=sender, chain_id=chain_id, address=instance.address, **kwargs)
 
     @classmethod
-    def deploy_dev(cls):
+    def deploy_dev(cls, **kwargs):
         owner = get_dev_default_owner()
         return cls.deploy(owner, sender=owner)
 
@@ -478,7 +479,7 @@ class DepositVault(TPlusContract):
         return instance
 
     @classmethod
-    def deploy_dev(cls, sender: AccountAPI | None = None) -> TPlusContract:
+    def deploy_dev(cls, sender: AccountAPI | None = None, **kwargs) -> TPlusContract:
         """
         Deploy and set up a development vault.
         """
@@ -518,6 +519,25 @@ class CredentialManager(TPlusContract):
     """
 
     NAME = "CredentialManager"
+
+    @classmethod
+    def deploy_dev(cls, **kwargs) -> "ReceiptAPI":
+        owner = kwargs.get("owner") or get_dev_default_owner()
+        operators = kwargs.get("operators", [owner.address])
+        threshold = kwargs.get("quorum_threshold") or len(operators)
+        registry_address = kwargs.get("registry") or ZERO_ADDRESS
+        measurements = kwargs.get("measurements") or []
+        automata_verifier = kwargs.get("automata_verifier") or ZERO_ADDRESS
+
+        return cls.deploy(
+            operators,
+            owner,
+            threshold,
+            registry_address,
+            measurements,
+            automata_verifier,
+            sender=owner,
+        )
 
     def add_vault(self, address: AddressType, chain_id: ChainID | None = None, **kwargs):
         if not isinstance(address, str):
