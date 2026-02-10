@@ -1,9 +1,35 @@
+import hashlib
+import time
+from typing import Any
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import Prehashed, decode_dss_signature
+
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.types import UserPublicKey
+from tplus.utils.user import User
 
 
 class AdminClient(BaseClearingEngineClient):
+    @staticmethod
+    def _load_operator_sk(operator_secret) -> ec.EllipticCurvePrivateKey:
+        secret_bytes = bytes.fromhex(operator_secret)
+        return ec.derive_private_key(int.from_bytes(secret_bytes, "big"), ec.SECP256K1())
+
+    @staticmethod
+    def _sign(payload: bytes, sk: ec.EllipticCurvePrivateKey) -> str:
+        """SHA256 -> ECDSA sign -> low-S normalize -> compact r||s -> hex."""
+        SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+        SECP256K1_HALF_ORDER = SECP256K1_ORDER // 2
+        digest = hashlib.sha256(payload).digest()
+        sig_der = sk.sign(digest, ec.ECDSA(Prehashed(hashes.SHA256())))
+        r, s = decode_dss_signature(sig_der)
+        if s > SECP256K1_HALF_ORDER:
+            s = SECP256K1_ORDER - s
+        return (r.to_bytes(32, "big") + s.to_bytes(32, "big")).hex()
+
     async def get_verifying_key(self):
         """
         Get a clearing-engine's verifying key.
@@ -66,11 +92,13 @@ class AdminClient(BaseClearingEngineClient):
         max_deposits: str,
         address: str,
         max_1hr_deposits: str,
+        min_weight: str,
     ):
         config = {
             "address": address,
             "max_deposits": max_deposits,
             "max_1hr_deposits": max_1hr_deposits,
+            "min_weight": min_weight,
         }
 
         await self._post(
@@ -100,6 +128,7 @@ class AdminClient(BaseClearingEngineClient):
         base_funding_rate: int,
         skew_cliff: int,
         premium_clamp: int,
+        buffer_multiplier: int,
     ):
         risk_parameters = {
             "collateral_factor": collateral_factor,
@@ -121,6 +150,7 @@ class AdminClient(BaseClearingEngineClient):
             "base_funding_rate": base_funding_rate,
             "skew_cliff": skew_cliff,
             "premium_clamp": premium_clamp,
+            "buffer_multiplier": buffer_multiplier,
         }
         await self._post(
             "admin/risk-parameters/modify",
@@ -131,15 +161,54 @@ class AdminClient(BaseClearingEngineClient):
         )
 
     async def set_oracle_prices(
-        self, asset_id: AssetIdentifier, asset_price: str, asset_price_decimals: int
+        self, asset_id: AssetIdentifier, asset_price: str | None, asset_price_decimals: int
     ):
-        prices = {str(asset_id): {"price": asset_price, "decimals": asset_price_decimals}}
+        prices: dict[str, Any]
+        if asset_price:
+            prices = {str(asset_id): {"price": asset_price, "decimals": asset_price_decimals}}
+        else:
+            prices = {str(asset_id): None}
 
         await self._post("admin/oracle-prices/modify", json_data={"prices": prices})
 
     async def set_last_trade(
-        self, asset_id: AssetIdentifier, asset_last_price: str, asset_last_price_decimals: int
+        self,
+        asset_id: AssetIdentifier,
+        asset_last_price: str | None,
+        asset_last_price_decimals: int,
     ):
-        prices = {str(asset_id): {"price": asset_last_price, "decimals": asset_last_price_decimals}}
+        prices: dict[str, Any]
+        if asset_last_price:
+            prices = {
+                str(asset_id): {"price": asset_last_price, "decimals": asset_last_price_decimals}
+            }
+        else:
+            prices = {str(asset_id): None}
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
+
+    async def set_trader_as_mm(
+        self,
+        user: User,
+        is_mm: bool,
+        operator_secret: str,
+        timestamp_ns: int | None = None,
+    ):
+        ts = time.time_ns() if timestamp_ns is None else timestamp_ns
+
+        sk = AdminClient._load_operator_sk(operator_secret=operator_secret)
+        user_pubkey = bytes(user.public_key_vec)
+        payload = ts.to_bytes(8, "big") + user_pubkey + b"\x01"
+        sig = AdminClient._sign(payload, sk)
+
+        await self._post(
+            "admin/status/modify",
+            json_data={
+                "inner": {
+                    "user": user.public_key,
+                    "is_mm": is_mm,
+                    "timestamp_ns": ts,
+                },
+                "signature": sig,
+            },
+        )
