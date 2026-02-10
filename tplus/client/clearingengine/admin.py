@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import Prehashed, decode_ds
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.types import UserPublicKey
+from tplus.utils.user import User
 
 
 class AdminClient(BaseClearingEngineClient):
@@ -172,17 +173,15 @@ class AdminClient(BaseClearingEngineClient):
 
     async def set_trader_as_mm(
         self,
-        user: UserPublicKey,
+        user: User,
         is_mm: bool,
         operator_secret: str,
         timestamp_ns: int | None = None,
     ):
-        if not isinstance(user, UserPublicKey):
-            user = UserPublicKey.__validate_user__(user)
         ts = time.time_ns() if timestamp_ns is None else timestamp_ns
 
         sk = AdminClient._load_operator_sk(operator_secret=operator_secret)
-        user_pubkey = bytes(range(32))
+        user_pubkey = bytes(user.public_key_vec)
         payload = ts.to_bytes(8, "big") + user_pubkey + b"\x01"
         sig = AdminClient._sign(payload, sk)
 
@@ -190,7 +189,7 @@ class AdminClient(BaseClearingEngineClient):
             "admin/status/modify",
             json_data={
                 "inner": {
-                    "user": user,
+                    "user": user.public_key,
                     "is_mm": is_mm,
                     "timestamp_ns": ts,
                 },
