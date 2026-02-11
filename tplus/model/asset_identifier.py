@@ -129,7 +129,7 @@ class ChainAddress(RootModel[str]):
         return to_checksum_address(address)
 
     @cached_property
-    def chain_id(self) -> str:
+    def chain_id(self) -> ChainID:
         return ChainID(self.root.split("@")[-1])
 
 

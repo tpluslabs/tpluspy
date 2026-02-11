@@ -17,6 +17,7 @@ from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
+from tplus.model.config import ChainConfig
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
 
@@ -193,12 +194,20 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     ) -> None:
         self._deployments: dict[int, ContractInstance] = {}
         self._default_deployer = default_deployer
+
+        if isinstance(chain_id, int):
+            chain_id = ChainID.evm(chain_id)
+
         self._chain_id = chain_id
         self._address = address
         self._tplus_contracts_version = tplus_contracts_version
 
         if address is not None and chain_id is not None:
             self._deployments[f"{chain_id}"] = self._contract_container.at(address)
+
+    @property
+    def chain_address(self) -> ChainAddress:
+        return ChainAddress(f"{to_bytes32(self.address).hex()}@{self.chain_id}")
 
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "TPlusContract":
@@ -216,7 +225,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
     @classmethod
     def deploy_dev(cls, **kwargs):
-        owner = get_dev_default_owner()
+        owner = kwargs.get("sender") or get_dev_default_owner()
         return cls.deploy(owner, sender=owner)
 
     def __repr__(self) -> str:
@@ -233,6 +242,10 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     @property
     def name(self) -> str:
         return self.__class__.NAME
+
+    @property
+    def chain_id(self) -> ChainID:
+        return self._chain_id or ChainID.evm(self.chain_manager.chain_id)
 
     @property
     def address(self) -> str:
@@ -406,7 +419,7 @@ class DepositVault(TPlusContract):
 
     @property
     def domain_separator(self) -> HexBytes:
-        return HexBytes(self.chain_manager.provider.get_storage(self.address, 1))
+        return HexBytes(self.chain_manager.provider.get_storage(self.address, 2))
 
     def deposit(
         self,
@@ -459,9 +472,7 @@ class DepositVault(TPlusContract):
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "DepositVault":
         args = list(args)
-        args[0] = args[0] if args else sender
         address = sender.get_deployment_address()
-
         instance = super().deploy(*args, sender=sender, **kwargs)
 
         if instance.address != address:
@@ -525,7 +536,7 @@ class CredentialManager(TPlusContract):
 
     @classmethod
     def deploy_dev(cls, **kwargs) -> "ReceiptAPI":
-        owner = kwargs.get("owner") or get_dev_default_owner()
+        owner = kwargs.get("sender") or get_dev_default_owner()
         operators = kwargs.get("operators", [owner.address])
         threshold = kwargs.get("quorum_threshold") or len(operators)
         registry_address = kwargs.get("registry") or ZERO_ADDRESS
@@ -542,13 +553,28 @@ class CredentialManager(TPlusContract):
             sender=owner,
         )
 
-    def add_vault(self, address: AddressType, chain_id: ChainID | None = None, **kwargs):
-        if not isinstance(address, str):
-            # Allow ENS or certain classes to work.
-            address = self.conversion_manager.convert(address, AddressType)
+    @property
+    def governance_nonce(self) -> int:
+        return self.contract.governanceNonce()
 
-        chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
-        return self.contract.addVault(address, chain_id, **kwargs)
+    def add_vault(
+        self,
+        address: ChainAddress,
+        config: ChainConfig,
+        signers: list[AddressType],
+        signatures: list[bytes],
+        **kwargs,
+    ):
+        chain_id = address.chain_id
+        return self.contract.addVault(
+            chain_id.routing_id,
+            chain_id.vm_id,
+            address.address,
+            config,
+            signers,
+            signatures,
+            **kwargs,
+        )
 
     def get_vaults(self) -> list[tuple[bytes, int]]:
         return [(r.vaultAddress, r.chain) for r in self.contract.getVaults()]

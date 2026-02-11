@@ -39,7 +39,8 @@ class TestTplusContract:
 class TestDepositVault:
     def test_deploy(self, accounts):
         owner = accounts[0]
-        instance = DepositVault.deploy(sender=owner)
+        credential_manager = accounts[2]
+        instance = DepositVault.deploy(owner, credential_manager, sender=owner)
         # It should know its address.
         assert instance.address
         assert instance.owner() == owner.address
@@ -48,7 +49,8 @@ class TestDepositVault:
         owner = accounts[0]
         sender = accounts[1]
         deployer_nonce_before = sender.nonce
-        instance = DepositVault.deploy(owner, sender=sender)
+        credential_manager = accounts[2]
+        instance = DepositVault.deploy(owner, credential_manager, sender=sender)
         deployer_nonce_after = sender.nonce
         # It should know its address.
         assert instance.address
@@ -62,16 +64,25 @@ class TestDepositVault:
 
     def test_domain_separator(self, accounts, chain):
         owner = accounts[0]
+        credential_manager = accounts[2]
 
         # Sets domain separator automatically.
-        instance = DepositVault.deploy(sender=owner)
-
+        instance = DepositVault.deploy(owner, credential_manager, sender=owner)
         expected = Domain(chain.chain_id, instance.address).separator
+        instance.set_domain_separator(expected, sender=owner)
 
         # Reads using `eth_getStorageAt()` RPC.
         actual = instance.domain_separator
 
         assert actual == expected
+
+    def test_chain_address(self, accounts):
+        owner = accounts[0]
+        instance = DepositVault.deploy(owner, owner, sender=owner)
+        actual = instance.chain_address
+        assert actual.evm_address == instance.address
+        assert actual.chain_id.routing_id == 0
+        assert actual.chain_id.vm_id == accounts.chain_manager.chain_id
 
 
 @pytest.mark.parametrize("error", ("TransferFromFailed()", "TransferFailed()"))
