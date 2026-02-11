@@ -430,6 +430,11 @@ class DepositVault(TPlusContract):
     def approved_settlers(self) -> list["AddressType"]:
         return self.contract.getApprovedSettlers()
 
+    def add_settler_executor(
+        self, settler: UserPublicKey, executor: AddressType, **kwargs
+    ) -> "ReceiptAPI":
+        return self.addSettlerExecutor(settler.public_key, executor, **kwargs)
+
     def deposit(
         self,
         user: UserPublicKey,

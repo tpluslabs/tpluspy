@@ -85,7 +85,7 @@ class VaultOwner(ChainConnectedManager):
         """
         executor = self.conversion_manager.convert(executor, AddressType)
         tx_kwargs.setdefault("sender", self.owner)
-        tx = self.vault.addSettlerExecutor(settler, executor, **tx_kwargs)
+        tx = self.vault.add_settler_executor(settler, executor, **tx_kwargs)
 
         if wait:
             if not (ce := self.ce):
