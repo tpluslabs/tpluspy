@@ -20,6 +20,7 @@ from tplus.model.asset_identifier import ChainAddress
 from tplus.model.config import ChainConfig
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
+from tplus.utils.hex import to_hex
 
 if TYPE_CHECKING:
     from ape.api.transactions import ReceiptAPI
@@ -404,7 +405,7 @@ class DepositVault(TPlusContract):
 
         # Verify chain first.
         connected_chain = self.chain_manager.chain_id
-        if connected_chain != self._chain_id:
+        if connected_chain != self._chain_id.vm_id:
             # Try to connect.
             if choice := CHAIN_MAP.get(connected_chain):
                 with self.network_manager.parse_network_choice(choice):
@@ -424,6 +425,10 @@ class DepositVault(TPlusContract):
     @property
     def domain_separator(self) -> HexBytes:
         return HexBytes(self.chain_manager.provider.get_storage(self.address, 2))
+
+    @property
+    def approved_settlers(self) -> list["AddressType"]:
+        return self.contract.getApprovedSettlers()
 
     def deposit(
         self,
@@ -580,8 +585,14 @@ class CredentialManager(TPlusContract):
             **kwargs,
         )
 
-    def get_vaults(self) -> list[tuple[bytes, int]]:
-        return [(r.vaultAddress, r.chain) for r in self.contract.getVaults()]
+    def get_vaults(self) -> list[DepositVault]:
+        return [
+            DepositVault(
+                address=to_hex(r.vaultAddress[:20]),
+                chain_id=ChainID.from_parts(r.routingId, r.vmId),
+            )
+            for r in self.contract.getVaults(0, 1000)
+        ]
 
     def get_evm_vaults(self) -> list[tuple[AddressType, int]]:
         result = []
