@@ -205,6 +205,10 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         if address is not None and chain_id is not None:
             self._deployments[f"{chain_id}"] = self._contract_container.at(address)
 
+    @classmethod
+    def at(cls, address: str) -> "TPlusContract":
+        return cls(address=address, chain_id=cls.chain_manager.chain_id)
+
     @property
     def chain_address(self) -> ChainAddress:
         return ChainAddress(f"{to_bytes32(self.address).hex()}@{self.chain_id}")
