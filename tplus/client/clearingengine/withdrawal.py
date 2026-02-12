@@ -49,7 +49,7 @@ class WithdrawalClient(BaseClearingEngineClient):
 
     async def update_nonce(self, user: str, chain_id: ChainID):
         """
-        Request the CE check for new completed deposits for the given user on
+        Request the CE check for new completed withdrawals for the given user on
         the given chain.
 
         Args:
