@@ -98,7 +98,7 @@ class SettlementClient(BaseClearingEngineClient):
         json_data = request.model_dump(mode="json")
         await self._post("settlement/batch", json_data=json_data)
 
-    async def update(self, user: str, chain_id: ChainID):
+    async def update_nonce(self, user: str, chain_id: ChainID):
         """
         Request that the CE check the deposit vault for new settlements for
         the given user.
@@ -108,7 +108,7 @@ class SettlementClient(BaseClearingEngineClient):
             chain_id (int): The chain ID to check.
         """
         request = {"user": user, "chain_id": chain_id}
-        await self._post("settlement/update", json_data=request)
+        await self._post("admin/settlement/update-nonce", json_data=request)
 
     async def update_approved_settlers(self, chain_id: ChainID, vault_address: str):
         """
