@@ -196,6 +196,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         self._chain_id = chain_id
         self._address = address
         self._tplus_contracts_version = tplus_contracts_version
+        self._attempted_deploy_dev = False
 
         if address is not None and chain_id is not None:
             self._deployments[f"{chain_id}"] = self._contract_container.at(address)
@@ -220,6 +221,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return cls.deploy(owner, sender=owner)
 
     def deploy_dev_and_set_deployment(self) -> "TPlusContract":
+        self._attempted_deploy_dev = True
         instance = self.deploy_dev()
         self._address = instance.address
         self._deployments[f"{instance.chain_id}"] = instance
@@ -272,7 +274,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         try:
             return self.get_contract()
         except ContractNotExists:
-            if self.is_local_network:
+            if self.is_local_network and not self._attempted_deploy_dev:
                 # If simulating, deploy it now.
                 return self.deploy_dev_and_set_deployment()
 
@@ -339,7 +341,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         try:
             return TPLUS_DEPLOYMENTS[chain_id][self.name]
         except KeyError as err:
-            if self.is_local_network:
+            if self.is_local_network and not self._attempted_deploy_dev:
                 self.deploy_dev_and_set_deployment()
 
             raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.") from err
