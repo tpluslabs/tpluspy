@@ -9,6 +9,7 @@ from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.domain import get_dstack_domain
 from tplus.utils.timeout import wait_for_condition
+from tplus.utils.user import User
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -34,7 +35,9 @@ class VaultOwner(ChainConnectedManager):
         self.vault = vault or DepositVault(chain_id=self.chain_id)
         self.ce = clearing_engine
 
-    def set_domain_separator(self, domain_separator: bytes, **tx_kwargs) -> "ReceiptAPI":
+    def set_domain_separator(
+        self, domain_separator: bytes | None = None, **tx_kwargs
+    ) -> "ReceiptAPI":
         tx_kwargs.setdefault("sender", self.owner)
 
         domain_separator = domain_separator or get_dstack_domain(self.vault.chain_address)
@@ -69,7 +72,7 @@ class VaultOwner(ChainConnectedManager):
 
     async def register_settler(
         self,
-        settler: UserPublicKey,
+        settler: UserPublicKey | User,
         executor: "AddressType | str | AccountAPI | ContractInstance",
         wait: bool = False,
         **tx_kwargs,
@@ -77,6 +80,9 @@ class VaultOwner(ChainConnectedManager):
         """
         Allow a user to settler. Requires being the vault contract owner.
         """
+        if isinstance(settler, User):
+            settler = settler.public_key
+
         executor = self.conversion_manager.convert(executor, AddressType)
         tx_kwargs.setdefault("sender", self.owner)
         tx = self.vault.add_settler_executor(settler, executor, **tx_kwargs)

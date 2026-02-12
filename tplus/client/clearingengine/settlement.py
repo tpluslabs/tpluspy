@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.settlement import BatchSettlementRequest, TxSettlementRequest
-from tplus.model.types import ChainID
+from tplus.model.types import ChainID, UserPublicKey
 
 
 class SettlementClient(BaseClearingEngineClient):
@@ -122,11 +122,12 @@ class SettlementClient(BaseClearingEngineClient):
         json_data = request.model_dump(mode="json")
         await self._post("settlers/update", json_data=json_data)
 
-    async def get_approved_settlers(self, chain_id: ChainID) -> list[str]:
+    async def get_approved_settlers(self, chain_id: ChainID) -> list[UserPublicKey]:
         """
         Request that the CE check the deposit vault for new approved settlers.
 
         Args:
             chain_id (int): The chain ID to check.
         """
-        return await self._get(f"settlers/{chain_id}")  # type: ignore
+        result = await self._get(f"settlers/{chain_id}")  # type: ignore
+        return [UserPublicKey.__validate_user__(s) for s in result]

@@ -433,7 +433,7 @@ class DepositVault(TPlusContract):
     def add_settler_executor(
         self, settler: UserPublicKey, executor: AddressType, **kwargs
     ) -> "ReceiptAPI":
-        return self.addSettlerExecutor(settler.public_key, executor, **kwargs)
+        return self.addSettlerExecutor(settler, executor, **kwargs)
 
     def deposit(
         self,
