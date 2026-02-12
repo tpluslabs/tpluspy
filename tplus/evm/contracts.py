@@ -212,7 +212,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
     @property
     def chain_address(self) -> ChainAddress:
-        return ChainAddress(f"{to_bytes32(self.address).hex()}@{self.chain_id}")
+        return ChainAddress.from_str(f"{to_bytes32(self.address).hex()}@{self.chain_id}")
 
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "TPlusContract":

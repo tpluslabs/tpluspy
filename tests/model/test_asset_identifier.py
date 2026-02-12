@@ -6,7 +6,7 @@ from tplus.model.asset_identifier import AssetIdentifier, ChainAddress
 class TestChainAddress:
     @pytest.fixture(scope="class")
     def chain_address(self):
-        return ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7")
+        return ChainAddress.from_str("62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7")
 
     def test_address(self, chain_address):
         assert (

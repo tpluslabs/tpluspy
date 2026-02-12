@@ -5,9 +5,9 @@ from ape.types.address import AddressType
 from tplus.client import ClearingEngineClient
 from tplus.evm.address import public_key_to_address
 from tplus.evm.contracts import DepositVault
-from tplus.evm.eip712 import Domain
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import ChainID, UserPublicKey
+from tplus.utils.domain import get_dstack_domain
 from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:
@@ -37,13 +37,7 @@ class VaultOwner(ChainConnectedManager):
     def set_domain_separator(self, domain_separator: bytes, **tx_kwargs) -> "ReceiptAPI":
         tx_kwargs.setdefault("sender", self.owner)
 
-        domain_separator = (
-            domain_separator
-            or Domain(
-                _chainId_=self.chain_manager.chain_id,  # type: ignore
-                _verifyingContract_=self.vault.address,  # type: ignore
-            )._domain_separator_
-        )
+        domain_separator = domain_separator or get_dstack_domain(self.vault.chain_address)
 
         return self.vault.set_domain_separator(domain_separator, **tx_kwargs)
 

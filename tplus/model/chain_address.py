@@ -1,6 +1,7 @@
 from functools import cached_property
 from typing import Any
 
+from eth_pydantic_types.hex.bytes import HexBytes32
 from pydantic import RootModel, model_serializer, model_validator
 
 from tplus.model.types import ChainID
@@ -79,6 +80,10 @@ class ChainAddress(RootModel[str]):
     Identifies an address on a chain in format hex_address@hex_chain.
     """
 
+    @classmethod
+    def from_str(cls, value: str) -> "ChainAddress":
+        return cls(root=value)
+
     @model_validator(mode="before")
     @classmethod
     def _validate_input(cls, data: Any) -> Any:
@@ -131,3 +136,7 @@ class ChainAddress(RootModel[str]):
     @cached_property
     def chain_id(self) -> ChainID:
         return ChainID(self.root.split("@")[-1])
+
+    @property
+    def address_bytes(self) -> HexBytes32:
+        return HexBytes32.__eth_pydantic_validate__(self.address)

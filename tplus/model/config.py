@@ -53,7 +53,7 @@ class ChainConfig(BaseModel):
         ]
 
     @property
-    def abi_values(self) -> tuple[str]:
+    def abi_values(self) -> tuple[int, int, int, int, int]:
         return (
             self.blockTimeMs,
             self.defaultConfirmations,

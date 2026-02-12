@@ -5,9 +5,9 @@ from eth_utils import keccak, to_hex
 
 from tplus.evm.constants import REGISTRY_ADDRESS
 from tplus.evm.contracts import DepositVault, Registry, TPlusContract, _decode_erc20_error
-from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
+from tplus.utils.domain import get_dstack_domain
 
 
 class TestTplusContract:
@@ -58,7 +58,9 @@ class TestDepositVault:
         assert deployer_nonce_after > deployer_nonce_before
 
     def test_from_chain_address(self):
-        address = ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7")
+        address = ChainAddress.from_str(
+            "62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7"
+        )
         vault = DepositVault.from_chain_address(address)
         assert vault.address == address.evm_address
 
@@ -68,7 +70,7 @@ class TestDepositVault:
 
         # Sets domain separator automatically.
         instance = DepositVault.deploy(owner, credential_manager, sender=owner)
-        expected = Domain(chain.chain_id, instance.address).separator
+        expected = get_dstack_domain(instance.chain_address)
         instance.set_domain_separator(expected, sender=owner)
 
         # Reads using `eth_getStorageAt()` RPC.

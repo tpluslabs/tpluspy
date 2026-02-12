@@ -118,7 +118,7 @@ class SettlementClient(BaseClearingEngineClient):
             chain_id (int): The chain ID to check.
             vault_address (str): The vault address to check.
         """
-        request = ChainAddress(f"{vault_address}@{chain_id}")
+        request = ChainAddress.from_str(f"{vault_address}@{chain_id}")
         json_data = request.model_dump(mode="json")
         await self._post("settlers/update", json_data=json_data)
 
