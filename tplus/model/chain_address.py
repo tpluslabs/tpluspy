@@ -84,6 +84,16 @@ class ChainAddress(RootModel[str]):
     def from_str(cls, value: str) -> "ChainAddress":
         return cls(root=value)
 
+    @classmethod
+    def from_evm_address(cls, value: str, chain_id: int | ChainID) -> "ChainAddress":
+        value = value.lower().removeprefix("0x")
+        value = value.ljust(64, "0")
+
+        if isinstance(chain_id, int):
+            chain_id = ChainID.evm(chain_id)
+
+        return cls.from_str(f"{value}@{chain_id}")
+
     @model_validator(mode="before")
     @classmethod
     def _validate_input(cls, data: Any) -> Any:
