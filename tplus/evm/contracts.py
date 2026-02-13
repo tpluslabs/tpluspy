@@ -10,15 +10,17 @@ from ape.exceptions import ContractLogicError, ContractNotFoundError, Conversion
 from ape.managers.project import Project
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
+from ape.utils.misc import ZERO_ADDRESS
 from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
-from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
+from tplus.model.config import ChainConfig
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
+from tplus.utils.hex import to_hex
 
 if TYPE_CHECKING:
     from ape.api.transactions import ReceiptAPI
@@ -193,6 +195,10 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     ) -> None:
         self._deployments: dict[str, ContractInstance] = {}
         self._default_deployer = default_deployer
+
+        if isinstance(chain_id, int):
+            chain_id = ChainID.evm(chain_id)
+
         self._chain_id = chain_id
         self._address = address
         self._tplus_contracts_version = tplus_contracts_version
@@ -200,6 +206,14 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
         if address is not None and chain_id is not None:
             self._deployments[f"{chain_id}"] = self._contract_container.at(address)
+
+    @classmethod
+    def at(cls, address: str) -> "TPlusContract":
+        return cls(address=address, chain_id=cls.chain_manager.chain_id)
+
+    @property
+    def chain_address(self) -> ChainAddress:
+        return ChainAddress.from_str(f"{to_bytes32(self.address).hex()}@{self.chain_id}")
 
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "TPlusContract":
@@ -216,8 +230,8 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return cls(default_deployer=sender, chain_id=chain_id, address=instance.address, **kwargs)
 
     @classmethod
-    def deploy_dev(cls):
-        owner = get_dev_default_owner()
+    def deploy_dev(cls, **kwargs):
+        owner = kwargs.get("sender") or get_dev_default_owner()
         return cls.deploy(owner, sender=owner)
 
     def deploy_dev_and_set_deployment(self) -> "TPlusContract":
@@ -247,6 +261,10 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return self.__class__.NAME
 
     @cached_property
+    def chain_id(self) -> ChainID:
+        return self._chain_id or ChainID.evm(self.chain_manager.chain_id)
+
+    @property
     def chain_id(self) -> ChainID:
         return self._chain_id or ChainID.evm(self.chain_manager.chain_id)
 
@@ -406,7 +424,7 @@ class DepositVault(TPlusContract):
 
         # Verify chain first.
         connected_chain = self.chain_manager.chain_id
-        if connected_chain != self._chain_id:
+        if connected_chain != self._chain_id.vm_id:
             # Try to connect.
             if choice := CHAIN_MAP.get(connected_chain):
                 with self.network_manager.parse_network_choice(choice):
@@ -425,7 +443,16 @@ class DepositVault(TPlusContract):
 
     @property
     def domain_separator(self) -> HexBytes:
-        return HexBytes(self.chain_manager.provider.get_storage(self.address, 1))
+        return HexBytes(self.chain_manager.provider.get_storage(self.address, 2))
+
+    @property
+    def approved_settlers(self) -> list["AddressType"]:
+        return self.contract.getApprovedSettlers()
+
+    def add_settler_executor(
+        self, settler: UserPublicKey, executor: AddressType, **kwargs
+    ) -> "ReceiptAPI":
+        return self.addSettlerExecutor(settler, executor, **kwargs)
 
     def deposit(
         self,
@@ -477,18 +504,9 @@ class DepositVault(TPlusContract):
 
     @classmethod
     def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "DepositVault":
-        owner = args[0] if args else sender
+        args = list(args)
         address = sender.get_deployment_address()
-        separator = (
-            args[1]
-            if len(args) > 1
-            else Domain(
-                cls.chain_manager.chain_id,
-                address,
-            ).separator
-        )
-
-        instance = super().deploy(owner, separator, sender=sender, **kwargs)
+        instance = super().deploy(*args, sender=sender, **kwargs)
 
         if instance.address != address:
             # Shouldn't happen - but just in case, as this will cause hard to detect problems.
@@ -497,23 +515,34 @@ class DepositVault(TPlusContract):
         return instance
 
     @classmethod
-    def deploy_dev(cls, sender: AccountAPI | None = None) -> TPlusContract:
+    def deploy_dev(cls, sender: AccountAPI | None = None, **kwargs) -> TPlusContract:
         """
         Deploy and set up a development vault.
         """
+        credman = kwargs.get("credential_manager") or ZERO_ADDRESS
         sender = sender or cls.account_manager.test_accounts[0]
-        contract = cast(DepositVault, cls.deploy(sender=sender))
+        contract = cast(DepositVault, cls.deploy(sender, credman, sender=sender))
 
         # Set the owner as an admin who can approve settlements/withdrawals.
         # (we only do this in dev mode; irl the roles are different).
-        contract.set_admin_status(sender, True, sender)
+        credman_account = cls.account_manager[credman]
+        credman_account.balance += int(1e18)
+        contract.set_administrators([sender], credman_account)
 
         return contract
 
-    def set_admin_status(
-        self, admin: "AddressType", status: bool, vault_owner: AccountAPI
+    def set_administrators(
+        self,
+        administrators: list["AddressType"],
+        vault_owner: AccountAPI,
+        withdrawal_quorum: int | None = None,
     ) -> "ReceiptAPI":
-        return self.contract.setAdmin(admin, status, sender=vault_owner)
+        if withdrawal_quorum is None:
+            withdrawal_quorum = len(administrators)
+
+        return self.contract.setAdministrators(
+            administrators, withdrawal_quorum, sender=vault_owner
+        )
 
     def set_domain_separator(self, domain_separator: bytes, *, sender: AccountAPI) -> "ReceiptAPI":
         return self.contract.setDomainSeparator(domain_separator, sender=sender)
@@ -538,31 +567,56 @@ class CredentialManager(TPlusContract):
 
     NAME = "CredentialManager"
 
-    def add_vault(self, address: AddressType, chain_id: ChainID | None = None, **kwargs):
-        if not isinstance(address, str):
-            # Allow ENS or certain classes to work.
-            address = self.conversion_manager.convert(address, AddressType)
+    @classmethod
+    def deploy_dev(cls, **kwargs) -> "ReceiptAPI":
+        owner = kwargs.get("sender") or get_dev_default_owner()
+        operators = kwargs.get("operators", [owner.address])
+        threshold = kwargs.get("quorum_threshold") or len(operators)
+        registry_address = kwargs.get("registry") or ZERO_ADDRESS
+        measurements = kwargs.get("measurements") or []
+        automata_verifier = kwargs.get("automata_verifier") or ZERO_ADDRESS
 
-        chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
-        return self.contract.addVault(address, chain_id, **kwargs)
+        return cls.deploy(
+            operators,
+            threshold,
+            owner,
+            registry_address,
+            measurements,
+            automata_verifier,
+            sender=owner,
+        )
 
-    def get_vaults(self) -> list[tuple[bytes, int]]:
-        return [(r.vaultAddress, r.chain) for r in self.contract.getVaults()]
+    @property
+    def governance_nonce(self) -> int:
+        return self.contract.governanceNonce()
 
-    def get_evm_vaults(self) -> list[tuple[AddressType, int]]:
-        result = []
-        for res in self.get_vaults():
-            addr = res[0]
-            if addr[20:] == b"\x00" * 12:
-                addr_bytes = addr[:20]
-                addr_str = f"0x{addr_bytes.hex()}"
+    def add_vault(
+        self,
+        address: ChainAddress,
+        config: ChainConfig,
+        signers: list[AddressType],
+        signatures: list[bytes],
+        **kwargs,
+    ):
+        chain_id = address.chain_id
+        return self.contract.addVault(
+            chain_id.routing_id,
+            chain_id.vm_id,
+            address.address,
+            config,
+            signers,
+            signatures,
+            **kwargs,
+        )
 
-                # Checksum it.
-                checksummed_addr = self.network_manager.ethereum.decode_address(addr_str)
-
-                result.append((checksummed_addr, res[1]))
-
-        return result
+    def get_vaults(self) -> list[DepositVault]:
+        return [
+            DepositVault(
+                address=to_hex(r.vaultAddress[:20]),
+                chain_id=ChainID.from_parts(r.routingId, r.vmId),
+            )
+            for r in self.contract.getVaults(0, 1000)
+        ]
 
 
 registry = Registry()

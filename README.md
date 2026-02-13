@@ -190,7 +190,7 @@ Sign EIP-712 messages, such as settlements, using the `eip712` library.
 
 ```python
 from ape import accounts, convert, chain
-from tplus.evm.eip712 import Order
+from tplus.utils.domain import Order
 from tplus.evm.contracts import vault
 from tplus.utils.user import UserManager
 

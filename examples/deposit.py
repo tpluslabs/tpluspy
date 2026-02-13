@@ -40,7 +40,7 @@ def deposit_to_chain(blockchain_user, tplus_user):
 
 async def deposit_to_ce(tplus_user, client):
     # Tell the CE to update deposit to ingest your new deposit.
-    await client.deposits.update(tplus_user.public_key, CHAIN_ID)
+    await client.deposits.update_nonce(tplus_user.public_key, CHAIN_ID)
 
 
 async def main():

@@ -5,10 +5,11 @@ from ape.types.address import AddressType
 from tplus.client import ClearingEngineClient
 from tplus.evm.address import public_key_to_address
 from tplus.evm.contracts import DepositVault
-from tplus.evm.eip712 import Domain
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import ChainID, UserPublicKey
+from tplus.utils.domain import get_dstack_domain
 from tplus.utils.timeout import wait_for_condition
+from tplus.utils.user import User
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -34,23 +35,19 @@ class VaultOwner(ChainConnectedManager):
         self.vault = vault or DepositVault(chain_id=self.chain_id)
         self.ce = clearing_engine
 
-    def set_domain_separator(self, domain_separator: bytes, **tx_kwargs) -> "ReceiptAPI":
+    def set_domain_separator(
+        self, domain_separator: bytes | None = None, **tx_kwargs
+    ) -> "ReceiptAPI":
         tx_kwargs.setdefault("sender", self.owner)
 
-        domain_separator = (
-            domain_separator
-            or Domain(
-                _chainId_=self.chain_manager.chain_id,  # type: ignore
-                _verifyingContract_=self.vault.address,  # type: ignore
-            )._domain_separator_
-        )
+        domain_separator = domain_separator or get_dstack_domain(self.vault.chain_address)
 
         return self.vault.set_domain_separator(domain_separator, **tx_kwargs)
 
-    async def register_admin(
+    async def set_administrators(
         self,
-        admin_key: str | None = None,
-        verify: bool = False,
+        admin_keys: list[str] | None = None,
+        withdrawal_quorum: int | None = None,
         **tx_kwargs,
     ) -> "ReceiptAPI":
         """
@@ -59,23 +56,23 @@ class VaultOwner(ChainConnectedManager):
         """
         tx_kwargs.setdefault("sender", self.owner)
 
-        if admin_key is None:
+        if admin_keys is None:
             if self.ce is None:
                 raise ValueError("Either admin_key or self.ce must be specified")
 
-            admin_key = await self.ce.admin.get_verifying_key()
+            admin_keys = [await self.ce.admin.get_verifying_key()]
 
-        address = public_key_to_address(admin_key)
+        addresses = [public_key_to_address(k) for k in admin_keys]
 
-        tx = self.vault.setAdmin(address, True, **tx_kwargs)
-        if verify:
-            self.vault.isAdmin(address)
+        if withdrawal_quorum is None:
+            withdrawal_quorum = len(addresses)
 
+        tx = self.vault.setAdministrators(addresses, withdrawal_quorum, **tx_kwargs)
         return tx
 
     async def register_settler(
         self,
-        settler: UserPublicKey,
+        settler: UserPublicKey | User,
         executor: "AddressType | str | AccountAPI | ContractInstance",
         wait: bool = False,
         **tx_kwargs,
@@ -83,9 +80,12 @@ class VaultOwner(ChainConnectedManager):
         """
         Allow a user to settler. Requires being the vault contract owner.
         """
+        if isinstance(settler, User):
+            settler = settler.public_key
+
         executor = self.conversion_manager.convert(executor, AddressType)
         tx_kwargs.setdefault("sender", self.owner)
-        tx = self.vault.addSettlerExecutor(settler, executor, **tx_kwargs)
+        tx = self.vault.add_settler_executor(settler, executor, **tx_kwargs)
 
         if wait:
             if not (ce := self.ce):
