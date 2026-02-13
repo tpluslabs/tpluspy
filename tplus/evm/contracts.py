@@ -342,7 +342,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
             return TPLUS_DEPLOYMENTS[chain_id][self.name]
         except KeyError as err:
             if self.is_local_network and not self._attempted_deploy_dev:
-                self.deploy_dev_and_set_deployment()
+                return self.deploy_dev_and_set_deployment().address
 
             raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.") from err
 
