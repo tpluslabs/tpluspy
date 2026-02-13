@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.types import ChainID, UserPublicKey
-from tplus.utils.decimals import normalize_to_inventory
+from tplus.utils.decimals import to_inventory_decimals
 from tplus.utils.hex import str_to_vec
 
 if TYPE_CHECKING:
@@ -81,9 +81,9 @@ class InnerSettlementRequest(BaseSettlement):
         return cls.model_validate(
             {
                 "asset_in": asset_in,
-                "amount_in": normalize_to_inventory(amount_in, decimals_in, "up"),
+                "amount_in": to_inventory_decimals(amount_in, decimals_in, "up"),
                 "asset_out": asset_out,
-                "amount_out": normalize_to_inventory(amount_out, decimals_out, "down"),
+                "amount_out": to_inventory_decimals(amount_out, decimals_out, "down"),
                 "tplus_user": tplus_user,
                 "settler": settler or tplus_user,
                 "chain_id": chain,
