@@ -191,11 +191,12 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         address: str | None = None,
         tplus_contracts_version: str | None = None,
     ) -> None:
-        self._deployments: dict[int, ContractInstance] = {}
+        self._deployments: dict[str, ContractInstance] = {}
         self._default_deployer = default_deployer
         self._chain_id = chain_id
         self._address = address
         self._tplus_contracts_version = tplus_contracts_version
+        self._attempted_deploy_dev = False
 
         if address is not None and chain_id is not None:
             self._deployments[f"{chain_id}"] = self._contract_container.at(address)
@@ -220,9 +221,10 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return cls.deploy(owner, sender=owner)
 
     def deploy_dev_and_set_deployment(self) -> "TPlusContract":
+        self._attempted_deploy_dev = True
         instance = self.deploy_dev()
         self._address = instance.address
-        self._deployments[instance.address] = instance
+        self._deployments[f"{instance.chain_id}"] = instance
         return instance
 
     def __repr__(self) -> str:
@@ -244,13 +246,16 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
     def name(self) -> str:
         return self.__class__.NAME
 
+    @cached_property
+    def chain_id(self) -> ChainID:
+        return self._chain_id or ChainID.evm(self.chain_manager.chain_id)
+
     @property
     def address(self) -> str:
         if address := self._address:
             return address
 
-        chain_id = self._chain_id or ChainID.evm(self.chain_manager.chain_id)
-        return self.get_address(chain_id=chain_id)
+        return self.get_address(chain_id=self.chain_id)
 
     @property
     def tplus_contracts_project(self) -> "Project":
@@ -269,7 +274,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         try:
             return self.get_contract()
         except ContractNotExists:
-            if self.is_local_network:
+            if self.is_local_network and not self._attempted_deploy_dev:
                 # If simulating, deploy it now.
                 return self.deploy_dev_and_set_deployment()
 
@@ -315,7 +320,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         Returns:
             ContractInstance
         """
-        chain_id = chain_id or self._chain_id or ChainID.evm(self.chain_manager.chain_id)
+        chain_id = chain_id or self.chain_id
         if chain_id in self._deployments:
             # Get previously cached instance.
             return self._deployments[chain_id]
@@ -332,11 +337,11 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         if self._address and self._chain_id and chain_id == self._chain_id:
             return self._address
 
-        chain_id = chain_id or self._chain_id or ChainID.evm(self.chain_manager.chain_id)
+        chain_id = chain_id or self.chain_id
         try:
             return TPLUS_DEPLOYMENTS[chain_id][self.name]
         except KeyError as err:
-            if self.is_local_network:
+            if self.is_local_network and not self._attempted_deploy_dev:
                 self.deploy_dev_and_set_deployment()
 
             raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.") from err
