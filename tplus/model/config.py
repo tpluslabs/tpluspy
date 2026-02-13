@@ -1,4 +1,3 @@
-from eth_abi import encode
 from pydantic import BaseModel
 
 
@@ -67,4 +66,10 @@ class ChainConfig(BaseModel):
         Full ABI encoding of the struct
         equivalent to abi.encode(ChainConfig).
         """
+        try:
+            # Have to do this inline since it is not in the evm namespace.
+            from eth_abi import encode  # type: ignore
+        except ImportError:
+            raise ValueError("Install [evm] extras to use abi-encoding feature")
+
         return encode(self.abi_types, self.abi_values)
