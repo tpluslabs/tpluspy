@@ -41,4 +41,4 @@ class DepositManager(ChainConnectedManager):
             # There actually isn't a way to really wait for deposits since there isn't an API
             # to "get" them. Instead, just wait 3 seconds.
             await asyncio.sleep(3)
-            await ce.deposits.update(self.tplus_user.public_key, self.chain_id)
+            await ce.deposits.update_nonce(self.tplus_user.public_key, self.chain_id)

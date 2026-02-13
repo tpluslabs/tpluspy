@@ -47,16 +47,18 @@ class WithdrawalClient(BaseClearingEngineClient):
         self.logger.error(f"Unknown result format for {prefix} response: {result}.")
         return result  # type: ignore
 
-    async def update(self, user: str, chain_id: ChainID):
+    async def update_nonce(self, user: str, chain_id: ChainID):
         """
-        Request the CE check for new completed deposits for the given user on
+        Request the CE check for new completed withdrawals for the given user on
         the given chain.
 
         Args:
             user (str): The user withdrawing.
             chain_id (int): The chain to request withdrawals for.
         """
-        await self._post("withdrawal/update", json_data={"user": user, "chain_id": chain_id})
+        await self._post(
+            "admin/withdrawal/update-nonce", json_data={"user": user, "chain_id": chain_id}
+        )
 
     async def get_queued(self, user: str) -> list[WithdrawalRequest]:
         """
