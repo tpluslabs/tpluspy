@@ -5,9 +5,9 @@ from eth_utils import keccak, to_hex
 
 from tplus.evm.constants import REGISTRY_ADDRESS
 from tplus.evm.contracts import DepositVault, Registry, TPlusContract, _decode_erc20_error
-from tplus.evm.eip712 import Domain
 from tplus.evm.exceptions import ContractNotExists
 from tplus.model.asset_identifier import ChainAddress
+from tplus.utils.domain import get_dstack_domain
 
 
 class TestTplusContract:
@@ -39,7 +39,8 @@ class TestTplusContract:
 class TestDepositVault:
     def test_deploy(self, accounts):
         owner = accounts[0]
-        instance = DepositVault.deploy(sender=owner)
+        credential_manager = accounts[2]
+        instance = DepositVault.deploy(owner, credential_manager, sender=owner)
         # It should know its address.
         assert instance.address
         assert instance.owner() == owner.address
@@ -48,7 +49,8 @@ class TestDepositVault:
         owner = accounts[0]
         sender = accounts[1]
         deployer_nonce_before = sender.nonce
-        instance = DepositVault.deploy(owner, sender=sender)
+        credential_manager = accounts[2]
+        instance = DepositVault.deploy(owner, credential_manager, sender=sender)
         deployer_nonce_after = sender.nonce
         # It should know its address.
         assert instance.address
@@ -56,22 +58,33 @@ class TestDepositVault:
         assert deployer_nonce_after > deployer_nonce_before
 
     def test_from_chain_address(self):
-        address = ChainAddress(root="62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7")
+        address = ChainAddress.from_str(
+            "62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7"
+        )
         vault = DepositVault.from_chain_address(address)
         assert vault.address == address.evm_address
 
     def test_domain_separator(self, accounts, chain):
         owner = accounts[0]
+        credential_manager = accounts[2]
 
         # Sets domain separator automatically.
-        instance = DepositVault.deploy(sender=owner)
-
-        expected = Domain(chain.chain_id, instance.address).separator
+        instance = DepositVault.deploy(owner, credential_manager, sender=owner)
+        expected = get_dstack_domain(instance.chain_address)
+        instance.set_domain_separator(expected, sender=owner)
 
         # Reads using `eth_getStorageAt()` RPC.
         actual = instance.domain_separator
 
         assert actual == expected
+
+    def test_chain_address(self, accounts):
+        owner = accounts[0]
+        instance = DepositVault.deploy(owner, owner, sender=owner)
+        actual = instance.chain_address
+        assert actual.evm_address == instance.address
+        assert actual.chain_id.routing_id == 0
+        assert actual.chain_id.vm_id == accounts.chain_manager.chain_id
 
 
 @pytest.mark.parametrize("error", ("TransferFromFailed()", "TransferFailed()"))
