@@ -265,10 +265,6 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return self._chain_id or ChainID.evm(self.chain_manager.chain_id)
 
     @property
-    def chain_id(self) -> ChainID:
-        return self._chain_id or ChainID.evm(self.chain_manager.chain_id)
-
-    @property
     def address(self) -> str:
         if address := self._address:
             return address
@@ -519,7 +515,9 @@ class DepositVault(TPlusContract):
         """
         Deploy and set up a development vault.
         """
-        credman = kwargs.get("credential_manager") or ZERO_ADDRESS
+        if not (credman := kwargs.get("credential_manager")):
+            credman = credential_manager.address
+
         sender = sender or cls.account_manager.test_accounts[0]
         contract = cast(DepositVault, cls.deploy(sender, credman, sender=sender))
 
@@ -572,7 +570,10 @@ class CredentialManager(TPlusContract):
         owner = kwargs.get("sender") or get_dev_default_owner()
         operators = kwargs.get("operators", [owner.address])
         threshold = kwargs.get("quorum_threshold") or len(operators)
-        registry_address = kwargs.get("registry") or ZERO_ADDRESS
+
+        if not (registry_address := kwargs.get("registry")):
+            registry_address = registry.address
+
         measurements = kwargs.get("measurements") or []
         automata_verifier = kwargs.get("automata_verifier") or ZERO_ADDRESS
 
