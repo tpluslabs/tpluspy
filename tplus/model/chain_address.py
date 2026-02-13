@@ -103,23 +103,30 @@ class ChainAddress(RootModel[str]):
         return str(self.root)
 
     def __contains__(self, key: Any) -> bool:
-        if isinstance(key, int):
-            return key == self.chain_id
+        if isinstance(key, str):
+            return self._contains_address_str(key)
 
-        elif isinstance(key, str) and key.startswith("0x"):
-            key_str = key.removeprefix("0x")
-            if len(key_str) % 2 != 0:
-                key_str = f"0{key_str}"
-
-            key_bytes = bytes.fromhex(key_str)
-            addr = self.evm_address if len(key_bytes) == 20 else self.address
-            addr = addr.removeprefix("0x")
-            if len(addr) % 2 != 0:
-                addr = f"0{addr}"
-
-            return bytes.fromhex(addr) == key_bytes
+        elif isinstance(key, bytes):
+            return self._contains_address_bytes(key)
 
         return False
+
+    def _contains_address_str(self, value: str) -> bool:
+        key_str = value.removeprefix("0x")
+        if len(key_str) % 2 != 0:
+            key_str = f"0{key_str}"
+
+        key_bytes = bytes.fromhex(key_str)
+        return self._contains_address_bytes(key_bytes)
+
+    def _contains_address_bytes(self, value: bytes) -> bool:
+        addr = self.evm_address if len(value) == 20 else self.address
+
+        addr = addr.removeprefix("0x")
+        if len(addr) % 2 != 0:
+            addr = f"0{addr}"
+
+        return bytes.fromhex(addr) == value
 
     @model_serializer
     def serialize_model(self) -> str:
