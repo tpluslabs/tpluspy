@@ -107,20 +107,19 @@ class ChainAddress(RootModel[str]):
             return key == self.chain_id
 
         elif isinstance(key, str) and key.startswith("0x"):
-            key_str = key.lstrip("0x")
+            key_str = key.removeprefix("0x")
             if len(key_str) % 2 != 0:
                 key_str = f"0{key_str}"
 
             key_bytes = bytes.fromhex(key_str)
             addr = self.evm_address if len(key_bytes) == 20 else self.address
-            addr = addr.lstrip("0x")
+            addr = addr.removeprefix("0x")
             if len(addr) % 2 != 0:
                 addr = f"0{addr}"
 
             return bytes.fromhex(addr) == key_bytes
 
-        # Attemps from the other side before returning False.
-        return NotImplemented
+        return False
 
     @model_serializer
     def serialize_model(self) -> str:

@@ -599,21 +599,6 @@ class CredentialManager(TPlusContract):
             for r in self.contract.getVaults(0, 1000)
         ]
 
-    def get_evm_vaults(self) -> list[tuple[AddressType, int]]:
-        result = []
-        for res in self.get_vaults():
-            addr = res[0]
-            if addr[20:] == b"\x00" * 12:
-                addr_bytes = addr[:20]
-                addr_str = f"0x{addr_bytes.hex()}"
-
-                # Checksum it.
-                checksummed_addr = self.network_manager.ethereum.decode_address(addr_str)
-
-                result.append((checksummed_addr, res[1]))
-
-        return result
-
 
 registry = Registry()
 vault = DepositVault()
