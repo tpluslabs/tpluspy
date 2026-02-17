@@ -13,7 +13,7 @@ from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.logger import get_logger
 from tplus.model.settlement import TxSettlementRequest
 from tplus.model.types import ChainID
-from tplus.utils.amount import AmountPair
+from tplus.utils.amount import Amount
 from tplus.utils.user.decrypt import decrypt_settlement_approval
 
 if TYPE_CHECKING:
@@ -34,9 +34,9 @@ class SettlementInfo:
     """
 
     asset_in: "AssetIdentifier"
-    amount_in: AmountPair
+    amount_in: Amount
     asset_out: "AssetIdentifier"
-    amount_out: AmountPair
+    amount_out: Amount
     expected_nonce: int
 
 
@@ -139,9 +139,9 @@ class SettlementManager(ChainConnectedManager):
     async def init_settlement(
         self,
         asset_in: "AssetIdentifier",
-        amount_in: AmountPair,
+        amount_in: Amount,
         asset_out: "AssetIdentifier",
-        amount_out: AmountPair,
+        amount_out: Amount,
     ) -> SettlementInfo:
         """
         Initialize a settlement asynchronously without waiting for approval.
@@ -161,13 +161,16 @@ class SettlementManager(ChainConnectedManager):
         # Get the expected nonce (current count before this settlement - it will increment after init)
         expected_nonce = self.vault.settlementCounts(self.tplus_user.public_key)
 
+        amount_in_normalized = amount_in.to_inventory_amount("up")
+        amount_out_normalized = amount_out.to_inventory_amount("down")
+
         request = TxSettlementRequest.create_signed(
             {
                 "chain_id": self.chain_id,
                 "asset_in": asset_in,
-                "amount_in": amount_in.normalized,
+                "amount_in": amount_in_normalized,
                 "asset_out": asset_out,
-                "amount_out": amount_out.normalized,
+                "amount_out": amount_out_normalized,
             },
             self.tplus_user,
         )
@@ -175,8 +178,8 @@ class SettlementManager(ChainConnectedManager):
 
         self.logger.info(
             f"Initialized settlement - Asset in: {asset_in.evm_address}, "
-            f"Amount in: {amount_in.atomic}, Asset out: {asset_out.evm_address}, "
-            f"Amount out: {amount_out.atomic}, Expected nonce: {expected_nonce}"
+            f"Amount in: {amount_in.amount}, Asset out: {asset_out.evm_address}, "
+            f"Amount out: {amount_out.amount}, Expected nonce: {expected_nonce}"
         )
 
         return SettlementInfo(
@@ -226,9 +229,9 @@ class SettlementManager(ChainConnectedManager):
             f"Chain ID: {self.chain_id}, "
             f"User: {self.tplus_user.public_key}, "
             f"Asset in: {settlement_info.asset_in.evm_address}, "
-            f"Amount in: {settlement_info.amount_in.atomic}, "
+            f"Amount in: {settlement_info.amount_in.amount}, "
             f"Asset out: {settlement_info.asset_out.evm_address}, "
-            f"Amount out: {settlement_info.amount_out.atomic}, "
+            f"Amount out: {settlement_info.amount_out.amount}, "
             f"Nonce: {nonce}, "
             f"Expiry: {expiry}, "
             f"Domain separator: {self.vault.domain_separator.hex()}"
@@ -238,9 +241,9 @@ class SettlementManager(ChainConnectedManager):
         tx = self.settlement_vault.execute_atomic_settlement(
             {
                 "tokenIn": settlement_info.asset_in.evm_address,
-                "amountIn": settlement_info.amount_in.atomic,
+                "amountIn": settlement_info.amount_in.amount,
                 "tokenOut": settlement_info.asset_out.evm_address,
-                "amountOut": settlement_info.amount_out.atomic,
+                "amountOut": settlement_info.amount_out.amount,
                 "nonce": nonce,
             },
             HexBytes(self.tplus_user.public_key),
