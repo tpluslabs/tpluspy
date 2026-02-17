@@ -2,7 +2,6 @@ from tplus.client.base import BaseClient
 
 
 class OmsAdminClient(BaseClient):
-
     async def set_settings(
         self,
         solvency_verifier: str,
