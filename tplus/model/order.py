@@ -110,6 +110,9 @@ class OrderResponse(BaseModel):
     trigger_below_price: Decimal | None
     trigger_touched: bool | None = None
     last_update_timestamp_ns: int | None
+    is_immediate_or_cancel: bool | None = None
+    is_fill_or_kill: bool | None = None
+    is_liquidation: bool | None = None
 
 
 def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
