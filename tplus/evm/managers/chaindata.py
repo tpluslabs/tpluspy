@@ -8,6 +8,7 @@ from tplus.model.types import ChainID
 
 if TYPE_CHECKING:
     from tplus.model.asset_identifier import AssetIdentifier
+    from tplus.model.types import UserPublicKey
     from tplus.utils.user import User
 
 
@@ -18,13 +19,13 @@ class ChainDataFetcher(ChainConnectedManager):
 
     def __init__(
         self,
-        tplus_user: "User",
+        default_user: "User",
         clearing_engine: ClearingEngineClient | None = None,
         chain_id: ChainID | None = None,
     ):
-        self.tplus_user = tplus_user
+        self.default_user = default_user
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient(
-            self.tplus_user, "http://127.0.0.1:3032"
+            self.default_user, "http://127.0.0.1:3032"
         )
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
 
@@ -78,11 +79,13 @@ class ChainDataFetcher(ChainConnectedManager):
     async def sync_assets(self):
         await self.ce.assets.update()
 
-    async def sync_deposits(self):
-        await self.ce.deposits.update_nonce(self.tplus_user.public_key, self.chain_id)
+    async def sync_deposits(self, user: "UserPublicKey | None" = None) -> None:
+        user = user or self.default_user.public_key
+        await self.ce.deposits.update_nonce(user, self.chain_id)
 
-    async def sync_settlements(self):
-        await self.ce.settlements.update_nonce(self.tplus_user.public_key, self.chain_id)
+    async def sync_settlements(self, user: "UserPublicKey | None" = None):
+        user = user or self.default_user.public_key
+        await self.ce.settlements.update_nonce(user, self.chain_id)
 
     async def update_decimals(self, assets: Sequence["AssetIdentifier"]):
         await self.ce.decimals.update(

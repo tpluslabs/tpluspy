@@ -15,7 +15,15 @@ ASSET_OUT = "0x58372ab62269A52fA636aD7F200d93999595DCAF"
 class TestInnerSettlementRequest:
     def test_from_raw(self, user):
         request = InnerSettlementRequest.from_raw(
-            ASSET_IN, 100, 6, ASSET_OUT, 100, 18, user.public_key, CHAIN_ID
+            ASSET_IN,
+            100,
+            6,
+            ASSET_OUT,
+            100,
+            18,
+            user.public_key,
+            CHAIN_ID,
+            0,
         )
         assert (
             request.asset_in.root
@@ -35,6 +43,7 @@ class TestTxSettlementRequest:
     def settlement(self, user):
         return {
             "tplus_user": user.public_key,
+            "sub_account_index": 0,
             "settler": user.public_key,
             **get_base_settlement_data(),
             "chain_id": CHAIN_ID,
@@ -46,7 +55,7 @@ class TestTxSettlementRequest:
         """
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","settler":"{user.public_key}","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000aa36a7","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000aa36a7","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
         assert actual == expected
 
         # Show it is the same as the inner version.

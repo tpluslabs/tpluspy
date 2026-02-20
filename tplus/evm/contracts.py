@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from ape.contracts.base import ContractContainer, ContractInstance
     from ape.managers.project import LocalProject
 
+    from tplus.utils.user import User
+
 CHAIN_MAP = {
     1: "ethereum:mainnet",
     11155111: "ethereum:sepolia",
@@ -108,6 +110,9 @@ def load_tplus_contracts_project(version: str | None = None) -> "LocalProject":
     if ManagerAccessMixin.local_project.name == "tplus-contracts":
         # Working from the t+ contracts repo
         return ManagerAccessMixin.local_project
+
+    elif path := os.environ.get("TPLUS_CONTRACTS_PATH"):
+        return Project(path)
 
     # Load the project from dependencies.
     try:
@@ -193,7 +198,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         address: str | None = None,
         tplus_contracts_version: str | None = None,
     ) -> None:
-        self._deployments: dict[int, ContractInstance] = {}
+        self._deployments: dict[str, ContractInstance] = {}
         self._default_deployer = default_deployer
 
         if isinstance(chain_id, int):
@@ -202,9 +207,12 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         self._chain_id = chain_id
         self._address = address
         self._tplus_contracts_version = tplus_contracts_version
+        self._attempted_deploy_dev = False
 
         if address is not None and chain_id is not None:
-            self._deployments[f"{chain_id}"] = self._contract_container.at(address)
+            self._deployments[f"{chain_id}"] = self._contract_container.at(
+                address, detect_proxy=False, fetch_from_explorer=False
+            )
 
     @classmethod
     def at(cls, address: str) -> "TPlusContract":
@@ -233,6 +241,13 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         owner = kwargs.get("sender") or get_dev_default_owner()
         return cls.deploy(owner, sender=owner)
 
+    def deploy_dev_and_set_deployment(self) -> "TPlusContract":
+        self._attempted_deploy_dev = True
+        instance = self.deploy_dev()
+        self._address = instance.address
+        self._deployments[f"{instance.chain_id}"] = instance
+        return instance
+
     def __repr__(self) -> str:
         return f"<{self.name}>"
 
@@ -241,14 +256,18 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
             # First, try a regular attribute on the class
             return self.__getattribute__(attr_name)
         except AttributeError:
-            # Resort to something defined on the contract.
+            if attr_name.startswith("_"):
+                # Ignore internals, causes integration issues.
+                raise
+
+            # Try something defined on the contract.
             return getattr(self.contract, attr_name)
 
     @property
     def name(self) -> str:
         return self.__class__.NAME
 
-    @property
+    @cached_property
     def chain_id(self) -> ChainID:
         return self._chain_id or ChainID.evm(self.chain_manager.chain_id)
 
@@ -257,8 +276,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         if address := self._address:
             return address
 
-        chain_id = self._chain_id or ChainID.evm(self.chain_manager.chain_id)
-        return self.get_address(chain_id=chain_id)
+        return self.get_address(chain_id=self.chain_id)
 
     @property
     def tplus_contracts_project(self) -> "Project":
@@ -277,14 +295,15 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         try:
             return self.get_contract()
         except ContractNotExists:
-            if self.chain_manager.provider.network.is_local:
+            if self.is_local_network and not self._attempted_deploy_dev:
                 # If simulating, deploy it now.
-                instance = self.deploy_dev()
-                self._address = instance.address
-                self._deployments[self.chain_manager.chain_id] = instance
-                return instance
+                return self.deploy_dev_and_set_deployment()
 
             raise  # This error.
+
+    @property
+    def is_local_network(self) -> bool:
+        return self.chain_manager.provider.network.is_local
 
     @property
     def default_deployer(self) -> AccountAPI:
@@ -322,13 +341,15 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         Returns:
             ContractInstance
         """
-        chain_id = chain_id or self._chain_id or ChainID.evm(self.chain_manager.chain_id)
+        chain_id = chain_id or self.chain_id
         if chain_id in self._deployments:
             # Get previously cached instance.
             return self._deployments[chain_id]
 
         address = self.get_address(chain_id=chain_id)
-        contract_container = self._contract_container.at(address)
+        contract_container = self._contract_container.at(
+            address, detect_proxy=False, fetch_from_explorer=False
+        )
 
         # Cache for next time.
         self._deployments[chain_id] = contract_container
@@ -339,11 +360,18 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         if self._address and self._chain_id and chain_id == self._chain_id:
             return self._address
 
-        chain_id = chain_id or self._chain_id or ChainID.evm(self.chain_manager.chain_id)
+        chain_id = chain_id or self.chain_id
         try:
             return TPLUS_DEPLOYMENTS[chain_id][self.name]
-        except KeyError:
-            raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.")
+        except KeyError as err:
+            if self.is_local_network and not self._attempted_deploy_dev:
+                try:
+                    return self.deploy_dev_and_set_deployment().address
+                except Exception:
+                    # Raise `ContractNotExists` below.
+                    pass
+
+            raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.") from err
 
 
 class Registry(TPlusContract):
@@ -383,17 +411,25 @@ class Registry(TPlusContract):
         self,
         index: int,
         asset_address: HexBytes32 | AddressType,
-        chain_id: int,
+        chain_id: ChainID,
         max_deposit: int,
+        max_1hr_deposits: int,
+        min_weight: int,
         sender=None,
     ) -> None:
         if isinstance(asset_address, str) and len(asset_address) <= 42:
             # Given EVM style address. Store as right-padded address.
             asset_address = to_bytes32(asset_address, pad="r")
 
-        return self.contract.setAssetData(
-            index, (asset_address, chain_id, max_deposit), sender=sender
-        )
+        data = {
+            "index": index,
+            "assetAddress": asset_address,
+            "chainId": {"routingId": chain_id.routing_id, "vmId": chain_id.vm_id},
+            "maxDeposits": max_deposit,
+            "max1hrDeposits": max_1hr_deposits,
+            "minWeight": min_weight,
+        }
+        return self.contract.setAssetData(data, sender=sender)
 
 
 class DepositVault(TPlusContract):
@@ -435,6 +471,24 @@ class DepositVault(TPlusContract):
     ) -> "ReceiptAPI":
         return self.addSettlerExecutor(settler, executor, **kwargs)
 
+    def get_settlement_count(self, user: "UserPublicKey | User", account_index: int) -> int:
+        if not isinstance(user, UserPublicKey):
+            user = user.public_key
+
+        return self.contract.settlementCounts(user, account_index)
+
+    def get_deposit_count(self, user: "UserPublicKey | User", account_index: int) -> int:
+        if not isinstance(user, UserPublicKey):
+            user = user.public_key
+
+        return self.contract.depositCounts(user, account_index)
+
+    def get_withdrawal_count(self, user: "UserPublicKey | User", account_index: int) -> int:
+        if not isinstance(user, UserPublicKey):
+            user = user.public_key
+
+        return self.contract.withdrawalCounts(user, account_index)
+
     def deposit(
         self,
         user: UserPublicKey,
@@ -455,6 +509,7 @@ class DepositVault(TPlusContract):
         self,
         settlement: dict,
         user: UserPublicKey,
+        sub_account: int,
         expiry: int,
         data: HexBytes,
         signature: HexBytes,
@@ -462,11 +517,11 @@ class DepositVault(TPlusContract):
     ) -> "ReceiptAPI":
         try:
             return self.contract.executeAtomicSettlement(
-                settlement, user, expiry, data, signature, **tx_kwargs
+                settlement, user, sub_account, expiry, data, signature, **tx_kwargs
             )
         except Exception as err:
             err_id = getattr(err, "message", "")
-            if erc20_err_name := _decode_erc20_error(err.message):
+            if erc20_err_name := _decode_erc20_error(getattr(err, "message", f"{err}")):
                 raise ContractLogicError(erc20_err_name) from err
 
             elif err_id == "0x203d82d8":
@@ -500,7 +555,9 @@ class DepositVault(TPlusContract):
         """
         Deploy and set up a development vault.
         """
-        credman = kwargs.get("credential_manager") or ZERO_ADDRESS
+        if not (credman := kwargs.get("credential_manager")):
+            credman = credential_manager.address
+
         sender = sender or cls.account_manager.test_accounts[0]
         contract = cast(DepositVault, cls.deploy(sender, credman, sender=sender))
 
@@ -553,7 +610,10 @@ class CredentialManager(TPlusContract):
         owner = kwargs.get("sender") or get_dev_default_owner()
         operators = kwargs.get("operators", [owner.address])
         threshold = kwargs.get("quorum_threshold") or len(operators)
-        registry_address = kwargs.get("registry") or ZERO_ADDRESS
+
+        if not (registry_address := kwargs.get("registry")):
+            registry_address = registry.address
+
         measurements = kwargs.get("measurements") or []
         automata_verifier = kwargs.get("automata_verifier") or ZERO_ADDRESS
 

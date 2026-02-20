@@ -8,10 +8,15 @@ from tplus.utils.hex import str_to_vec
 from tplus.utils.user.validate import privkey_to_bytes
 
 SEED_SIZE = 32
+MAIN_SUB_ACCOUNT = 0
 
 
 class User:
-    def __init__(self, private_key: str | bytes | Ed25519PrivateKey | None = None):
+    def __init__(
+        self,
+        private_key: str | bytes | Ed25519PrivateKey | None = None,
+        sub_account: int | None = None,
+    ):
         if private_key:
             if isinstance(private_key, str | bytes):
                 private_key_bytes = privkey_to_bytes(private_key)
@@ -30,6 +35,7 @@ class User:
             self.sk = Ed25519PrivateKey.generate()
 
         self.vk = self.sk.public_key()
+        self._sub_account = sub_account
 
     def __repr__(self) -> str:
         return f"<User {self.public_key}>"
@@ -42,6 +48,10 @@ class User:
     @cached_property
     def public_key_vec(self) -> list[int]:
         return str_to_vec(self.public_key)
+
+    @property
+    def sub_account(self) -> int:
+        return self._sub_account or MAIN_SUB_ACCOUNT
 
     # Legacy: use `.public_key` (cached).
     def pubkey(self) -> str:
