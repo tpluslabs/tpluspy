@@ -60,7 +60,7 @@ def validate_chain_address(chain_address: str) -> str:
     # Case 1: Already validated.
     if isinstance(chain_address, ChainAddress):
         # Already validated.
-        return chain_address
+        return f"{chain_address}"
 
     # Case 2: Input is a dictionary from the backend (e.g., from JSON deserialization)
     elif isinstance(chain_address, dict):
@@ -111,6 +111,9 @@ class ChainAddress(RootModel[str]):
 
         return False
 
+    def __eq__(self, other: Any) -> bool:
+        return f"{other}" == f"{self}"
+
     def _contains_address_str(self, value: str) -> bool:
         key_str = value.removeprefix("0x")
         if len(key_str) % 2 != 0:
@@ -147,7 +150,10 @@ class ChainAddress(RootModel[str]):
         except ImportError:
             return address  # Non-checksummed.
 
-        return to_checksum_address(address)
+        try:
+            return to_checksum_address(address)
+        except Exception as err:
+            raise ValueError(f"Invalid address '{address}'") from err
 
     @cached_property
     def chain_id(self) -> ChainID:

@@ -1,6 +1,7 @@
 import pytest
 
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.chain_address import ChainAddress
 
 
 class TestAssetIdentifier:
@@ -130,3 +131,10 @@ class TestAssetIdentifier:
         raw_str = "62622E77D1349Face943C6e7D5c01C61465FE1dc@a4b1"
         with pytest.raises(ValueError):
             _ = AssetIdentifier(raw_str)
+
+    def test_validate_from_chain_address(self):
+        address = ChainAddress.from_str(
+            "62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7"
+        )
+        asset = AssetIdentifier.model_validate(address)
+        assert asset == address
