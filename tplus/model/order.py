@@ -10,7 +10,7 @@ from pydantic import BaseModel, ValidationError, field_serializer
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
 from tplus.model.market_order import MarketOrderDetails
-from tplus.model.order_trigger import TriggerAbove, TriggerBelow
+from tplus.model.order_trigger import OrderTrigger
 from tplus.model.types import UserPublicKey
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class Order(BaseModel):
     book_quantity_decimals: int
     details: LimitOrderDetails | MarketOrderDetails
     side: Side
-    trigger: TriggerAbove | TriggerBelow | None = None
+    trigger: OrderTrigger | None = None
     creation_timestamp_ns: int
     canceled: bool = False
     target: TradeTarget = TradeTarget.margin_account_spot_trade()
@@ -109,6 +109,7 @@ class OrderResponse(BaseModel):
     trigger_above_price: Decimal | None
     trigger_below_price: Decimal | None
     trigger_touched: bool | None = None
+    parent_id: str | None = None
     last_update_timestamp_ns: int | None
     is_immediate_or_cancel: bool | None = None
     is_fill_or_kill: bool | None = None
