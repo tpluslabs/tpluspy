@@ -299,8 +299,15 @@ class SettlementManager(ChainConnectedManager):
         kwargs.setdefault("required_confirmations", 0)
 
         if token_in_address is None:
+            if settlement_info.asset_in.indexed:
+                raise ValueError("Missing address for indexed asset-in, please specify.")
+
             token_in_address = settlement_info.asset_in.evm_address
+
         if token_out_address is None:
+            if settlement_info.asset_out.indexed:
+                raise ValueError("Missing address for indexed asset-out, please specify.")
+
             token_out_address = settlement_info.asset_out.evm_address
 
         # Execute the settlement on-chain.

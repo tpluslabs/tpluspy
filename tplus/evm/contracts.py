@@ -107,12 +107,12 @@ def load_tplus_contracts_project(version: str | None = None) -> "LocalProject":
     Else, it checks all Ape installed dependencies. If it is not installed, it will fail.
     Install the tplus-contracts project by running ``ape pm install tpluslabs/tplus-contracts``.
     """
-    if ManagerAccessMixin.local_project.name == "tplus-contracts":
+    if path := os.environ.get("TPLUS_CONTRACTS_PATH"):
+        return Project(path)
+
+    elif ManagerAccessMixin.local_project.name == "tplus-contracts":
         # Working from the t+ contracts repo
         return ManagerAccessMixin.local_project
-
-    elif path := os.environ.get("TPLUS_CONTRACTS_PATH"):
-        return Project(path)
 
     # Load the project from dependencies.
     try:

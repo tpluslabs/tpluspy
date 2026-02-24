@@ -66,7 +66,6 @@ class RegistryOwner(ChainConnectedManager):
             await wait_for_condition(
                 update_fn=lambda: ce.assets.update(),
                 get_fn=lambda: ce.assets.get(),
-                # cond: checks if the vault address is part any of the ChainAddress returned.
                 check_fn=lambda assets: f"{index}" in assets,
                 timeout=10,
                 interval=1,
