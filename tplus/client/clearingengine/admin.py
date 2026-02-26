@@ -187,6 +187,21 @@ class AdminClient(BaseClearingEngineClient):
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
 
+    async def set_book_decimals(
+        self,
+        asset_id: AssetIdentifier,
+        book_price_decimals: int,
+        book_quantity_decimals: int,
+    ):
+        await self._post(
+            "admin/book-decimals/modify",
+            json_data={
+                "asset_id": asset_id,
+                "book_price_decimals": book_price_decimals,
+                "book_quantity_decimals": book_quantity_decimals,
+            },
+        )
+
     async def set_trader_as_mm(
         self,
         user: User,
