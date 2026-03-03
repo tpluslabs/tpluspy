@@ -178,12 +178,16 @@ class SettlementManager(ChainConnectedManager):
         Returns:
             SettlementInfo: Information about the settlement including the expected nonce.
         """
-        if on_approved and then_execute:
-            raise ValueError("Cannot provide both `on_approved` and `then_execute` arguments.")
 
-        # Get the expected nonce (current count before this settlement - it will increment after init)
+        if on_approved and then_execute:
+            raise ValueError("Cannot provide both `on_approved` and `then_execute`.")
+
         user = user or self.default_user
-        expected_nonce = self.vault.settlementCounts(user.public_key, user.sub_account)
+
+        expected_nonce = self.vault.settlementCounts(
+            user.public_key,
+            user.sub_account,
+        )
 
         amount_in_normalized = amount_in.to_inventory_amount("up")
         amount_out_normalized = amount_out.to_inventory_amount("down")
@@ -203,14 +207,6 @@ class SettlementManager(ChainConnectedManager):
             user,
         )
 
-        await self._init_settlement(request)
-
-        self.logger.info(
-            f"Initialized settlement - Asset in: {asset_in}, "
-            f"Amount in: {amount_in.amount}, Asset out: {asset_out}, "
-            f"Amount out: {amount_out.amount}, Expected nonce: {expected_nonce}"
-        )
-
         settlement_info = SettlementInfo(
             asset_in=asset_in,
             amount_in=amount_in,
@@ -219,44 +215,61 @@ class SettlementManager(ChainConnectedManager):
             nonce=expected_nonce,
         )
 
+        approval_task: asyncio.Task | None = None
+
         if on_approved or then_execute:
             handler = SettlementApprovalHandler(self)
 
             if then_execute:
 
-                async def on_approved(info, approval):
+                async def _internal_on_approved(info, approval):
                     await self.execute_settlement(info, approval)
+
+                effective_callback = _internal_on_approved
+            else:
+                effective_callback = on_approved
 
             async def approval_handling_task_fn():
                 try:
                     async with asyncio.timeout(12):
                         await handler.handle_approvals(
-                            on_approval_received=on_approved,
+                            on_approval_received=effective_callback,
                             stop_at=1,
                             pending_settlements={expected_nonce: settlement_info},
                         )
                 except TimeoutError:
                     self.logger.info("Approval handler timed out")
 
-            approval_handling_task = asyncio.create_task(approval_handling_task_fn())
+            approval_task = asyncio.create_task(approval_handling_task_fn())
 
             self._approval_handling_tasks.setdefault(user.public_key, {})
-
-            self._approval_handling_tasks[user.public_key][settlement_info.nonce] = (
-                approval_handling_task
-            )
+            self._approval_handling_tasks[user.public_key][expected_nonce] = approval_task
 
             def _cleanup(_task: asyncio.Task):
                 tasks = self._approval_handling_tasks.get(user.public_key)
                 if not tasks:
                     return
-
-                tasks.pop(settlement_info.nonce, None)
-
+                tasks.pop(expected_nonce, None)
                 if not tasks:
                     self._approval_handling_tasks.pop(user.public_key, None)
 
-            approval_handling_task.add_done_callback(_cleanup)
+            approval_task.add_done_callback(_cleanup)
+
+        try:
+            await self._init_settlement(request)
+        except Exception:
+            if approval_task:
+                approval_task.cancel()
+            raise
+
+        self.logger.info(
+            f"Initialized settlement - Asset in: {asset_in}, "
+            f"Amount in: {amount_in.amount}, Asset out: {asset_out}, "
+            f"Amount out: {amount_out.amount}, Expected nonce: {expected_nonce}"
+        )
+
+        if then_execute and approval_task:
+            await approval_task
 
         return settlement_info
 
