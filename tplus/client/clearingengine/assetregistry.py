@@ -42,3 +42,16 @@ class AssetRegistryClient(BaseClearingEngineClient):
         Request that the clearing engine updates its registered risk parameters.
         """
         await self._post("params/update")
+
+    async def update_fee_account(self):
+        """
+        Request that the clearing engine update its fee account.
+        """
+        await self._post("fee-account/update")
+
+    async def get_fee_account(self) -> str:
+        """
+        Get the fee account.
+        """
+        account = await self._get("fee-account")
+        return f"{account}"
