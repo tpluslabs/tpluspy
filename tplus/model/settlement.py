@@ -6,6 +6,7 @@ from eth_pydantic_types.hex.int import HexInt
 from pydantic import BaseModel, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.chain_address import ChainAddress
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.decimals import to_inventory_decimals
 from tplus.utils.hex import str_to_vec
@@ -35,6 +36,7 @@ class InnerSettlementRequest(BaseSettlement):
     """
 
     tplus_user: UserPublicKey
+    sub_account_index: int
     settler: UserPublicKey
     chain_id: ChainID
 
@@ -49,6 +51,7 @@ class InnerSettlementRequest(BaseSettlement):
         decimals_out: int,
         tplus_user: UserPublicKey,
         chain: ChainID | str,
+        sub_account_index: int,
         settler: UserPublicKey | None = None,
     ) -> "InnerSettlementRequest":
         """
@@ -69,14 +72,13 @@ class InnerSettlementRequest(BaseSettlement):
               settlement will occur.
             settler (:class:`~tplus.models.types.UserPublicKey`): The settler tplus account. If not provided, uses the
               same account as ``tplus_user``.
+            sub_account_index (int): The settler account index to pull funds from.
 
         Returns:
             InnerSettlementRequest: A normalized settlement request ready for processing.
         """
-        if isinstance(asset_in, str) and "@" not in asset_in:
-            asset_in = AssetIdentifier(f"{asset_in}@{chain}")
-        if isinstance(asset_out, str) and "@" not in asset_out:
-            asset_out = AssetIdentifier(f"{asset_out}@{chain}")
+        asset_in = cls._validate_asset(asset_in, chain)
+        asset_out = cls._validate_asset(asset_out, chain)
 
         return cls.model_validate(
             {
@@ -87,8 +89,18 @@ class InnerSettlementRequest(BaseSettlement):
                 "tplus_user": tplus_user,
                 "settler": settler or tplus_user,
                 "chain_id": chain,
+                "sub_account_index": sub_account_index,
             }
         )
+
+    @classmethod
+    def _validate_asset(cls, asset, chain: ChainID | str) -> AssetIdentifier:
+        if isinstance(asset, ChainAddress) and not isinstance(asset, AssetIdentifier):
+            return AssetIdentifier.model_validate(f"{asset}")
+        elif isinstance(asset, str) and "@" not in asset:
+            return AssetIdentifier(f"{asset}@{chain}")
+
+        return asset
 
     def signing_payload(self) -> str:
         base_data = self.model_dump(mode="json", exclude_none=True)
@@ -100,12 +112,18 @@ class InnerSettlementRequest(BaseSettlement):
         # NOTE: The order here matters!
         payload = {
             "tplus_user": user,
+            "sub_account_index": base_data.pop("sub_account_index"),
             "settler": settler,
             **base_data,
             "chain_id": chain_id,
         }
 
-        return json.dumps(payload, separators=(",", ":"))
+        return (
+            json.dumps(payload, separators=(",", ":"))
+            .replace(" ", "")
+            .replace("\n", "")
+            .replace("\t", "")
+        )
 
 
 class TxSettlementRequest(BaseModel):
@@ -147,7 +165,9 @@ class TxSettlementRequest(BaseModel):
 
             inner = InnerSettlementRequest.model_validate(inner)
 
-        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
+        signing_payload = inner.signing_payload()
+
+        signature = str_to_vec(signer.sign(signing_payload).hex())
         return cls(inner=inner, signature=signature)
 
     def signing_payload(self) -> str:

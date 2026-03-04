@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from ape.types.address import AddressType
 
     from tplus.client.clearingengine import ClearingEngineClient
+    from tplus.model.types import UserPublicKey
     from tplus.utils.user import User
 
 
@@ -18,21 +19,26 @@ class DepositManager(ChainConnectedManager):
     def __init__(
         self,
         account: "AccountAPI",
-        tplus_user: "User",
+        default_user: "User",
         vault: DepositVault | None = None,
         chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
     ):
         self.account = account
-        self.tplus_user = tplus_user
+        self.default_user = default_user
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         self.ce = clearing_engine
         self.vault = vault if vault else DepositVault(chain_id=self.chain_id)
 
     async def deposit(
-        self, token: "str | AddressType | ContractInstance", amount: int, wait: bool = False
+        self,
+        token: "str | AddressType | ContractInstance",
+        amount: int,
+        wait: bool = False,
+        user: "UserPublicKey | None" = None,
     ):
-        self.vault.deposit(self.tplus_user.public_key, token, amount, sender=self.account)
+        user = user or self.default_user.public_key
+        self.vault.deposit(user, token, amount, sender=self.account)
 
         if wait:
             if not (ce := self.ce):
@@ -41,4 +47,4 @@ class DepositManager(ChainConnectedManager):
             # There actually isn't a way to really wait for deposits since there isn't an API
             # to "get" them. Instead, just wait 3 seconds.
             await asyncio.sleep(3)
-            await ce.deposits.update_nonce(self.tplus_user.public_key, self.chain_id)
+            await ce.deposits.update_nonce(user, self.chain_id)
