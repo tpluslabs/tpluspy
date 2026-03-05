@@ -128,7 +128,7 @@ class SettlementManager(ChainConnectedManager):
         user = user or self.default_user
 
         try:
-            encrypted_data = message["encrypted_data"]
+            encrypted_data = message["data"]
         except KeyError as err:
             self.logger.warning(f"Missing expected key 'encrypted_data' in approval message: {err}")
             return None
