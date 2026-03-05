@@ -126,11 +126,12 @@ class SettlementManager(ChainConnectedManager):
             SettlementApproval: The decrypted approval dictionary, or None if decryption/parsing fails.
         """
         user = user or self.default_user
+        key = "approval"
 
         try:
-            encrypted_data = message["data"]
+            encrypted_data = message[key]
         except KeyError as err:
-            self.logger.warning(f"Missing expected key 'encrypted_data' in approval message: {err}")
+            self.logger.warning(f"Missing expected key '{key}' in approval message: {err}")
             return None
 
         try:
