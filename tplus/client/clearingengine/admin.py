@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import Prehashed, decode_ds
 
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.interest_rates import InterestRates
 from tplus.model.types import UserPublicKey
 from tplus.utils.user import User
 
@@ -226,4 +227,15 @@ class AdminClient(BaseClearingEngineClient):
                 },
                 "signature": sig,
             },
+        )
+
+    async def set_interest_rates(
+        self,
+        rates: [InterestRates]
+    ):
+        await self._post(
+            "admin/interest/inject",
+            json_data={
+                "rates": [r.model_dump(mode="json") for r in rates]
+            }
         )
