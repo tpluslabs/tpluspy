@@ -29,6 +29,7 @@ class UserTrade(BaseModel):
     is_maker: bool = Field(..., description="True if this user was the maker")
     is_buyer: bool = Field(..., description="True if this user was the buyer")
     status: Literal["Pending", "Confirmed", "Rollbacked"]
+    rollback_reason: str | None
 
     @property
     def buyer_is_maker(self) -> bool:
@@ -106,6 +107,7 @@ def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
             is_maker=bool(item["is_maker"]),
             is_buyer=bool(item["is_buyer"]),
             status=item["status"],
+            rollback_reason=item["rollback_reason"],
         )
     except (KeyError, ValueError, TypeError) as e:
         raise ValueError(f"Invalid user trade data: {item}") from e
