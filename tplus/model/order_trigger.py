@@ -30,10 +30,8 @@ class OrderTrigger(BaseModel):
     trigger: TriggerAbove | TriggerBelow
 
     @model_serializer
-    def serialize_model(self) -> dict[str, dict[str, Any] | str]:
-        if self.parent_order_id is not None:
-            return {
-                "parent_order_id": self.parent_order_id,
-                "trigger": self.trigger.serialize_model(),
-            }
-        return {"trigger": self.trigger.serialize_model()}
+    def serialize_model(self) -> dict[str, dict[str, Any] | str | None]:
+        return {
+            "parent_order_id": self.parent_order_id,
+            "condition": self.trigger.serialize_model(),
+        }
