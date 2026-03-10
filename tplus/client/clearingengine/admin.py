@@ -229,14 +229,8 @@ class AdminClient(BaseClearingEngineClient):
             },
         )
 
-    async def set_interest_rates(
-        self,
-        rates: [InterestRates]
-    ):
+    async def set_interest_rates(self, rates: [InterestRates]):
         await self._post(
             "admin/interest/inject",
-            json_data={
-                "request_id": 1,
-                "rates": [r.model_dump(mode="json") for r in rates]
-            }
+            json_data={"request_id": 1, "rates": [r.model_dump(mode="json") for r in rates]},
         )
