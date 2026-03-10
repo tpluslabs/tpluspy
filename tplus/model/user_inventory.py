@@ -1,4 +1,5 @@
 from typing import Literal
+from decimal import Decimal
 
 from pydantic import BaseModel
 
@@ -6,14 +7,14 @@ from pydantic import BaseModel
 class Spot(BaseModel):
     """Represents a single spot account with multiple assets"""
 
-    spot_account_balance: dict[str, int]
+    spot_account_balance: dict[str, Decimal]
 
 
 class Balance(BaseModel):
     """Represents either credits or liabilities for given asset"""
 
-    credits: int
-    liabilities: int
+    credits: Decimal
+    liabilities: Decimal
 
 
 class MarginPosition(BaseModel):
