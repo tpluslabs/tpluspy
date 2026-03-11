@@ -37,6 +37,10 @@ from tplus.model.trades import (
     parse_trade_event,
     parse_trades,
 )
+from tplus.model.user_margin import (
+    UserMarginInfo,
+    parse_user_margin_info,
+)
 from tplus.model.user_solvency import (
     UserSolvency,
     parse_user_solvency,
@@ -727,4 +731,55 @@ class OrderBookClient(BaseClient):
             raise Exception("Invalid response from get_user_solvency.")
 
         parsed_data: UserSolvency = parse_user_solvency(response_data)
+        return parsed_data
+
+    async def get_user_margin_info(
+        self,
+        sub_accounts: list[int] | None = None,
+        include_positions: bool = False,
+    ) -> UserMarginInfo:
+        """
+        Get detailed margin breakdown for the authenticated user (async).
+
+        Returns margin metrics for each sub-account including:
+        - Account equity: Total portfolio value at mark prices (no haircuts applied)
+        - Available margin: IM surplus - how much margin is available for new positions
+        - Utilized margin: Total margin currently consumed by existing positions
+        - Maintenance margin surplus: Distance from liquidation (MM surplus)
+        - Account leverage: total_notional / equity
+        - Per-position breakdown (optional)
+
+        The endpoint uses min(oracle, LTP) pricing for surplus calculations,
+        matching the solvency check conjunction over both price types.
+
+        Args:
+            sub_accounts: Optional list of sub-account indices to include.
+                If None or empty, returns info for all sub-accounts.
+            include_positions: If True, includes per-position breakdown
+                with size and notional value for each position.
+
+        Returns:
+            UserMarginInfo containing margin breakdown per sub-account.
+
+        Raises:
+            Exception: If the API response is invalid.
+        """
+        endpoint = f"/margin/user/{self.user.public_key}"
+
+        params: dict[str, Any] = {}
+        if sub_accounts:
+            params["sub_account"] = sub_accounts
+        if include_positions:
+            params["include_positions"] = include_positions
+
+        self.logger.debug(
+            f"Getting Margin Info for user {self.user.public_key}, "
+            f"sub_accounts={sub_accounts}, include_positions={include_positions}"
+        )
+        response_data = await self._request("GET", endpoint, params=params if params else None)
+
+        if not isinstance(response_data, dict):
+            raise Exception("Invalid response from get_user_margin_info.")
+
+        parsed_data: UserMarginInfo = parse_user_margin_info(response_data)
         return parsed_data
