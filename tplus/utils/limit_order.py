@@ -19,6 +19,7 @@ def create_limit_order_ob_request_payload(
     time_in_force: GTC | GTD | IOC | None = None,
     trigger: OrderTrigger | None = None,
     target: TradeTarget | None = None,
+    reduce_only: bool = False,
 ) -> CreateOrderRequest:
     side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
 
@@ -41,6 +42,7 @@ def create_limit_order_ob_request_payload(
         trigger=trigger,
         creation_timestamp_ns=time.time_ns(),
         target=actual_target,
+        reduce_only=reduce_only,
     )
     sign_payload_json = order.signable_part()
     signature_bytes = signer.sign(sign_payload_json)

@@ -72,6 +72,7 @@ class Order(BaseModel):
     creation_timestamp_ns: int
     canceled: bool = False
     target: TradeTarget = TradeTarget.margin_account_spot_trade()
+    reduce_only: bool = False
     protocol_version: int = 1
 
     def signable_part(self) -> str:

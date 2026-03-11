@@ -24,6 +24,7 @@ def create_market_order_ob_request_payload(
     fill_or_kill: bool = False,
     trigger: OrderTrigger | None = None,
     target: TradeTarget | None = None,
+    reduce_only: bool = False,
 ) -> CreateOrderRequest:
     side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
 
@@ -43,6 +44,7 @@ def create_market_order_ob_request_payload(
         trigger=trigger,
         creation_timestamp_ns=time.time_ns(),
         target=actual_target,
+        reduce_only=reduce_only,
     )
 
     sign_payload_json = order.signable_part()
