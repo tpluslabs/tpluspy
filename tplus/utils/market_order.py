@@ -8,7 +8,7 @@ from tplus.model.market_order import (
     MarketQuoteQuantity,
 )
 from tplus.model.order import CreateOrderRequest, Order, Side, TradeTarget
-from tplus.model.order_trigger import TriggerAbove, TriggerBelow
+from tplus.model.order_trigger import OrderTrigger
 from tplus.utils.user import User
 
 
@@ -22,7 +22,7 @@ def create_market_order_ob_request_payload(
     base_quantity: MarketBaseQuantity | None = None,
     quote_quantity: MarketQuoteQuantity | None = None,
     fill_or_kill: bool = False,
-    trigger: TriggerAbove | TriggerBelow | None = None,
+    trigger: OrderTrigger | None = None,
     target: TradeTarget | None = None,
 ) -> CreateOrderRequest:
     side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
