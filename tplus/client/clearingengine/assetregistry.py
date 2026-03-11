@@ -42,3 +42,23 @@ class AssetRegistryClient(BaseClearingEngineClient):
         Request that the clearing engine updates its registered risk parameters.
         """
         await self._post("params/update")
+
+    async def set_registry_address(self, registry_address: ChainAddress):
+        """
+        Admin-only endpoint for setting the registry address. Used in testing environment.
+        """
+        payload = registry_address.model_dump()
+        await self._post("admin/registry/update-address", json_data=payload)
+
+    async def update_fee_account(self):
+        """
+        Request that the clearing engine update its fee account.
+        """
+        await self._post("fee-account/update")
+
+    async def get_fee_account(self) -> str:
+        """
+        Get the fee account.
+        """
+        account = await self._get("fee-account")
+        return f"{account}"

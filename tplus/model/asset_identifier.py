@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any
 
 from pydantic import model_serializer, model_validator
@@ -28,6 +29,17 @@ class AssetIdentifier(ChainAddress):
     def __str__(self) -> str:
         return str(self.root)
 
+    @cached_property
+    def indexed(self):
+        return "@" not in self.root
+
     @model_serializer
     def serialize_model(self) -> str:
         return self.root
+
+    @property
+    def evm_address(self) -> str:
+        if self.indexed:
+            raise ValueError("Indexed asset identifiers do not have an address.")
+
+        return super().evm_address

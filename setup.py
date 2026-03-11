@@ -50,7 +50,7 @@ setup(
             "ape-tokens",
             "click",
             "eip712>=0.3.1",
-            "eth-ape>=0.8.32,<0.9",
+            "eth-ape>=0.8.48,<0.9",
             "hexbytes>=1.3.1,<2",
         ],
     },

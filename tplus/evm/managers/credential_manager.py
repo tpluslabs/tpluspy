@@ -130,10 +130,10 @@ class CredentialManagerOwner(ManagerAccessMixin):
                 update_fn=lambda: ce.vaults.update(),
                 get_fn=lambda: ce.vaults.get(),
                 # cond: checks if the vault address is part any of the ChainAddress returned.
-                check_fn=lambda vaults: any(vault in vault_ca for vault_ca in vaults),
+                check_fn=lambda vaults: vault in vaults,
                 timeout=10,
                 interval=1,
-                error_msg="Vault registration failed.",
+                error_msg=f"Vault registration failed (vault={vault}).",
             )
 
         return tx

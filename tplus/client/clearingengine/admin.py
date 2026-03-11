@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import Prehashed, decode_ds
 
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.interest_rates import InterestRates
 from tplus.model.types import UserPublicKey
 from tplus.utils.user import User
 
@@ -187,6 +188,21 @@ class AdminClient(BaseClearingEngineClient):
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
 
+    async def set_book_decimals(
+        self,
+        asset_id: AssetIdentifier,
+        book_price_decimals: int,
+        book_quantity_decimals: int,
+    ):
+        await self._post(
+            "admin/book-decimals/modify",
+            json_data={
+                "asset_id": asset_id,
+                "book_price_decimals": book_price_decimals,
+                "book_quantity_decimals": book_quantity_decimals,
+            },
+        )
+
     async def set_trader_as_mm(
         self,
         user: User,
@@ -211,4 +227,16 @@ class AdminClient(BaseClearingEngineClient):
                 },
                 "signature": sig,
             },
+        )
+
+    async def set_interest_rates(self, rates: list[InterestRates]):
+        await self._post(
+            "admin/interest/inject",
+            json_data={"request_id": 1, "rates": [r.model_dump(mode="json") for r in rates]},
+        )
+
+    async def set_fee_account(self, user: UserPublicKey):
+        await self._post(
+            "admin/fee-account/modify",
+            json_data={"fee_account": user},
         )

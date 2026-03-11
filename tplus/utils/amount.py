@@ -10,7 +10,7 @@ class Amount(BaseModel):
 
     amount: int
     """
-    An amount normalized to clearing-engine decimals.
+    An atomic amount.
     """
 
     decimals: int
