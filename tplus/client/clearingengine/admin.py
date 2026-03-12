@@ -234,3 +234,9 @@ class AdminClient(BaseClearingEngineClient):
             "admin/interest/inject",
             json_data={"request_id": 1, "rates": [r.model_dump(mode="json") for r in rates]},
         )
+
+    async def set_fee_account(self, user: UserPublicKey):
+        await self._post(
+            "admin/fee-account/modify",
+            json_data={"fee_account": user},
+        )
