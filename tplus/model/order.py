@@ -72,6 +72,7 @@ class Order(BaseModel):
     creation_timestamp_ns: int
     canceled: bool = False
     target: TradeTarget = TradeTarget.margin_account_spot_trade()
+    reduce_only: bool = False
     protocol_version: int = 1
 
     def signable_part(self) -> str:
@@ -114,6 +115,7 @@ class OrderResponse(BaseModel):
     is_immediate_or_cancel: bool | None = None
     is_fill_or_kill: bool | None = None
     is_liquidation: bool | None = None
+    is_reduce_only: bool | None = None
 
 
 def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
