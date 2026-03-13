@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from eth_pydantic_types.hex import HexInt
-from pydantic import BaseModel, field_serializer
+from pydantic import BaseModel, Field, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.types import ChainID, UserPublicKey
@@ -57,3 +57,10 @@ class WithdrawalRequest(BaseModel):
 
     def signing_payload(self) -> str:
         return self.inner.signing_payload()
+
+
+class WithdrawalDelayParameters(BaseModel):
+    min_delay: int = Field(alias="minDelay")
+    max_delay: int = Field(alias="maxDelay")
+    delay_clamps: list[int] = Field(alias="delayClamps")
+    delay_values: list[int] = Field(alias="delayValues")

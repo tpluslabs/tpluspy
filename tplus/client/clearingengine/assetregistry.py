@@ -62,3 +62,9 @@ class AssetRegistryClient(BaseClearingEngineClient):
         """
         account = await self._get("fee-account")
         return f"{account}"
+
+    async def update_withdrawal_delay_parameters(self):
+        """
+        Request that the clearing engine updates its registered withdrawal delay parameters.
+        """
+        await self._post("withdrawal-delay-params/update")

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ape.contracts.base import ContractContainer, ContractInstance
     from ape.managers.project import LocalProject
 
+    from tplus.model.withdrawal import WithdrawalDelayParameters
     from tplus.utils.user import User
 
 CHAIN_MAP = {
@@ -430,6 +431,17 @@ class Registry(TPlusContract):
             "minWeight": min_weight,
         }
         return self.contract.setAssetData(data, sender=sender)
+
+    def set_pending_withdrawal_delay_parameters(
+        self, params: "WithdrawalDelayParameters | dict", **kwargs
+    ) -> "ReceiptAPI":
+        if not isinstance(params, dict):
+            params = params.model_dump(mode="python", by_alias=True)
+
+        return self.contract.setPendingWithdrawalDelayParameters(params, **kwargs)
+
+    def apply_pending_withdrawal_delay_parameters(self, **kwargs) -> "ReceiptAPI":
+        return self.contract.applyPendingWithdrawalDelayParameters(**kwargs)
 
 
 class DepositVault(TPlusContract):
