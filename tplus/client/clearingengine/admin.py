@@ -47,6 +47,7 @@ class AdminClient(BaseClearingEngineClient):
         base_balance: dict,
         quote_balance: dict,
         spot_balance: str,
+        average_spot_deposit: str,
         sub_account_index: int = 1,
     ):
         """
@@ -73,6 +74,7 @@ class AdminClient(BaseClearingEngineClient):
                 "balance": base_balance,
                 "quote_balance": quote_balance,
                 "spot": spot_balance,
+                "average_spot_deposit": average_spot_deposit,
                 "sub_account_index": sub_account_index,
             },
         )
