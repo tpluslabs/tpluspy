@@ -70,13 +70,12 @@ class Order(BaseModel):
     side: Side
     trigger: OrderTrigger | None = None
     creation_timestamp_ns: int
-    canceled: bool = False
     target: TradeTarget = TradeTarget.margin_account_spot_trade()
-    reduce_only: bool = False
     protocol_version: int = 1
+    reduce_only: bool = False
 
     def signable_part(self) -> str:
-        return self.model_dump_json(exclude={"canceled"})
+        return self.model_dump_json()
 
     @field_serializer("trigger")
     def serialize_trigger(self, trigger, _info):
