@@ -71,7 +71,6 @@ class Order(BaseModel):
     trigger: OrderTrigger | None = None
     creation_timestamp_ns: int
     target: TradeTarget = TradeTarget.margin_account_spot_trade()
-    reduce_only: bool = False
     protocol_version: int = 1
     reduce_only: bool = False
 
