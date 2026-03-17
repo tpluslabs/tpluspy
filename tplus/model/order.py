@@ -71,8 +71,8 @@ class Order(BaseModel):
     trigger: OrderTrigger | None = None
     creation_timestamp_ns: int
     target: TradeTarget = TradeTarget.margin_account_spot_trade()
-    protocol_version: int = 1
     reduce_only: bool = False
+    protocol_version: int = 1
 
     def signable_part(self) -> str:
         return self.model_dump_json()
