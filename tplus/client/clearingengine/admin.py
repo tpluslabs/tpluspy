@@ -242,3 +242,9 @@ class AdminClient(BaseClearingEngineClient):
             "admin/fee-account/modify",
             json_data={"fee_account": user},
         )
+
+    async def reset_users(self):
+        await self._post(
+            "admin/users/reset",
+            json_data={},
+        )
