@@ -55,7 +55,7 @@ class TestTxSettlementRequest:
         """
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000aa36a7","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
@@ -95,7 +95,7 @@ class TestBundleSettlementRequest:
         }
         settlement = BatchSettlementRequest.model_validate({"inner": inner})
         actual = settlement.signing_payload()
-        expected = f'{{"settlements":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000aa36a7","amount_out":"8e1bc9bf04000"}}],"bundle":{{"bundle":{{}},"bundle_id":0}},"chain_id":"000000000000aa36a7","tplus_user":"{user.public_key}","target_address":"0x0000000000000000000000000000000000000000","pull_batch_settlement_gas":0,"push_batch_settlements_gas":0}}'
+        expected = f'{{"settlements":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000"}}],"bundle":{{"bundle":{{}},"bundle_id":0}},"chain_id":"000000000000aa36a7","tplus_user":"{user.public_key}","target_address":"0x0000000000000000000000000000000000000000","pull_batch_settlement_gas":0,"push_batch_settlements_gas":0}}'
         assert actual == expected
 
 

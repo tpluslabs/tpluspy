@@ -7,7 +7,7 @@ from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import ChainID
 
 if TYPE_CHECKING:
-    from tplus.model.asset_identifier import AssetIdentifier
+    from tplus.model.asset_identifier import AssetAddress
     from tplus.model.types import UserPublicKey
     from tplus.utils.user import User
 
@@ -33,7 +33,7 @@ class ChainDataFetcher(ChainConnectedManager):
         self,
         vaults: bool = True,
         assets: bool = True,
-        decimals: Sequence["AssetIdentifier"] | None = None,
+        decimals: Sequence["AssetAddress"] | None = None,
         deposits: bool = True,
         settlements: bool = True,
     ):
@@ -87,8 +87,5 @@ class ChainDataFetcher(ChainConnectedManager):
         user = user or self.default_user.public_key
         await self.ce.settlements.update_nonce(user, self.chain_id)
 
-    async def update_decimals(self, assets: Sequence["AssetIdentifier"]):
-        await self.ce.decimals.update(
-            list(assets),
-            [self.chain_id],
-        )
+    async def update_decimals(self, assets: Sequence["AssetAddress"]):
+        await self.ce.decimals.update(list(assets))

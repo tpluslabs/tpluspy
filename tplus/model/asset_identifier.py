@@ -1,9 +1,11 @@
 from functools import cached_property
-from typing import Any
+from typing import Any, TypeAlias
 
 from pydantic import model_serializer, model_validator
 
 from tplus.model.chain_address import ChainAddress, validate_chain_address
+
+AssetAddress: TypeAlias = ChainAddress
 
 
 class AssetIdentifier(ChainAddress):

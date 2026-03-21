@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from eth_pydantic_types.hex import HexInt
 from pydantic import BaseModel, Field, field_serializer
 
-from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.hex import str_to_vec
 
@@ -13,9 +13,8 @@ if TYPE_CHECKING:
 
 class InnerWithdrawalRequest(BaseModel):
     tplus_user: UserPublicKey
-    asset: AssetIdentifier
+    asset: AssetAddress
     amount: HexInt
-    chain_id: ChainID
 
     def signing_payload(self) -> str:
         return self.model_dump_json(exclude_none=True)
@@ -33,12 +32,15 @@ class WithdrawalRequest(BaseModel):
     def create_signed(
         cls,
         signer: "User",
-        asset: AssetIdentifier | str,
+        asset: AssetAddress | str,
         amount: int,
-        chain_id: ChainID | str,
+        chain_id: ChainID | str | None = None,
     ) -> "WithdrawalRequest":
-        if not isinstance(asset, AssetIdentifier):
+        if not isinstance(asset, AssetAddress):
             if asset.startswith("0x") and "@" not in asset:
+                if chain_id is None:
+                    raise ValueError("chain_id is required when asset does not include chain.")
+
                 # Helper to automatically include the chain.
                 asset = f"{asset}@{chain_id}"
 
@@ -49,7 +51,6 @@ class WithdrawalRequest(BaseModel):
                 "tplus_user": signer.public_key,
                 "asset": asset,
                 "amount": amount,
-                "chain_id": chain_id,
             }
         )
         signature = str_to_vec(signer.sign(inner.signing_payload()).hex())

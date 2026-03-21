@@ -5,7 +5,7 @@ from eth_pydantic_types.address import Address
 from eth_pydantic_types.hex.int import HexInt
 from pydantic import BaseModel, field_serializer
 
-from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
 from tplus.model.chain_address import ChainAddress
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.decimals import to_inventory_decimals
@@ -20,10 +20,14 @@ class BaseSettlement(BaseModel):
     The shared fields for all inner settlement requests.
     """
 
-    asset_in: AssetIdentifier
+    asset_in: AssetAddress
     amount_in: HexInt
-    asset_out: AssetIdentifier
+    asset_out: AssetAddress
     amount_out: HexInt
+
+    @field_serializer("asset_in", "asset_out")
+    def serialize_assets(self, val: AssetAddress) -> str:
+        return val.address
 
     @field_serializer("amount_in", "amount_out")
     def serialize_amounts(self, val):
@@ -43,10 +47,10 @@ class InnerSettlementRequest(BaseSettlement):
     @classmethod
     def from_raw(
         cls,
-        asset_in: AssetIdentifier | str,
+        asset_in: AssetAddress | str,
         amount_in: int,
         decimals_in: int,
-        asset_out: AssetIdentifier | str,
+        asset_out: AssetAddress | str,
         amount_out: int,
         decimals_out: int,
         tplus_user: UserPublicKey,

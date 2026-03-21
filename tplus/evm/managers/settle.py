@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from ape.contracts.base import ContractInstance
     from ape.types.address import AddressType
 
-    from tplus.model.asset_identifier import AssetIdentifier
+    from tplus.model.asset_identifier import AssetAddress
     from tplus.utils.user import User
 
 
@@ -35,9 +35,9 @@ class SettlementInfo:
     Used to track and match approvals with their corresponding settlements.
     """
 
-    asset_in: "AssetIdentifier"
+    asset_in: "AssetAddress"
     amount_in: Amount
-    asset_out: "AssetIdentifier"
+    asset_out: "AssetAddress"
     amount_out: Amount
     nonce: int
 
@@ -100,7 +100,7 @@ class SettlementManager(ChainConnectedManager):
         self,
         vaults: bool = True,
         assets: bool = True,
-        decimals: Sequence["AssetIdentifier"] | None = None,
+        decimals: Sequence["AssetAddress"] | None = None,
         deposits: bool = True,
         settlements: bool = True,
     ):
@@ -150,9 +150,9 @@ class SettlementManager(ChainConnectedManager):
 
     async def init_settlement(
         self,
-        asset_in: "AssetIdentifier",
+        asset_in: "AssetAddress",
         amount_in: Amount,
-        asset_out: "AssetIdentifier",
+        asset_out: "AssetAddress",
         amount_out: Amount,
         user: "User | None" = None,
         account_index: int | None = None,
@@ -166,9 +166,9 @@ class SettlementManager(ChainConnectedManager):
         settlement information that can be used to track and match approvals later.
 
         Args:
-            asset_in: The ID of the asset in going into the protocol.
+            asset_in: The address of the asset in going into the protocol.
             amount_in: Both the normalized and atomic amounts for the amount going into the protocol.
-            asset_out: The ID of the asset leaving the protocol.
+            asset_out: The address of the asset leaving the protocol.
             amount_out: Both the normalized and atomic amounts for the amount leaving the protocol.
             user: Specify the tplus user. Defaults to the default tplus user.
             account_index: Specify the index of the tplus account for this settlement approval. Defaults to the
@@ -311,15 +311,9 @@ class SettlementManager(ChainConnectedManager):
         kwargs.setdefault("required_confirmations", 0)
 
         if token_in_address is None:
-            if settlement_info.asset_in.indexed:
-                raise ValueError("Missing address for indexed asset-in, please specify.")
-
             token_in_address = settlement_info.asset_in.evm_address
 
         if token_out_address is None:
-            if settlement_info.asset_out.indexed:
-                raise ValueError("Missing address for indexed asset-out, please specify.")
-
             token_out_address = settlement_info.asset_out.evm_address
 
         # Execute the settlement on-chain.

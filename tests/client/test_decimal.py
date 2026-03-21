@@ -12,14 +12,13 @@ ASSET_2_CHAINADDRESS = (
 
 
 def test_prep_request():
-    assets = [ASSET_1_ADDRESS, ASSET_2_ADDRESS]
-    actual = _prep_request(
-        assets,
-        "00000000000000a4b1",
-    )
+    assets = [
+        AssetIdentifier(f"{ASSET_1_ADDRESS}@00000000000000a4b1"),
+        AssetIdentifier(f"{ASSET_2_ADDRESS}@00000000000000a4b1"),
+    ]
+    actual = _prep_request(assets)
     expected = {
         "assets": [ASSET_1_CHAINADDRESS, ASSET_2_CHAINADDRESS],
-        "chains": ["00000000000000a4b1"],
     }
     assert actual == expected
 
@@ -29,12 +28,8 @@ def test_prep_request_given_asset_ids():
         AssetIdentifier("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1@00000000000000a4b1"),
         AssetIdentifier("0xaf88d065e77c8cC2239327C5EDb3A432268e5831@00000000000000a4b1"),
     ]
-    actual = _prep_request(
-        assets,
-        "00000000000000a4b1",
-    )
+    actual = _prep_request(assets)
     expected = {
         "assets": [ASSET_1_CHAINADDRESS, ASSET_2_CHAINADDRESS],
-        "chains": ["00000000000000a4b1"],
     }
     assert actual == expected
