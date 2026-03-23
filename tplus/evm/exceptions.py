@@ -4,6 +4,12 @@ class ContractNotExists(Exception):
     """
 
 
+class SettlementError(Exception):
+    """
+    Raised when the clearing engine returns a settlement error.
+    """
+
+
 class SettlementApprovalTimeout(Exception):
     """
     Raised when waiting for a settlement approval times out.

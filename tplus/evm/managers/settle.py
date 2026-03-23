@@ -8,6 +8,7 @@ from hexbytes import HexBytes
 
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.contracts import DepositVault
+from tplus.evm.exceptions import SettlementError
 from tplus.evm.managers.chaindata import ChainDataFetcher
 from tplus.evm.managers.deposit import DepositManager
 from tplus.evm.managers.evm import ChainConnectedManager
@@ -124,9 +125,15 @@ class SettlementManager(ChainConnectedManager):
 
         Returns:
             SettlementApproval: The decrypted approval dictionary, or None if decryption/parsing fails.
+
+        Raises:
+            SettlementError: If the message contains a settlement error from the CE.
         """
+        if "Err" in message:
+            raise SettlementError(message["Err"])
+
         user = user or self.default_user
-        key = "approval"
+        key = "Approved"
 
         try:
             encrypted_data = message[key]
