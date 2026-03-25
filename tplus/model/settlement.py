@@ -1,7 +1,6 @@
 import json
 from typing import TYPE_CHECKING
 
-from eth_pydantic_types.address import Address
 from eth_pydantic_types.hex.int import HexInt
 from pydantic import BaseModel, field_serializer
 
@@ -190,42 +189,37 @@ class BatchSettlementRequest(BaseModel):
 
 class InnerBatchSettlementRequest(BaseModel):
     """
-    Batch settlement inner request. Does not contain any additional fields.
+    Batch settlement inner request.
     """
 
-    settlements: list[BaseSettlement]
+    tplus_user: UserPublicKey
     """
-    All settlement included in the transaction bundle.
+    The user whose signature will be validated.
     """
 
-    bundle: dict
+    sub_account_index: int
     """
-    The bundle that gets sent to the blockchain client process.
+    Subaccount to pull the settled funds from.
+    """
+
+    settler: UserPublicKey
+    """
+    The settler executing the settlement.
+    """
+
+    orders: list[BaseSettlement]
+    """
+    The settlement orders.
+    """
+
+    transactions: list[dict]
+    """
+    Transactions in the bundle (not including the push and pull transactions on the vault).
     """
 
     chain_id: ChainID
     """
     The chain settling on.
-    """
-
-    tplus_user: UserPublicKey
-    """
-    The settler.
-    """
-
-    target_address: Address
-    """
-    Target address, needed so we can create the settlement transactions.
-    """
-
-    pull_batch_settlement_gas: int
-    """
-    The amount of gas to use for the `pullBatchSettlement()` call.
-    """
-
-    push_batch_settlements_gas: int
-    """
-    The amount of gas to use for the `pushBatchSettlements()` call.
     """
 
     def signing_payload(self) -> str:

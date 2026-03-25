@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from eth_pydantic_types.hex import HexInt
 from pydantic import BaseModel, Field, field_serializer
 
-from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
+from tplus.model.asset_identifier import Address32, AssetAddress, AssetIdentifier
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.hex import str_to_vec
 
@@ -15,9 +15,11 @@ class InnerWithdrawalRequest(BaseModel):
     tplus_user: UserPublicKey
     asset: AssetAddress
     amount: HexInt
+    nonce: int | None = None
+    target: Address32 = Address32("00" * 32)
 
     def signing_payload(self) -> str:
-        return self.model_dump_json(exclude_none=True)
+        return self.model_dump_json()
 
     @field_serializer("amount")
     def serialize_amount(self, value: HexInt) -> str:
@@ -35,6 +37,8 @@ class WithdrawalRequest(BaseModel):
         asset: AssetAddress | str,
         amount: int,
         chain_id: ChainID | str | None = None,
+        nonce: int | None = None,
+        target: Address32 | str | None = None,
     ) -> "WithdrawalRequest":
         if not isinstance(asset, AssetAddress):
             if asset.startswith("0x") and "@" not in asset:
@@ -46,13 +50,17 @@ class WithdrawalRequest(BaseModel):
 
             asset = AssetIdentifier.model_validate(asset)
 
-        inner = InnerWithdrawalRequest.model_validate(
-            {
-                "tplus_user": signer.public_key,
-                "asset": asset,
-                "amount": amount,
-            }
-        )
+        data: dict = {
+            "tplus_user": signer.public_key,
+            "asset": asset,
+            "amount": amount,
+        }
+        if nonce is not None:
+            data["nonce"] = nonce
+        if target is not None:
+            data["target"] = target
+
+        inner = InnerWithdrawalRequest.model_validate(data)
         signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
         return cls(inner=inner, signature=signature)
 

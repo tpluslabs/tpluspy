@@ -20,7 +20,7 @@ class TestWithdrawal:
         """
         withdrawal = WithdrawalRequest(inner=inner_withdrawal, signature=[])
         actual = withdrawal.inner.signing_payload()
-        expected = '{"tplus_user":"eb886a56f9f0efa64432678cebf1270e9314a758e6eb697a606202a451e3e82e","asset":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7","amount":"64"}'
+        expected = '{"tplus_user":"eb886a56f9f0efa64432678cebf1270e9314a758e6eb697a606202a451e3e82e","asset":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7","amount":"64","nonce":null,"target":"0000000000000000000000000000000000000000000000000000000000000000"}'
         assert actual == expected
 
     def test_create_signed(self, inner_withdrawal, user):
