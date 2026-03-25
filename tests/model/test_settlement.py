@@ -1,6 +1,5 @@
 import pytest
 
-from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.settlement import (
     BatchSettlementRequest,
     InnerSettlementRequest,
@@ -101,8 +100,8 @@ class TestBundleSettlementRequest:
 
 def get_base_settlement_data() -> dict:
     return {
-        "asset_in": AssetIdentifier(f"{ASSET_IN}@{CHAIN_ID}"),
+        "asset_in": ASSET_IN,
         "amount_in": 11478827000000000000,
-        "asset_out": AssetIdentifier(f"{ASSET_OUT}@{CHAIN_ID}"),
+        "asset_out": ASSET_OUT,
         "amount_out": 2500000000000000,
     }
