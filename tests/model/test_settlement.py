@@ -25,13 +25,11 @@ class TestInnerSettlementRequest:
             0,
         )
         assert (
-            request.asset_in.root
-            == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7"
+            request.asset_in == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000"
         )
         assert request.amount_in == 100_000_000_000_000  # normalized
         assert (
-            request.asset_out.root
-            == "58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000aa36a7"
+            request.asset_out == "58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000"
         )
         assert request.amount_out == 100
         assert request.chain_id == CHAIN_ID
