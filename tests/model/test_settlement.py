@@ -1,6 +1,5 @@
 import pytest
 
-from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.settlement import (
     BatchSettlementRequest,
     InnerSettlementRequest,
@@ -26,13 +25,11 @@ class TestInnerSettlementRequest:
             0,
         )
         assert (
-            request.asset_in.root
-            == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7"
+            request.asset_in == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000"
         )
         assert request.amount_in == 100_000_000_000_000  # normalized
         assert (
-            request.asset_out.root
-            == "58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000aa36a7"
+            request.asset_out == "58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000"
         )
         assert request.amount_out == 100
         assert request.chain_id == CHAIN_ID
@@ -55,7 +52,7 @@ class TestTxSettlementRequest:
         """
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000aa36a7","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
@@ -85,24 +82,23 @@ class TestBundleSettlementRequest:
         Show we serialize to the JSON the clearing-engine expects.
         """
         inner = {
-            "settlements": [get_base_settlement_data()],
-            "bundle": {"bundle": {}, "bundle_id": 0},
             "tplus_user": user.public_key,
+            "sub_account_index": 0,
+            "settler": user.public_key,
+            "orders": [get_base_settlement_data()],
+            "transactions": [],
             "chain_id": CHAIN_ID,
-            "target_address": "0x0000000000000000000000000000000000000000",
-            "pull_batch_settlement_gas": 0,
-            "push_batch_settlements_gas": 0,
         }
         settlement = BatchSettlementRequest.model_validate({"inner": inner})
         actual = settlement.signing_payload()
-        expected = f'{{"settlements":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000@000000000000aa36a7","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000@000000000000aa36a7","amount_out":"8e1bc9bf04000"}}],"bundle":{{"bundle":{{}},"bundle_id":0}},"chain_id":"000000000000aa36a7","tplus_user":"{user.public_key}","target_address":"0x0000000000000000000000000000000000000000","pull_batch_settlement_gas":0,"push_batch_settlements_gas":0}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","orders":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000"}}],"transactions":[],"chain_id":"000000000000aa36a7"}}'
         assert actual == expected
 
 
 def get_base_settlement_data() -> dict:
     return {
-        "asset_in": AssetIdentifier(f"{ASSET_IN}@{CHAIN_ID}"),
+        "asset_in": ASSET_IN,
         "amount_in": 11478827000000000000,
-        "asset_out": AssetIdentifier(f"{ASSET_OUT}@{CHAIN_ID}"),
+        "asset_out": ASSET_OUT,
         "amount_out": 2500000000000000,
     }

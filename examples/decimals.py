@@ -14,14 +14,13 @@ async def main():
     assets: list[AssetIdentifier | str] = [
         AssetIdentifier("0xf3c3351d6bd0098eeb33ca8f830faf2a141ea2e1@421614")
     ]
-    chains = [421614]
 
-    await client.decimals.update(assets, chains)
+    await client.decimals.update(assets)
 
     # Wait a bit.
     time.sleep(4)
 
-    decimals = await client.decimals.get(assets, chains)
+    decimals = await client.decimals.get(assets)
     pprint(decimals)
 
 

@@ -1,12 +1,10 @@
 import json
 from typing import TYPE_CHECKING
 
-from eth_pydantic_types.address import Address
 from eth_pydantic_types.hex.int import HexInt
 from pydantic import BaseModel, field_serializer
 
-from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.chain_address import ChainAddress
+from tplus.model.asset_identifier import Address32, AssetAddress
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.decimals import to_inventory_decimals
 from tplus.utils.hex import str_to_vec
@@ -20,9 +18,9 @@ class BaseSettlement(BaseModel):
     The shared fields for all inner settlement requests.
     """
 
-    asset_in: AssetIdentifier
+    asset_in: Address32
     amount_in: HexInt
-    asset_out: AssetIdentifier
+    asset_out: Address32
     amount_out: HexInt
 
     @field_serializer("amount_in", "amount_out")
@@ -43,10 +41,10 @@ class InnerSettlementRequest(BaseSettlement):
     @classmethod
     def from_raw(
         cls,
-        asset_in: AssetIdentifier | str,
+        asset_in: Address32 | str,
         amount_in: int,
         decimals_in: int,
-        asset_out: AssetIdentifier | str,
+        asset_out: AssetAddress | str,
         amount_out: int,
         decimals_out: int,
         tplus_user: UserPublicKey,
@@ -58,11 +56,11 @@ class InnerSettlementRequest(BaseSettlement):
         Create a request using raw amounts by first normalizing them to the CE.
 
         Args:
-            asset_in (:class:`~tplus.models.asset_identifier.AssetIdentifier | str): The asset being provided into the
+            asset_in (:class:`~tplus.models.asset_identifier.Address32 | str): The asset being provided into the
               protocol.
             amount_in (int): The raw on-chain integer amount of the input asset (before adjusting for decimals).
             decimals_in (int): The number of decimal places for the input asset.
-            asset_out (:class:`~tplus.models.asset_identifier.AssetIdentifier | str): The asset expected to be received from
+            asset_out (:class:`~tplus.models.asset_identifier.Address32 | str): The asset expected to be received from
               the protocol.
             amount_out (int): The raw on-chain integer amount of the output asset (before adjusting for decimals).
             decimals_out (int): The number of decimal places for the output asset.
@@ -77,9 +75,6 @@ class InnerSettlementRequest(BaseSettlement):
         Returns:
             InnerSettlementRequest: A normalized settlement request ready for processing.
         """
-        asset_in = cls._validate_asset(asset_in, chain)
-        asset_out = cls._validate_asset(asset_out, chain)
-
         return cls.model_validate(
             {
                 "asset_in": asset_in,
@@ -92,15 +87,6 @@ class InnerSettlementRequest(BaseSettlement):
                 "sub_account_index": sub_account_index,
             }
         )
-
-    @classmethod
-    def _validate_asset(cls, asset, chain: ChainID | str) -> AssetIdentifier:
-        if isinstance(asset, ChainAddress) and not isinstance(asset, AssetIdentifier):
-            return AssetIdentifier.model_validate(f"{asset}")
-        elif isinstance(asset, str) and "@" not in asset:
-            return AssetIdentifier(f"{asset}@{chain}")
-
-        return asset
 
     def signing_payload(self) -> str:
         base_data = self.model_dump(mode="json", exclude_none=True)
@@ -203,42 +189,37 @@ class BatchSettlementRequest(BaseModel):
 
 class InnerBatchSettlementRequest(BaseModel):
     """
-    Batch settlement inner request. Does not contain any additional fields.
+    Batch settlement inner request.
     """
 
-    settlements: list[BaseSettlement]
+    tplus_user: UserPublicKey
     """
-    All settlement included in the transaction bundle.
+    The user whose signature will be validated.
     """
 
-    bundle: dict
+    sub_account_index: int
     """
-    The bundle that gets sent to the blockchain client process.
+    Subaccount to pull the settled funds from.
+    """
+
+    settler: UserPublicKey
+    """
+    The settler executing the settlement.
+    """
+
+    orders: list[BaseSettlement]
+    """
+    The settlement orders.
+    """
+
+    transactions: list[dict]
+    """
+    Transactions in the bundle (not including the push and pull transactions on the vault).
     """
 
     chain_id: ChainID
     """
     The chain settling on.
-    """
-
-    tplus_user: UserPublicKey
-    """
-    The settler.
-    """
-
-    target_address: Address
-    """
-    Target address, needed so we can create the settlement transactions.
-    """
-
-    pull_batch_settlement_gas: int
-    """
-    The amount of gas to use for the `pullBatchSettlement()` call.
-    """
-
-    push_batch_settlements_gas: int
-    """
-    The amount of gas to use for the `pushBatchSettlements()` call.
     """
 
     def signing_payload(self) -> str:
