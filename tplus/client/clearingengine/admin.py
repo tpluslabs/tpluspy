@@ -92,10 +92,10 @@ class AdminClient(BaseClearingEngineClient):
         self,
         asset_id: int | AssetIdentifier | str,
         chain_id: str,
-        max_deposits: str,
+        max_deposits: str | int,
         address: str,
-        max_1hr_deposits: str,
-        min_weight: str,
+        max_1hr_deposits: str | int,
+        min_weight: str | int,
     ):
         asset_index = _asset_id_to_index(asset_id)
         config = {
