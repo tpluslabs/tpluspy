@@ -35,11 +35,12 @@ class SettlementInfo:
     Used to track and match approvals with their corresponding settlements.
     """
 
-    asset_in: "AssetAddress"
+    asset_in: "Address32"
     amount_in: Amount
-    asset_out: "AssetAddress"
+    asset_out: "Address32"
     amount_out: Amount
     nonce: int
+    chain_id: "ChainID"
 
 
 class SettlementManager(ChainConnectedManager):
@@ -214,6 +215,7 @@ class SettlementManager(ChainConnectedManager):
             asset_out=asset_out,
             amount_out=amount_out,
             nonce=expected_nonce,
+            chain_id=self.chain_id,
         )
 
         approval_task: asyncio.Task | None = None
