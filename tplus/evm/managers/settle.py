@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from ape.contracts.base import ContractInstance
     from ape.types.address import AddressType
 
-    from tplus.model.asset_identifier import AssetAddress
+    from tplus.model.asset_identifier import Address32, AssetAddress
     from tplus.utils.user import User
 
 
@@ -150,9 +150,9 @@ class SettlementManager(ChainConnectedManager):
 
     async def init_settlement(
         self,
-        asset_in: "AssetAddress",
+        asset_in: "Address32",
         amount_in: Amount,
-        asset_out: "AssetAddress",
+        asset_out: "Address32",
         amount_out: Amount,
         user: "User | None" = None,
         account_index: int | None = None,
@@ -199,9 +199,9 @@ class SettlementManager(ChainConnectedManager):
         request = TxSettlementRequest.create_signed(
             {
                 "chain_id": self.chain_id,
-                "asset_in": asset_in.evm_address,
+                "asset_in": asset_in,
                 "amount_in": amount_in_normalized,
-                "asset_out": asset_out.evm_address,
+                "asset_out": asset_out,
                 "amount_out": amount_out_normalized,
                 "sub_account_index": account_index,
             },
