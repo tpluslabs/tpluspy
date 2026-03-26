@@ -90,13 +90,14 @@ class AdminClient(BaseClearingEngineClient):
 
     async def set_asset_config(
         self,
-        asset_index: int,
+        asset_id: int | AssetIdentifier | str,
         chain_id: str,
         max_deposits: str,
         address: str,
         max_1hr_deposits: str,
         min_weight: str,
     ):
+        asset_index = _asset_id_to_index(asset_id)
         config = {
             "address": address,
             "max_deposits": max_deposits,
@@ -133,21 +134,7 @@ class AdminClient(BaseClearingEngineClient):
         premium_clamp: int,
         buffer_multiplier: int,
     ):
-        if isinstance(asset_id, AssetIdentifier):
-            if asset_id.indexed:
-                asset_index = int(asset_id.root)
-            else:
-                raise ValueError("unsupported")
-
-        elif isinstance(asset_id, str):
-            if asset_id.isnumeric():
-                asset_index = int(asset_id)
-            else:
-                raise ValueError("unsupported")
-
-        else:
-            asset_index = int(asset_id)
-
+        asset_index = _asset_id_to_index(asset_id)
         risk_parameters = {
             "collateral_factor": collateral_factor,
             "liability_factor": liability_factor,
@@ -263,3 +250,21 @@ class AdminClient(BaseClearingEngineClient):
             "admin/users/reset",
             json_data={},
         )
+
+
+def _asset_id_to_index(
+    asset_id: int | AssetIdentifier | str,
+) -> int:
+    if isinstance(asset_id, AssetIdentifier):
+        if asset_id.indexed:
+            return int(asset_id.root)
+        else:
+            raise ValueError("unsupported")
+
+    elif isinstance(asset_id, str):
+        if asset_id.isnumeric():
+            return int(asset_id)
+        else:
+            raise ValueError("unsupported")
+
+    return int(asset_id)
