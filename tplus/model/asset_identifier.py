@@ -7,6 +7,7 @@ from pydantic import model_serializer, model_validator
 from pydantic_core.core_schema import str_schema, with_info_before_validator_function
 
 from tplus.model.chain_address import ChainAddress, validate_chain_address
+from tplus.utils.address import to_evm_address
 
 AssetAddress: TypeAlias = ChainAddress
 EvmAddress: TypeAlias = AddressType
@@ -29,19 +30,9 @@ class Address32(HexStr32):
     def __eth_pydantic_validate__(cls, value, info=None, **kwargs):
         return super().__eth_pydantic_validate__(value, info=info, prefixed=False, **kwargs)
 
-    @property
+    @cached_property
     def evm_address(self) -> "EvmAddress":
-        address = f"0x{str(self)[:40]}"
-
-        try:
-            from eth_utils import to_checksum_address
-        except ImportError:
-            return address  # type: ignore
-
-        try:
-            return to_checksum_address(address)
-        except Exception as err:
-            raise ValueError(f"Invalid address '{address}'") from err
+        return to_evm_address(self)
 
 
 class AssetIdentifier(ChainAddress):
