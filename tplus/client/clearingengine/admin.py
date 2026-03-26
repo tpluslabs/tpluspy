@@ -111,7 +111,7 @@ class AdminClient(BaseClearingEngineClient):
 
     async def set_risk_parameters(
         self,
-        asset_index: int,
+        asset_id: int | AssetIdentifier | str,
         collateral_factor: int,
         liability_factor: int,
         max_collateral: str,
@@ -133,6 +133,21 @@ class AdminClient(BaseClearingEngineClient):
         premium_clamp: int,
         buffer_multiplier: int,
     ):
+        if isinstance(asset_id, AssetIdentifier):
+            if asset_id.indexed:
+                asset_index = int(asset_id.root)
+            else:
+                raise ValueError("unsupported")
+
+        elif isinstance(asset_id, str):
+            if asset_id.isnumeric():
+                asset_index = int(asset_id)
+            else:
+                raise ValueError("unsupported")
+
+        else:
+            asset_index = int(asset_id)
+
         risk_parameters = {
             "collateral_factor": collateral_factor,
             "liability_factor": liability_factor,
@@ -158,7 +173,7 @@ class AdminClient(BaseClearingEngineClient):
         await self._post(
             "admin/risk-parameters/modify",
             json_data={
-                "asset_id": int(asset_index),
+                "asset_id": asset_index,
                 "risk_parameters": risk_parameters,
             },
         )
