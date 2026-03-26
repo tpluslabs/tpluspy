@@ -111,7 +111,7 @@ class AdminClient(BaseClearingEngineClient):
 
     async def set_risk_parameters(
         self,
-        asset_id: AssetIdentifier,
+        asset_index: int,
         collateral_factor: int,
         liability_factor: int,
         max_collateral: str,
@@ -158,7 +158,7 @@ class AdminClient(BaseClearingEngineClient):
         await self._post(
             "admin/risk-parameters/modify",
             json_data={
-                "asset_id": str(asset_id),
+                "asset_id": int(asset_index),
                 "risk_parameters": risk_parameters,
             },
         )

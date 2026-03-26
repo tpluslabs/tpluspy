@@ -1,13 +1,16 @@
 from functools import cached_property
 from typing import Any, TypeAlias
 
+from eth_pydantic_types.address import AddressType
 from eth_pydantic_types.hex.str import HexStr32
 from pydantic import model_serializer, model_validator
 from pydantic_core.core_schema import str_schema, with_info_before_validator_function
 
 from tplus.model.chain_address import ChainAddress, validate_chain_address
+from tplus.utils.address import to_evm_address
 
 AssetAddress: TypeAlias = ChainAddress
+EvmAddress: TypeAlias = AddressType
 
 
 class Address32(HexStr32):
@@ -26,6 +29,10 @@ class Address32(HexStr32):
     @classmethod
     def __eth_pydantic_validate__(cls, value, info=None, **kwargs):
         return super().__eth_pydantic_validate__(value, info=info, prefixed=False, **kwargs)
+
+    @cached_property
+    def evm_address(self) -> "EvmAddress":
+        return to_evm_address(self)
 
 
 class AssetIdentifier(ChainAddress):

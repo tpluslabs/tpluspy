@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from ape.contracts.base import ContractInstance
     from ape.types.address import AddressType
 
-    from tplus.model.asset_identifier import AssetAddress
+    from tplus.model.asset_identifier import Address32, AssetAddress
     from tplus.utils.user import User
 
 
@@ -35,11 +35,12 @@ class SettlementInfo:
     Used to track and match approvals with their corresponding settlements.
     """
 
-    asset_in: "AssetAddress"
+    asset_in: "Address32"
     amount_in: Amount
-    asset_out: "AssetAddress"
+    asset_out: "Address32"
     amount_out: Amount
     nonce: int
+    chain_id: "ChainID"
 
 
 class SettlementManager(ChainConnectedManager):
@@ -150,9 +151,9 @@ class SettlementManager(ChainConnectedManager):
 
     async def init_settlement(
         self,
-        asset_in: "AssetAddress",
+        asset_in: "Address32",
         amount_in: Amount,
-        asset_out: "AssetAddress",
+        asset_out: "Address32",
         amount_out: Amount,
         user: "User | None" = None,
         account_index: int | None = None,
@@ -214,6 +215,7 @@ class SettlementManager(ChainConnectedManager):
             asset_out=asset_out,
             amount_out=amount_out,
             nonce=expected_nonce,
+            chain_id=self.chain_id,
         )
 
         approval_task: asyncio.Task | None = None

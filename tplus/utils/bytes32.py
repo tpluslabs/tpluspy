@@ -6,7 +6,7 @@ def to_bytes32(address: str, pad: str = "r") -> bytes:
     for encoding 20-bytes addresses into EVM word sizes.
 
     Args:
-        address (str | AddressType): The typical size-20 EVM address.
+        address (str | EvmAddress): The typical size-20 EVM address.
         pad (str): "right" or "r" for pad right; else pads left. Defaults to "right".
 
     Returns:
