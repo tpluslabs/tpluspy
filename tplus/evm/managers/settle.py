@@ -199,9 +199,9 @@ class SettlementManager(ChainConnectedManager):
         request = TxSettlementRequest.create_signed(
             {
                 "chain_id": self.chain_id,
-                "asset_in": asset_in,
+                "asset_in": asset_in.evm_address,
                 "amount_in": amount_in_normalized,
-                "asset_out": asset_out,
+                "asset_out": asset_out.evm_address,
                 "amount_out": amount_out_normalized,
                 "sub_account_index": account_index,
             },
