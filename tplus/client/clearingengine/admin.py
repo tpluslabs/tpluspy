@@ -90,13 +90,14 @@ class AdminClient(BaseClearingEngineClient):
 
     async def set_asset_config(
         self,
-        asset_index: int,
+        asset_id: int | AssetIdentifier | str,
         chain_id: str,
-        max_deposits: str,
+        max_deposits: str | int,
         address: str,
-        max_1hr_deposits: str,
-        min_weight: str,
+        max_1hr_deposits: str | int,
+        min_weight: str | int,
     ):
+        asset_index = _asset_id_to_index(asset_id)
         config = {
             "address": address,
             "max_deposits": max_deposits,
@@ -111,7 +112,7 @@ class AdminClient(BaseClearingEngineClient):
 
     async def set_risk_parameters(
         self,
-        asset_index: int,
+        asset_id: int | AssetIdentifier | str,
         collateral_factor: int,
         liability_factor: int,
         max_collateral: str,
@@ -133,6 +134,7 @@ class AdminClient(BaseClearingEngineClient):
         premium_clamp: int,
         buffer_multiplier: int,
     ):
+        asset_index = _asset_id_to_index(asset_id)
         risk_parameters = {
             "collateral_factor": collateral_factor,
             "liability_factor": liability_factor,
@@ -158,7 +160,7 @@ class AdminClient(BaseClearingEngineClient):
         await self._post(
             "admin/risk-parameters/modify",
             json_data={
-                "asset_id": int(asset_index),
+                "asset_id": asset_index,
                 "risk_parameters": risk_parameters,
             },
         )
@@ -248,3 +250,21 @@ class AdminClient(BaseClearingEngineClient):
             "admin/users/reset",
             json_data={},
         )
+
+
+def _asset_id_to_index(
+    asset_id: int | AssetIdentifier | str,
+) -> int:
+    if isinstance(asset_id, AssetIdentifier):
+        if asset_id.indexed:
+            return int(asset_id.root)
+        else:
+            raise ValueError("unsupported")
+
+    elif isinstance(asset_id, str):
+        if asset_id.isnumeric():
+            return int(asset_id)
+        else:
+            raise ValueError("unsupported")
+
+    return int(asset_id)
