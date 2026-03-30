@@ -6,6 +6,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -783,3 +784,36 @@ class OrderBookClient(BaseClient):
 
         parsed_data: UserMarginInfo = parse_user_margin_info(response_data)
         return parsed_data
+
+    async def request_transfer_to_subaccount(
+        self,
+        user: User,
+        source_index: int,
+        target_index: int,
+        transfer_asset: AssetIdentifier,
+        transfer_amount: int,
+        target_account_type: None,
+    ) -> dict[str, Any]:
+        inner = {
+            "user": user.public_key,
+            "source_index": source_index,
+            "target_index": target_index,
+            "transfer_asset": str(transfer_asset),
+            "transfer_amount": str(transfer_amount),
+            "target_account_type": target_account_type,
+        }
+
+        print("transfer request: ", inner)
+
+        signing_payload = json.dumps(inner, separators=(",", ":"))
+        signature = list(user.sign(signing_payload))
+
+        payload = {
+            "inner": inner,
+            "signature": signature,
+            "additional_signers": [],
+        }
+
+        self.logger.debug(f"Sending subaccount transfer request.")
+        response_data = await self._request("POST", "/account/transfer/sub-account", json_data=payload)
+        return response_data
