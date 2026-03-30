@@ -6,7 +6,6 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -793,19 +792,23 @@ class OrderBookClient(BaseClient):
         transfer_amount: int,
         target_account_type: None,
     ) -> dict[str, Any]:
-        payload = self._build_transfer_to_subaccount(source_index, target_account_type, target_index,
-                                                          transfer_amount, transfer_asset)
+        payload = self._build_transfer_to_subaccount(
+            source_index, target_account_type, target_index, transfer_amount, transfer_asset
+        )
 
         response_data = await self._send_transfer_request(payload)
         return response_data
 
     async def _send_transfer_request(self, payload):
-        self.logger.debug(f"Sending subaccount transfer request.")
-        response_data = await self._request("POST", "/account/transfer/sub-account", json_data=payload)
+        self.logger.debug("Sending subaccount transfer request.")
+        response_data = await self._request(
+            "POST", "/account/transfer/sub-account", json_data=payload
+        )
         return response_data
 
-    def _build_transfer_to_subaccount(self, source_index, target_account_type, target_index, transfer_amount,
-                                           transfer_asset):
+    def _build_transfer_to_subaccount(
+        self, source_index, target_account_type, target_index, transfer_amount, transfer_asset
+    ):
         inner = {
             "user": self.user.public_key,
             "source_index": source_index,
