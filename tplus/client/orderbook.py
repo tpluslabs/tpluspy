@@ -787,33 +787,35 @@ class OrderBookClient(BaseClient):
 
     async def request_transfer_to_subaccount(
         self,
-        user: User,
         source_index: int,
         target_index: int,
         transfer_asset: AssetIdentifier,
         transfer_amount: int,
         target_account_type: None,
     ) -> dict[str, Any]:
+        payload = self.build_transfer_to_subaccount(source_index, target_account_type, target_index,
+                                                          transfer_amount, transfer_asset)
+
+        self.logger.debug(f"Sending subaccount transfer request.")
+        response_data = await self._request("POST", "/account/transfer/sub-account", json_data=payload)
+        return response_data
+
+    def build_transfer_to_subaccount(self, source_index, target_account_type, target_index, transfer_amount,
+                                           transfer_asset):
         inner = {
-            "user": user.public_key,
+            "user": self.user.public_key,
             "source_index": source_index,
             "target_index": target_index,
             "transfer_asset": str(transfer_asset),
             "transfer_amount": str(transfer_amount),
             "target_account_type": target_account_type,
         }
-
         print("transfer request: ", inner)
-
         signing_payload = json.dumps(inner, separators=(",", ":"))
-        signature = list(user.sign(signing_payload))
-
+        signature = list(self.user.sign(signing_payload))
         payload = {
             "inner": inner,
             "signature": signature,
             "additional_signers": [],
         }
-
-        self.logger.debug(f"Sending subaccount transfer request.")
-        response_data = await self._request("POST", "/account/transfer/sub-account", json_data=payload)
-        return response_data
+        return payload
