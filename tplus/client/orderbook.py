@@ -793,14 +793,18 @@ class OrderBookClient(BaseClient):
         transfer_amount: int,
         target_account_type: None,
     ) -> dict[str, Any]:
-        payload = self.build_transfer_to_subaccount(source_index, target_account_type, target_index,
+        payload = self._build_transfer_to_subaccount(source_index, target_account_type, target_index,
                                                           transfer_amount, transfer_asset)
 
+        response_data = await self._send_transfer_request(payload)
+        return response_data
+
+    async def _send_transfer_request(self, payload):
         self.logger.debug(f"Sending subaccount transfer request.")
         response_data = await self._request("POST", "/account/transfer/sub-account", json_data=payload)
         return response_data
 
-    def build_transfer_to_subaccount(self, source_index, target_account_type, target_index, transfer_amount,
+    def _build_transfer_to_subaccount(self, source_index, target_account_type, target_index, transfer_amount,
                                            transfer_asset):
         inner = {
             "user": self.user.public_key,
