@@ -164,6 +164,7 @@ class SettlementManager(ChainConnectedManager):
         amount_out: Amount,
         user: "User | None" = None,
         account_index: int | None = None,
+        mode: str = "margin",
         then_execute: bool = False,
         on_approved: "Callable[[SettlementInfo, SettlementApproval], Awaitable[None] | None] | None" = None,
     ) -> SettlementInfo:
@@ -207,6 +208,7 @@ class SettlementManager(ChainConnectedManager):
         request = TxSettlementRequest.create_signed(
             {
                 "chain_id": self.chain_id,
+                "mode": mode,
                 "asset_in": asset_in,
                 "amount_in": amount_in_normalized,
                 "asset_out": asset_out,

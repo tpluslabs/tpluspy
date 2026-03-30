@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from eth_pydantic_types.hex.int import HexInt
 from pydantic import BaseModel, field_serializer
@@ -18,6 +18,7 @@ class BaseSettlement(BaseModel):
     The shared fields for all inner settlement requests.
     """
 
+    mode: Literal["margin", "spot"] = "margin"
     asset_in: Address32
     amount_in: HexInt
     asset_out: Address32
@@ -51,6 +52,7 @@ class InnerSettlementRequest(BaseSettlement):
         chain: ChainID | str,
         sub_account_index: int,
         settler: UserPublicKey | None = None,
+        mode: "Literal['margin', 'spot']" = "margin",
     ) -> "InnerSettlementRequest":
         """
         Create a request using raw amounts by first normalizing them to the CE.
@@ -77,6 +79,7 @@ class InnerSettlementRequest(BaseSettlement):
         """
         return cls.model_validate(
             {
+                "mode": mode,
                 "asset_in": asset_in,
                 "amount_in": to_inventory_decimals(amount_in, decimals_in, "up"),
                 "asset_out": asset_out,

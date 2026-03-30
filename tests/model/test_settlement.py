@@ -52,7 +52,7 @@ class TestTxSettlementRequest:
         """
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
@@ -91,7 +91,7 @@ class TestBundleSettlementRequest:
         }
         settlement = BatchSettlementRequest.model_validate({"inner": inner})
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","orders":[{{"asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000"}}],"transactions":[],"chain_id":"000000000000aa36a7"}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","orders":[{{"mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000"}}],"transactions":[],"chain_id":"000000000000aa36a7"}}'
         assert actual == expected
 
 
