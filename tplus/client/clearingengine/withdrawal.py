@@ -1,6 +1,6 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.types import ChainID
-from tplus.model.withdrawal import WithdrawalRequest
+from tplus.model.withdrawal import CancelWithdrawalRequest, WithdrawalRequest
 
 
 class WithdrawalClient(BaseClearingEngineClient):
@@ -59,6 +59,19 @@ class WithdrawalClient(BaseClearingEngineClient):
         await self._post(
             "admin/withdrawal/update-nonce", json_data={"user": user, "chain_id": chain_id}
         )
+
+    async def cancel(self, cancel_request: dict | CancelWithdrawalRequest):
+        """
+        Cancel a queued withdrawal.
+
+        Args:
+            cancel_request (dict | CancelWithdrawalRequest): The cancel withdrawal request.
+        """
+        if isinstance(cancel_request, dict):
+            cancel_request = CancelWithdrawalRequest.model_validate(cancel_request)
+
+        json_data = cancel_request.model_dump(mode="json")
+        await self._post("withdrawal/cancel", json_data=json_data)
 
     async def get_queued(self, user: str) -> list[WithdrawalRequest]:
         """

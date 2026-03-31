@@ -1,6 +1,5 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
-from tplus.model.asset_identifier import AssetIdentifier, ChainAddress
-from tplus.model.types import ChainID
+from tplus.model.asset_identifier import AssetAddress, ChainAddress
 
 
 class VaultClient(BaseClearingEngineClient):
@@ -14,16 +13,14 @@ class VaultClient(BaseClearingEngineClient):
         """
         await self._post("vaults/update")
 
-    async def update_balance(self, asset_id: AssetIdentifier | str, chain_id: ChainID):
+    async def update_balance(self, asset_address: AssetAddress | str):
         """
-        Request that the CE check the deposit vault for new deposits for
-        the given user.
+        Request that the CE check the deposit vault balance for the given asset.
 
         Args:
-            asset_id (AssetIdentifier | str): The asset identifier.
-            chain_id (int): The chain ID to check.
+            asset_address (AssetAddress | str): The asset address.
         """
-        request = {"asset_id": asset_id, "chain_id": chain_id}
+        request = {"asset_address": str(asset_address)}
         await self._post("vault/balance/update", json_data=request)
 
     async def get(self) -> list[ChainAddress]:

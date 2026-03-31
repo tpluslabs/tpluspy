@@ -68,6 +68,41 @@ class WithdrawalRequest(BaseModel):
         return self.inner.signing_payload()
 
 
+class InnerCancelWithdrawalRequest(BaseModel):
+    tplus_user: UserPublicKey
+    asset_address: AssetAddress
+    nonce: int
+
+    def signing_payload(self) -> str:
+        return self.model_dump_json()
+
+
+class CancelWithdrawalRequest(BaseModel):
+    inner: InnerCancelWithdrawalRequest
+    signature: list[int]
+
+    @classmethod
+    def create_signed(
+        cls,
+        signer: "User",
+        asset_address: AssetAddress | str,
+        nonce: int,
+    ) -> "CancelWithdrawalRequest":
+        if not isinstance(asset_address, AssetAddress):
+            asset_address = AssetAddress.model_validate(asset_address)
+
+        inner = InnerCancelWithdrawalRequest(
+            tplus_user=signer.public_key,
+            asset_address=asset_address,
+            nonce=nonce,
+        )
+        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
+        return cls(inner=inner, signature=signature)
+
+    def signing_payload(self) -> str:
+        return self.inner.signing_payload()
+
+
 class WithdrawalDelayParameters(BaseModel):
     min_delay: int = Field(alias="minDelay")
     max_delay: int = Field(alias="maxDelay")
