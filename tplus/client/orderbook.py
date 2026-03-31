@@ -800,7 +800,7 @@ class OrderBookClient(BaseClient):
         return response_data
 
     async def _send_transfer_request(self, payload):
-        self.logger.debug("Sending subaccount transfer request.")
+        self.logger.debug(f"Sending subaccount transfer request. Payload is: {payload}")
         response_data = await self._request(
             "POST", "/account/transfer/sub-account", json_data=payload
         )
@@ -817,7 +817,7 @@ class OrderBookClient(BaseClient):
             "transfer_amount": str(transfer_amount),
             "target_account_type": target_account_type,
         }
-        print("transfer request: ", inner)
+        self.logger.debug(f"Transfer request: {inner}")
         signing_payload = json.dumps(inner, separators=(",", ":"))
         signature = list(self.user.sign(signing_payload))
         payload = {
