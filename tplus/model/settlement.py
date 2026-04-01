@@ -1,5 +1,6 @@
 import json
-from typing import TYPE_CHECKING, Literal
+from enum import Enum
+from typing import TYPE_CHECKING
 
 from eth_pydantic_types.hex.int import HexInt
 from pydantic import BaseModel, field_serializer
@@ -13,12 +14,17 @@ if TYPE_CHECKING:
     from tplus.utils.user import User
 
 
+class SettlementMode(str, Enum):
+    MARGIN = "margin"
+    SPOT = "spot"
+
+
 class BaseSettlement(BaseModel):
     """
     The shared fields for all inner settlement requests.
     """
 
-    mode: Literal["margin", "spot"] = "margin"
+    mode: SettlementMode = SettlementMode.MARGIN
     asset_in: Address32
     amount_in: HexInt
     asset_out: Address32
@@ -52,7 +58,7 @@ class InnerSettlementRequest(BaseSettlement):
         chain: ChainID | str,
         sub_account_index: int,
         settler: UserPublicKey | None = None,
-        mode: "Literal['margin', 'spot']" = "margin",
+        mode: SettlementMode = SettlementMode.MARGIN,
     ) -> "InnerSettlementRequest":
         """
         Create a request using raw amounts by first normalizing them to the CE.
