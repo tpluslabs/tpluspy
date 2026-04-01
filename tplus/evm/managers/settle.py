@@ -14,7 +14,7 @@ from tplus.evm.managers.deposit import DepositManager
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.logger import get_logger
 from tplus.model.approval import SettlementApproval
-from tplus.model.settlement import TxSettlementRequest
+from tplus.model.settlement import SettlementMode, TxSettlementRequest
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.amount import Amount
 from tplus.utils.user.decrypt import decrypt_settlement_approval
@@ -164,6 +164,7 @@ class SettlementManager(ChainConnectedManager):
         amount_out: Amount,
         user: "User | None" = None,
         account_index: int | None = None,
+        mode: SettlementMode = SettlementMode.MARGIN,
         then_execute: bool = False,
         on_approved: "Callable[[SettlementInfo, SettlementApproval], Awaitable[None] | None] | None" = None,
     ) -> SettlementInfo:
@@ -207,6 +208,7 @@ class SettlementManager(ChainConnectedManager):
         request = TxSettlementRequest.create_signed(
             {
                 "chain_id": self.chain_id,
+                "mode": mode,
                 "asset_in": asset_in,
                 "amount_in": amount_in_normalized,
                 "asset_out": asset_out,
