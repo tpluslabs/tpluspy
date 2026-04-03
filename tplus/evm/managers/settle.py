@@ -167,6 +167,7 @@ class SettlementManager(ChainConnectedManager):
         mode: SettlementMode = SettlementMode.MARGIN,
         then_execute: bool = False,
         on_approved: "Callable[[SettlementInfo, SettlementApproval], Awaitable[None] | None] | None" = None,
+        on_error: "Callable[[SettlementError], Awaitable[None] | None] | None" = None,
     ) -> SettlementInfo:
         """
         Initialize a settlement asynchronously without waiting for approval.
@@ -184,6 +185,8 @@ class SettlementManager(ChainConnectedManager):
               selected user's account index.
             then_execute: Set to ``True`` to wait for the approval and then execute the settlement on-chain.
             on_approved: Custom callback for receiving the approval from the CE.
+            on_error: Called when the CE sends a settlement error on the approval stream
+              (see :class:`~tplus.evm.exceptions.SettlementError`).
 
         Returns:
             SettlementInfo: Information about the settlement including the expected nonce.
@@ -245,6 +248,7 @@ class SettlementManager(ChainConnectedManager):
             approval_task = asyncio.create_task(
                 handler.handle_approvals(
                     on_approval_received=effective_callback,
+                    on_error=on_error,
                     stop_at=1,
                     pending_settlements={expected_nonce: settlement_info},
                 )
@@ -369,6 +373,7 @@ class SettlementApprovalHandler:
     async def handle_approvals(
         self,
         on_approval_received=None,
+        on_error: "Callable[[SettlementError], Awaitable[None] | None] | None" = None,
         pending_settlements: dict[int, SettlementInfo] | None = None,
         stop_at: int | None = None,
         user: "UserPublicKey | None" = None,
@@ -391,7 +396,20 @@ class SettlementApprovalHandler:
                 return
 
             while True:
-                approval = self.settlement_manager.decrypt_settlement_approval_message(message)
+                approval = None
+                try:
+                    approval = self.settlement_manager.decrypt_settlement_approval_message(message)
+                except SettlementError as err:
+                    if on_error:
+                        result = on_error(err)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    else:
+                        self.logger.warning(
+                            "Settlement approval stream returned error (no on_error callback): %s",
+                            err,
+                        )
+
                 if approval:
                     nonce = approval.inner.nonce
                     settlement_info = pending_settlements.get(nonce)
