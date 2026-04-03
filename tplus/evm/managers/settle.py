@@ -42,6 +42,7 @@ class SettlementInfo:
     amount_out: Amount
     nonce: int
     chain_id: "ChainID"
+    settler: "UserPublicKey | None" = None
 
 
 class SettlementManager(ChainConnectedManager):
@@ -163,6 +164,7 @@ class SettlementManager(ChainConnectedManager):
         asset_out: "Address32",
         amount_out: Amount,
         user: "User | None" = None,
+        settler: "UserPublicKey | None" = None,
         account_index: int | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
         then_execute: bool = False,
@@ -181,6 +183,7 @@ class SettlementManager(ChainConnectedManager):
             asset_out: The address of the asset leaving the protocol.
             amount_out: Both the normalized and atomic amounts for the amount leaving the protocol.
             user: Specify the tplus user. Defaults to the default tplus user.
+            settler: The settler account executing the settlement. Defaults to the user's public key.
             account_index: Specify the index of the tplus account for this settlement approval. Defaults to the
               selected user's account index.
             then_execute: Set to ``True`` to wait for the approval and then execute the settlement on-chain.
@@ -208,18 +211,19 @@ class SettlementManager(ChainConnectedManager):
         if account_index is None:
             account_index = user.sub_account
 
-        request = TxSettlementRequest.create_signed(
-            {
-                "chain_id": self.chain_id,
-                "mode": mode,
-                "asset_in": asset_in,
-                "amount_in": amount_in_normalized,
-                "asset_out": asset_out,
-                "amount_out": amount_out_normalized,
-                "sub_account_index": account_index,
-            },
-            user,
-        )
+        request_data = {
+            "chain_id": self.chain_id,
+            "mode": mode,
+            "asset_in": asset_in,
+            "amount_in": amount_in_normalized,
+            "asset_out": asset_out,
+            "amount_out": amount_out_normalized,
+            "sub_account_index": account_index,
+        }
+        if settler is not None:
+            request_data["settler"] = settler
+
+        request = TxSettlementRequest.create_signed(request_data, user)
 
         settlement_info = SettlementInfo(
             asset_in=asset_in,
@@ -228,6 +232,7 @@ class SettlementManager(ChainConnectedManager):
             amount_out=amount_out,
             nonce=expected_nonce,
             chain_id=self.chain_id,
+            settler=settler or user.public_key,
         )
 
         approval_task: asyncio.Task | None = None
@@ -313,6 +318,7 @@ class SettlementManager(ChainConnectedManager):
         nonce = approval.inner.nonce
         expiry = approval.expiry
         user = user or self.default_user
+        settler = settlement_info.settler or user.public_key
         token_in_address = kwargs.pop("token_in", None)
         token_out_address = kwargs.pop("token_out", None)
 
@@ -343,6 +349,7 @@ class SettlementManager(ChainConnectedManager):
                 "nonce": nonce,
                 "validUntil": expiry,
             },
+            HexBytes(settler),
             "",
             HexBytes(approval.inner.signature),
             **kwargs,

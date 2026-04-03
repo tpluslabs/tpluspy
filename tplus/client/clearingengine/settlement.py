@@ -24,7 +24,7 @@ class SettlementClient(BaseClearingEngineClient):
             # Validate.
             request = TxSettlementRequest.model_validate(request)
 
-        data = request.model_dump(mode="json")
+        data = request.model_dump(mode="json", exclude_none=True)
         await self._post("settlement/init", json_data=data)
 
     async def get_signatures(self, user: str) -> list[dict]:

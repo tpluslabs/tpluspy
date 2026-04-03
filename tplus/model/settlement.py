@@ -42,7 +42,7 @@ class InnerSettlementRequest(BaseSettlement):
 
     tplus_user: UserPublicKey
     sub_account_index: int
-    settler: UserPublicKey
+    settler: UserPublicKey | None = None
     chain_id: ChainID
 
     @classmethod
@@ -101,17 +101,19 @@ class InnerSettlementRequest(BaseSettlement):
         base_data = self.model_dump(mode="json", exclude_none=True)
 
         user = base_data.pop("tplus_user")
-        settler = base_data.pop("settler")
+        settler = base_data.pop("settler", None)
         chain_id = base_data.pop("chain_id", None)
 
         # NOTE: The order here matters!
         payload = {
             "tplus_user": user,
             "sub_account_index": base_data.pop("sub_account_index"),
-            "settler": settler,
-            **base_data,
-            "chain_id": chain_id,
         }
+        if settler is not None:
+            payload["settler"] = settler
+
+        payload.update(base_data)
+        payload["chain_id"] = chain_id
 
         return (
             json.dumps(payload, separators=(",", ":"))
@@ -119,6 +121,33 @@ class InnerSettlementRequest(BaseSettlement):
             .replace("\n", "")
             .replace("\t", "")
         )
+
+
+class InnerMakerOrderAttachment(BaseModel):
+    """
+    The signed inner part of a maker order attachment for delegated settlement.
+    """
+
+    mm_pubkey: UserPublicKey
+    """The market maker's public key."""
+
+    settler: UserPublicKey
+    """The settler/executor designated by the MM."""
+
+    expires_at: int
+    """Expiry timestamp in nanoseconds."""
+
+
+class MakerOrderAttachment(BaseModel):
+    """
+    A maker order attached to a delegated settlement request.
+    """
+
+    inner: InnerMakerOrderAttachment
+    """The signed inner part."""
+
+    signature: list[int]
+    """MM's signature over ``inner``."""
 
 
 class TxSettlementRequest(BaseModel):
@@ -134,6 +163,11 @@ class TxSettlementRequest(BaseModel):
     signature: list[int]
     """
     The settler's signature from signing the necessary data (mostly from ``.inner``).
+    """
+
+    maker_order: MakerOrderAttachment | None = None
+    """
+    Optional maker order for delegated settlement.
     """
 
     @classmethod
@@ -155,8 +189,6 @@ class TxSettlementRequest(BaseModel):
         if isinstance(inner, dict):
             if "tplus_user" not in inner:
                 inner["tplus_user"] = signer.public_key
-            if "settler" not in inner:
-                inner["settler"] = signer.public_key
 
             inner = InnerSettlementRequest.model_validate(inner)
 
