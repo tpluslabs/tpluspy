@@ -826,3 +826,34 @@ class OrderBookClient(BaseClient):
             "additional_signers": [],
         }
         return payload
+
+    async def request_close_position(self, account: int, transfer_asset: str) -> dict[str, Any]:
+        payload = self._build_close_position_request(account, transfer_asset)
+
+        response_data = await self._send_close_position_request(payload)
+        return response_data
+
+    def _build_close_position_request(self, account: int, transfer_asset: str) -> dict:
+        """Same signing rules as CE: compact JSON of inner, ed25519 over UTF-8 bytes."""
+        inner = {
+            "user": self.user.public_key,
+            "account": account,
+            "asset_identifier": transfer_asset,
+        }
+
+        self.logger.debug(f"Preparing close position request: {inner}")
+        signing_payload = json.dumps(inner, separators=(",", ":"))
+        signature = list(self.user.sign(signing_payload))
+        payload = {
+            "inner": inner,
+            "signature": signature,
+            "additional_signers": [],
+        }
+        return payload
+
+    async def _send_close_position_request(self, payload):
+        self.logger.debug(f"Sending close position request. Payload is: {payload}")
+        response_data = await self._request(
+            "POST", "/account/transfer/close-position", json_data=payload
+        )
+        return response_data
