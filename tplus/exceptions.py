@@ -17,9 +17,16 @@ inspect ``details``, or check ``retryable`` without parsing JSON themselves.
 
 from __future__ import annotations
 
+import httpx
 
-class OmsError(Exception):
-    """Base class for OMS API errors with structured error response."""
+
+class OmsError(httpx.HTTPStatusError):
+    """Base class for OMS API errors with structured error response.
+
+    Inherits from ``httpx.HTTPStatusError`` so existing ``except HTTPStatusError``
+    blocks continue to work. The ``.response`` attribute is available for
+    backward compatibility (carries the HTTP status code).
+    """
 
     def __init__(
         self,
@@ -28,13 +35,20 @@ class OmsError(Exception):
         status_code: int,
         details: dict | None = None,
         retryable: bool | None = None,
+        *,
+        response: httpx.Response | None = None,
     ):
         self.code = code
-        self.message = message
+        self.message = message  # type: ignore[assignment]  # shadows HTTPStatusError.message
         self.status_code = status_code
         self.details = details
         self.retryable = retryable
-        super().__init__(f"[{code}] {message}")
+
+        # Build a minimal response so .response.status_code works even when
+        # constructed without a real response (e.g. in tests).
+        if response is None:
+            response = httpx.Response(status_code=status_code)
+        super().__init__(f"[{code}] {message}", request=httpx.Request("GET", ""), response=response)
 
 
 class OrderRejected(OmsError):
@@ -132,6 +146,8 @@ def _classify(code: str, status_code: int) -> type[OmsError]:
 def from_error_body(
     body: dict,
     status_code: int,
+    *,
+    response: httpx.Response | None = None,
 ) -> OmsError:
     """Build an ``OmsError`` (or subclass) from a parsed error envelope.
 
@@ -149,4 +165,5 @@ def from_error_body(
         status_code=status_code,
         details=details,
         retryable=retryable,
+        response=response,
     )

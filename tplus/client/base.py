@@ -373,7 +373,7 @@ def raise_for_status_with_body(response: httpx.Response) -> None:
     try:
         data = response.json()
         if isinstance(data, dict) and isinstance(data.get("error"), dict):
-            raise from_error_body(data["error"], response.status_code)
+            raise from_error_body(data["error"], response.status_code, response=response)
     except (json.JSONDecodeError, ValueError, KeyError):
         pass
 
