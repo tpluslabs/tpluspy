@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import httpx
 import websockets
 
-from tplus.exceptions import AuthError, OmsError, from_error_body
+from tplus.exceptions import OmsError, from_error_body
 from tplus.logger import get_logger
 from tplus.utils.user import User
 
