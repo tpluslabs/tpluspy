@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from tplus.client.base import BaseClient
+from tplus.exceptions import NotFoundError, OmsError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
@@ -422,6 +423,14 @@ class OrderBookClient(BaseClient):
                     f"Unexpected response type for book orders {asset_id}. Expected list, got {type(response_data).__name__}."
                 )
                 return []
+
+        except NotFoundError:
+            # Structured 404 from the new error format -- treat as "no orders".
+            self.logger.debug(
+                f"Received NotFoundError for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
+                f"Treating as empty order list."
+            )
+            return []
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404 and e.request.url.path == endpoint:
