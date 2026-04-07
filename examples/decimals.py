@@ -10,7 +10,7 @@ CLEARING_ENGINE_HOST = "http://127.0.0.1:3032"
 
 
 async def main():
-    client = ClearingEngineClient(User(), CLEARING_ENGINE_HOST)
+    client = ClearingEngineClient(CLEARING_ENGINE_HOST, default_user=User())
     assets: list[AssetIdentifier | str] = [
         AssetIdentifier("0xf3c3351d6bd0098eeb33ca8f830faf2a141ea2e1@421614")
     ]

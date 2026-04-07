@@ -100,7 +100,7 @@ async def main():
     # Removed signal handling setup - Not supported on Windows default loop
 
     try:
-        async with OrderBookClient(user, base_url=API_BASE_URL) as client:
+        async with OrderBookClient(API_BASE_URL, default_user=user) as client:
             logger.info("Client initialized.")
 
             # Create tasks for the stream listeners

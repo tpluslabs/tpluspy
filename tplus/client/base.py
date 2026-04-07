@@ -2,14 +2,76 @@ import json
 import logging
 import ssl
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from functools import cached_property
+from typing import TYPE_CHECKING, Any, Self
 from urllib.parse import urlparse
 
 import httpx
 import websockets
+from pydantic import BaseModel
 
+from tplus.exceptions import MissingClientUserError
 from tplus.logger import get_logger
 from tplus.utils.user import User
+
+if TYPE_CHECKING:
+    from tplus.model.types import UserPublicKey
+    from tplus.types import UserType
+
+DEFAULT_TIMEOUT = 10.0
+DEFAULT_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+
+
+class ClientSettings(BaseModel):
+    """
+    Validated client settings.
+    """
+
+    base_url: str = "http://localhost:3032"
+    """
+    Base URL for requests.
+    """
+
+    timeout: float = DEFAULT_TIMEOUT
+    """
+    Requests timeout.
+    """
+
+    websocket_kwargs: dict[str, Any] = {}
+    """
+    Additional kwargs to pass to websocket requests.
+    """
+
+    insecure_ssl: bool = False
+    """
+    Set to to not verify SSL certificates.
+    """
+
+    headers: dict[str, Any] = DEFAULT_HEADERS
+    """
+    HTTP headers.
+    """
+
+    @classmethod
+    def from_url(cls, url: str, **kwargs) -> "ClientSettings":
+        return cls(base_url=url, **kwargs)
+
+    @cached_property
+    def parsed_base_url(self):
+        return urlparse(self.base_url)
+
+    @property
+    def verify_requests(self) -> bool:
+        return not self.insecure_ssl
+
+
+def create_httpx_client(settings: ClientSettings) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        base_url=settings.base_url,
+        timeout=settings.timeout,
+        headers=settings.headers,
+        verify=settings.verify_requests,
+    )
 
 
 class BaseClient:
@@ -17,46 +79,50 @@ class BaseClient:
     Base client to use across T+ services.
     """
 
-    DEFAULT_TIMEOUT = 10.0
-    AUTH = True
-
     def __init__(
         self,
-        user: User,
-        base_url: str,
-        timeout: float = DEFAULT_TIMEOUT,
-        client: httpx.AsyncClient | None = None,
-        websocket_kwargs: dict[str, Any] | None = None,
+        settings: ClientSettings | str,
+        default_user: User | None = None,
         log_level: int = logging.INFO,
-        insecure_ssl: bool = False,
+        client: httpx.AsyncClient | None = None,
+        **kwargs,
     ):
-        self.user = user
-        self.base_url = base_url.rstrip("/")
-        self._parsed_base_url = urlparse(self.base_url)
-        if not isinstance(insecure_ssl, bool):
-            raise TypeError("insecure_ssl must be a bool")
-        self._insecure_ssl: bool = insecure_ssl
-        self._client = client or httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=timeout,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-            verify=not self._insecure_ssl,
-        )
-        self._ws_kwargs: dict[str, Any] = websocket_kwargs or {}
+        if isinstance(settings, str):
+            settings = ClientSettings.from_url(settings)
 
-        import asyncio
-
-        self._auth_lock: asyncio.Lock = asyncio.Lock()
-        self._auth_token: str | None = None
-        self._auth_expiry_ns: int = 0
+        self._settings = settings
+        self._default_user = default_user
+        self._client = client or create_httpx_client(settings)
         self.logger = get_logger(log_level=log_level)
 
     @classmethod
-    def from_client(cls, client: "BaseClient"):
-        """
-        Easy way to clone clients without initializing multiple AsyncClients.
-        """
-        return cls(client.user, client.base_url, client=client._client)
+    def from_client(cls, client: "BaseClient") -> Self:
+        return cls(
+            client._settings,
+            default_user=client._default_user,
+            client=client._client,
+        )
+
+    def _validate_user(self, user: User | None = None) -> User:
+        if user is not None:
+            return user
+
+        elif self._default_user is None:
+            raise MissingClientUserError()
+
+        return self._default_user
+
+    def _validate_user_public_key(self, user: "UserType | None" = None) -> "UserPublicKey":
+        if user is not None:
+            if isinstance(user, User):
+                return user.public_key
+
+            return user
+
+        elif self._default_user is None:
+            raise MissingClientUserError()
+
+        return self._default_user.public_key
 
     async def _get(self, endpoint: str, json_data: dict[str, Any] | None = None) -> dict[str, Any]:
         return await self._request("GET", endpoint, json_data=json_data)
@@ -72,175 +138,76 @@ class BaseClient:
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        response = await self._send(method, relative_url, json_data=json_data, params=params)
+        return self._handle_response(response)
 
-        if self.AUTH and (
-            not relative_url.startswith("/nonce") and not relative_url.startswith("/auth")
-        ):
-            await self._ensure_auth()
+    def _get_request_headers(self) -> dict[str, str]:
+        return dict(self._settings.headers)
+
+    async def _send(
+        self,
+        method: str,
+        relative_url: str,
+        json_data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        if json_data or params:
+            self.logger.debug(
+                f"Request to {method} {relative_url} with payload: {json_data} params: {params}"
+            )
+
+        merged_headers = self._get_request_headers()
 
         try:
-            if json_data or params:
-                self.logger.debug(
-                    f"Request to {method} {relative_url} with payload: {json_data} params: {params}"
-                )
-            request_headers = self._get_auth_headers()
-            if request_headers:
-                merged_headers = {**self._client.headers, **request_headers}
-            else:
-                merged_headers = None
-
-            response = await self._client.request(  # type: ignore
+            return await self._client.request(  # type: ignore
                 method=method,
                 url=relative_url,
                 json=json_data,
                 params=params,
                 headers=merged_headers,
             )
-
-            # If we receive an HTTP 401/403, the auth token may have expired. Refresh the
-            # credentials **once** and retry the request automatically. This keeps the
-            # higher-level client APIs unaware of token lifetimes and greatly simplifies
-            # consumer code.
-            if (
-                self.AUTH
-                and response.status_code in {401, 403}
-                and not relative_url.startswith("/auth")
-            ):
-                self.logger.info(
-                    "Received %s for %s – refreshing auth token and retrying once.",
-                    response.status_code,
-                    relative_url,
-                )
-
-                # Force re-authentication and rebuild the auth headers (inside the same
-                # lock to avoid a thundering herd when many coroutines hit expiry at the
-                # same time).
-                await self._authenticate()
-                retry_headers = {**self._client.headers, **self._get_auth_headers()}
-
-                response = await self._client.request(  # type: ignore
-                    method=method,
-                    url=relative_url,
-                    json=json_data,
-                    params=params,
-                    headers=retry_headers,
-                )
-
-            if response.status_code == 204:
-                return {}
-
-            raise_for_status_with_body(response)
-
-            if not response.content:
-                return {}
-
-            try:
-                json_response = response.json()
-                if json_response is None:
-                    self.logger.warning(
-                        f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary."
-                    )
-                    return {}
-
-                return json_response
-
-            except Exception:
-                raise Exception(
-                    f"Invalid response from server - status_code={response.status_code}."
-                )
-
-        except httpx.TimeoutException as e:
-            self.logger.error(f"Request timed out to {e.request.url!r}: {e}")
+        except httpx.TimeoutException as err:
+            self.logger.error(f"Request timed out to {err.request.url!r}: {err}")
             raise
-        except httpx.RequestError as e:
+
+        except httpx.RequestError as err:
             self.logger.error(
-                f"An error occurred while requesting {e.request.url!r}: {type(e).__name__} - {e}"
+                f"An error occurred while requesting {err.request.url!r}: {type(err).__name__} - {err}"
             )
             raise
-        except httpx.HTTPStatusError as e:
-            self.logger.error(
-                f"HTTP error {e.response.status_code} while requesting {e.request.url!r}: {e.response.text}"
-            )
-            raise
+
+    def _handle_response(self, response: httpx.Response) -> dict[str, Any]:
+        if response.status_code == 204:
+            return {}
+
+        raise_for_status_with_body(response)
+
+        if not response.content:
+            return {}
+
+        try:
+            json_response = response.json()
+            if json_response is None:
+                self.logger.warning(
+                    f"API endpoint {response.request.url!r} returned JSON null. Treating as empty dictionary."
+                )
+                return {}
+
+            return json_response
+
         except json.JSONDecodeError as e:
             self.logger.error(
-                f"Failed to decode JSON response from {response.request.url!r}. Status: {response.status_code}. Content: {response.text[:100]}..."
+                f"Failed to decode JSON response from {response.request.url!r}. "
+                f"Status: {response.status_code}. Content: {response.text[:100]}..."
             )
             raise ValueError(f"Invalid JSON received from API: {e}") from e
-
-    async def _ensure_auth(self) -> None:
-        import time
-
-        safety_margin_ns = 60 * 1_000_000_000
-        if self._auth_token and (time.time_ns() + safety_margin_ns) < self._auth_expiry_ns:
-            return
-
-        async with self._auth_lock:
-            if self._auth_token and (time.time_ns() + safety_margin_ns) < self._auth_expiry_ns:
-                return
-
-            await self._authenticate()
-
-    def _get_auth_headers(self) -> dict[str, str]:
-        if not self._auth_token:
-            return {}
-        return {
-            "Authorization": f"Bearer {self._auth_token}",
-            "User-Id": self.user.public_key,
-        }
-
-    async def _authenticate(self) -> None:
-        nonce_endpoint = f"/nonce/{self.user.public_key}"
-        nonce_resp = await self._client.get(nonce_endpoint)  # type: ignore
-        nonce_resp.raise_for_status()
-        nonce_data = nonce_resp.json() if hasattr(nonce_resp, "json") else nonce_resp
-
-        # NOTE: nonce_value **must** be a `str` here.
-        nonce_value = f"{nonce_data['value']}" if isinstance(nonce_data, dict) else f"{nonce_data}"
-
-        signature_bytes = self.user.sign(nonce_value)
-        signature_array = list(signature_bytes)
-        nonce_value_len = len(nonce_value)  # type: ignore
-
-        self.logger.debug(f"AUTH DEBUG: nonce={nonce_value} (len={nonce_value_len})")
-        self.logger.debug(
-            f"AUTH DEBUG: signature={signature_array[:8]}... (len={len(signature_array)})"
-        )
-
-        auth_payload = {
-            "user_id": self.user.public_key,
-            "nonce": nonce_value,
-            "signature": signature_array,
-        }
-
-        token_resp = await self._client.post("/auth", json=auth_payload)  # type: ignore
-        token_resp.raise_for_status()
-        token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
-
-        token = token_json.get("token")  # type: ignore
-        expiry_ns = int(token_json["expiry_ns"])  # type: ignore
-
-        # Mask token if present
-        if isinstance(token, str):
-            masked = token[:4] + "…" + token[-4:] if len(token) >= 8 else "***"
-        else:
-            masked = "***"
-        self.logger.debug(f"AUTH DEBUG: token={masked} expires={expiry_ns}")
-
-        self._auth_token = token_json["token"]  # type: ignore
-        self._auth_expiry_ns = expiry_ns
-
-    async def _ws_auth_headers(self) -> dict[str, str]:
-        if self.AUTH:
-            await self._ensure_auth()
-
-        return self._get_auth_headers()
 
     def _get_websocket_url(self, path: str) -> str:
         from urllib.parse import urlunparse
 
-        scheme = "wss" if self._parsed_base_url.scheme == "https" else "ws"
-        netloc = self._parsed_base_url.netloc
+        parsed = self._settings.parsed_base_url
+        scheme = "wss" if parsed.scheme == "https" else "ws"
+        netloc = parsed.netloc
         ws_path = path if path.startswith("/") else f"/{path}"
         return urlunparse((scheme, netloc, ws_path, "", "", ""))
 
@@ -248,38 +215,41 @@ class BaseClient:
         self,
         path: str,
         ws_kwargs: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ):
         """
         Build a WebSocket connection context for the given path with proper
-        auth headers and TLS/handshake settings. Returns a websockets.connect
-        context manager which can be used with "async with".
+        TLS/handshake settings. Returns a websockets.connect context manager.
         """
         ws_url = self._get_websocket_url(path)
-        auth_headers = await self._ws_auth_headers()
-        final_kwargs = dict(self._ws_kwargs)
+        headers = extra_headers or {}
+
+        final_kwargs = dict(self._settings.websocket_kwargs)
         if ws_kwargs:
             final_kwargs.update(ws_kwargs)
 
-        # Merge extra headers with auth headers
+        # Merge extra headers with caller-provided headers
         if "extra_headers" in final_kwargs and final_kwargs["extra_headers"]:
             caller_headers = final_kwargs.pop("extra_headers")
             if isinstance(caller_headers, dict):
-                caller_headers.update(auth_headers)
+                caller_headers.update(headers)
                 final_kwargs["extra_headers"] = caller_headers
             else:
-                final_kwargs["extra_headers"] = list(auth_headers.items()) + list(caller_headers)
+                final_kwargs["extra_headers"] = list(headers.items()) + list(caller_headers)
         else:
-            final_kwargs["extra_headers"] = auth_headers
+            final_kwargs["extra_headers"] = headers
+
+        parsed = self._settings.parsed_base_url
 
         # Provide Origin to be proxy/gateway friendly
-        origin = f"{self._parsed_base_url.scheme}://{self._parsed_base_url.netloc}"
+        origin = f"{parsed.scheme}://{parsed.netloc}"
         if "origin" not in final_kwargs:
             final_kwargs["origin"] = origin
 
         # Build SSL context (secure by default). Only set ALPN/server_hostname for HTTPS.
-        if self._parsed_base_url.scheme == "https":
+        if parsed.scheme == "https":
             ssl_context = ssl.create_default_context()
-            if self._insecure_ssl:
+            if self._settings.insecure_ssl:
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
             try:
@@ -287,7 +257,7 @@ class BaseClient:
             except Exception:
                 pass
 
-            server_hostname = self._parsed_base_url.hostname
+            server_hostname = parsed.hostname
             if server_hostname:
                 return websockets.connect(
                     ws_url, **final_kwargs, ssl=ssl_context, server_hostname=server_hostname

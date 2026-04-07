@@ -33,8 +33,8 @@ async def main() -> None:
     logger.info("Connecting to OMS at %s", API_BASE_URL)
 
     async with (
-        OrderBookClient(user_a, base_url=API_BASE_URL) as client_a,
-        OrderBookClient(user_b, base_url=API_BASE_URL) as client_b,
+        OrderBookClient(API_BASE_URL, default_user=user_a) as client_a,
+        OrderBookClient(API_BASE_URL, default_user=user_b) as client_b,
     ):
         # -------------------------------------------------------------------
         # Ensure the market exists (idempotent – returns 409 if already there)
