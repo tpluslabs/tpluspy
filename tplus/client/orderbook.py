@@ -351,28 +351,40 @@ class OrderBookClient(BaseClient):
     async def get_user_trades(self) -> list[UserTrade]:
         """
         Get all trades for the authenticated user (async).
+        Returns empty list if user is not yet known to the OMS.
         """
         endpoint = f"/trades/user/{self.user.public_key}"
         self.logger.debug(f"Getting Trades for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return []
         return self.parse_user_trades(response_data)  # type: ignore
 
     async def get_user_trades_for_asset(self, asset_id: AssetIdentifier) -> list[UserTrade]:
         """
         Get trades for a specific asset for the authenticated user (async).
+        Returns empty list if user is not yet known to the OMS.
         """
         endpoint = f"/trades/user/{self.user.public_key}/{asset_id}"
         self.logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return []
         return self.parse_user_trades(response_data)  # type: ignore
 
     async def get_user_orders(self) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
         Get all orders for the authenticated user (async).
+        Returns empty results if user is not yet known to the OMS.
         """
         endpoint = f"/orders/user/{self.user.public_key}"
         self.logger.debug(f"Getting Orders for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return [], {}
 
         if isinstance(response_data, dict) and "error" in response_data:
             self.logger.error(
