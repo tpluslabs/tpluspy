@@ -75,6 +75,23 @@ class SettlementManager(ChainConnectedManager):
 
         self._approval_handling_tasks = {}
 
+    async def cleanup_tasks(self):
+        """Cancel all pending approval-handling tasks and await their completion."""
+        all_tasks = [
+            task
+            for user_tasks in self._approval_handling_tasks.values()
+            for task in user_tasks.values()
+        ]
+        for task in all_tasks:
+            task.cancel()
+        for task in all_tasks:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        self._approval_handling_tasks.clear()
+
     @cached_property
     def deposits(self) -> DepositManager:
         return DepositManager(
