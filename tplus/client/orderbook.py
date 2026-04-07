@@ -641,10 +641,14 @@ class OrderBookClient(BaseClient):
     async def get_user_inventory(self) -> dict[str, Any]:
         """
         Get inventory for the authenticated user (async).
+        Returns empty dict if user is not yet known to the OMS.
         """
         endpoint = f"/inventory/user/{self.user.public_key}"
         self.logger.debug(f"Getting Inventory for user {self.user.public_key}")
-        return await self._request("GET", endpoint)
+        try:
+            return await self._request("GET", endpoint)
+        except NotFoundError:
+            return {}
 
     async def stream_orders(self) -> AsyncIterator[OrderEvent]:
         """
@@ -730,11 +734,15 @@ class OrderBookClient(BaseClient):
     async def get_user_solvency(self) -> UserSolvency:
         """
         Get solvency for the authenticated user (async).
+        Returns empty solvency if user is not yet known to the OMS.
         """
         endpoint = f"/solvency/user/{self.user.public_key}"
 
         self.logger.debug(f"Getting Solvency for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            response_data = {"accounts": {}}
 
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_user_solvency.")
@@ -785,7 +793,10 @@ class OrderBookClient(BaseClient):
             f"Getting Margin Info for user {self.user.public_key}, "
             f"sub_accounts={sub_accounts}, include_positions={include_positions}"
         )
-        response_data = await self._request("GET", endpoint, params=params if params else None)
+        try:
+            response_data = await self._request("GET", endpoint, params=params if params else None)
+        except NotFoundError:
+            response_data = {"accounts": {}}
 
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_user_margin_info.")
