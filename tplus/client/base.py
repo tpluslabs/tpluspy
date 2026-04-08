@@ -3,12 +3,13 @@ import logging
 import ssl
 from collections.abc import AsyncIterator, Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import httpx
 import websockets
 from pydantic import BaseModel
+from typing_extensions import Self
 
 from tplus.exceptions import MissingClientUserError
 from tplus.logger import get_logger
