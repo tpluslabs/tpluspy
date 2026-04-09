@@ -21,12 +21,13 @@ from tplus.model.market_order import (
     MarketQuoteQuantity,
 )
 from tplus.model.order import (
+    CreateOrderRequest,
     OrderEvent,
     OrderOperationResponse,
     OrderResponse,
     TradeTarget,
     parse_order_event,
-    parse_orders, CreateOrderRequest,
+    parse_orders,
 )
 from tplus.model.orderbook import OrderBook, OrderBookDiff
 from tplus.model.trades import (
@@ -202,8 +203,9 @@ class OrderBookClient(BaseClient):
         Create a limit order (async). Uses WS /control if enabled.
         """
         # TODO: Fix the signature if this method such that `asset_id` is required.
-        order_id, signed_message = await self.prepare_limit_order_request(asset_id, price, quantity, side, target,
-                                                                          time_in_force)
+        order_id, signed_message = await self.prepare_limit_order_request(
+            asset_id, price, quantity, side, target, time_in_force
+        )
 
         self.logger.debug(
             f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
@@ -215,7 +217,9 @@ class OrderBookClient(BaseClient):
         resp = await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
         return OrderOperationResponse.model_validate(resp)
 
-    async def prepare_limit_order_request(self, asset_id, price, quantity, side, target, time_in_force):
+    async def prepare_limit_order_request(
+        self, asset_id, price, quantity, side, target, time_in_force
+    ):
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id_unwrapped)
@@ -233,13 +237,13 @@ class OrderBookClient(BaseClient):
         )
         return order_id, signed_message
 
-
     async def send_multiple_orders(self, create_order_requests: list[CreateOrderRequest]):
         request = BatchCreateOrderRequest(orders=create_order_requests)
-        batch_order_response_data = await self._request("POST", "/orders/batch-create", json_data=request.model_dump())
+        batch_order_response_data = await self._request(
+            "POST", "/orders/batch-create", json_data=request.model_dump()
+        )
         parsed_batch_order_response = parse_batch_order_response(batch_order_response_data)
         return parsed_batch_order_response
-
 
     async def cancel_order(
         self, order_id: str, asset_id: AssetIdentifier
