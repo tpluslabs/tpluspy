@@ -28,6 +28,4 @@ def parse_batch_order_response(
         )
         list_of_single_orders_from_batch.append(single_order_from_batch)
 
-    return BatchCreateOrderRequestResponse(
-        batch_order_status=list_of_single_orders_from_batch
-    )
+    return BatchCreateOrderRequestResponse(batch_order_status=list_of_single_orders_from_batch)
