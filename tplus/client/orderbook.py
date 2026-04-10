@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from tplus.client.base import BaseClient
+from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import BatchCreateOrderRequest, parse_batch_order_response
 from tplus.model.klines import KlineUpdate, parse_kline_update
@@ -368,28 +369,40 @@ class OrderBookClient(BaseClient):
     async def get_user_trades(self) -> list[UserTrade]:
         """
         Get all trades for the authenticated user (async).
+        Returns empty list if user is not yet known to the OMS.
         """
         endpoint = f"/trades/user/{self.user.public_key}"
         self.logger.debug(f"Getting Trades for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return []
         return self.parse_user_trades(response_data)  # type: ignore
 
     async def get_user_trades_for_asset(self, asset_id: AssetIdentifier) -> list[UserTrade]:
         """
         Get trades for a specific asset for the authenticated user (async).
+        Returns empty list if user is not yet known to the OMS.
         """
         endpoint = f"/trades/user/{self.user.public_key}/{asset_id}"
         self.logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return []
         return self.parse_user_trades(response_data)  # type: ignore
 
     async def get_user_orders(self) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
         Get all orders for the authenticated user (async).
+        Returns empty results if user is not yet known to the OMS.
         """
         endpoint = f"/orders/user/{self.user.public_key}"
         self.logger.debug(f"Getting Orders for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return [], {}
 
         if isinstance(response_data, dict) and "error" in response_data:
             self.logger.error(
@@ -440,6 +453,14 @@ class OrderBookClient(BaseClient):
                     f"Unexpected response type for book orders {asset_id}. Expected list, got {type(response_data).__name__}."
                 )
                 return []
+
+        except NotFoundError:
+            # Structured 404 from the new error format -- treat as "no orders".
+            self.logger.debug(
+                f"Received NotFoundError for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
+                f"Treating as empty order list."
+            )
+            return []
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404 and e.request.url.path == endpoint:
@@ -650,10 +671,14 @@ class OrderBookClient(BaseClient):
     async def get_user_inventory(self) -> dict[str, Any]:
         """
         Get inventory for the authenticated user (async).
+        Returns empty dict if user is not yet known to the OMS.
         """
         endpoint = f"/inventory/user/{self.user.public_key}"
         self.logger.debug(f"Getting Inventory for user {self.user.public_key}")
-        return await self._request("GET", endpoint)
+        try:
+            return await self._request("GET", endpoint)
+        except NotFoundError:
+            return {}
 
     async def stream_orders(self) -> AsyncIterator[OrderEvent]:
         """
@@ -739,11 +764,15 @@ class OrderBookClient(BaseClient):
     async def get_user_solvency(self) -> UserSolvency:
         """
         Get solvency for the authenticated user (async).
+        Returns empty solvency if user is not yet known to the OMS.
         """
         endpoint = f"/solvency/user/{self.user.public_key}"
 
         self.logger.debug(f"Getting Solvency for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            response_data = {"accounts": {}}
 
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_user_solvency.")
@@ -794,7 +823,10 @@ class OrderBookClient(BaseClient):
             f"Getting Margin Info for user {self.user.public_key}, "
             f"sub_accounts={sub_accounts}, include_positions={include_positions}"
         )
-        response_data = await self._request("GET", endpoint, params=params if params else None)
+        try:
+            response_data = await self._request("GET", endpoint, params=params if params else None)
+        except NotFoundError:
+            response_data = {"accounts": {}}
 
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_user_margin_info.")

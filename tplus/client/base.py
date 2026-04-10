@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import httpx
 import websockets
 
+from tplus.exceptions import OmsError, from_error_body
 from tplus.logger import get_logger
 from tplus.utils.user import User
 
@@ -97,14 +98,15 @@ class BaseClient:
                 headers=merged_headers,
             )
 
-            # If we receive an HTTP 401/403, the auth token may have expired. Refresh the
-            # credentials **once** and retry the request automatically. This keeps the
-            # higher-level client APIs unaware of token lifetimes and greatly simplifies
-            # consumer code.
+            # If we receive an HTTP 401/403, the auth token may have expired.
+            # Try to parse the response for a structured error first; if it is
+            # an auth-class error we refresh credentials and retry once.  This
+            # avoids retrying non-auth errors that happen to use 401/403.
             if (
                 self.AUTH
                 and response.status_code in {401, 403}
                 and not relative_url.startswith("/auth")
+                and not relative_url.startswith("/nonce")
             ):
                 self.logger.info(
                     "Received %s for %s – refreshing auth token and retrying once.",
@@ -112,9 +114,9 @@ class BaseClient:
                     relative_url,
                 )
 
-                # Force re-authentication and rebuild the auth headers (inside the same
-                # lock to avoid a thundering herd when many coroutines hit expiry at the
-                # same time).
+                # Force re-authentication and rebuild the auth headers (inside
+                # the same lock to avoid a thundering herd when many coroutines
+                # hit expiry at the same time).
                 await self._authenticate()
                 retry_headers = {**self._client.headers, **self._get_auth_headers()}
 
@@ -156,6 +158,9 @@ class BaseClient:
             self.logger.error(
                 f"An error occurred while requesting {e.request.url!r}: {type(e).__name__} - {e}"
             )
+            raise
+        except OmsError:
+            # Structured OMS errors are raised as-is; callers handle them.
             raise
         except httpx.HTTPStatusError as e:
             self.logger.error(
@@ -357,6 +362,22 @@ class BaseClient:
 
 
 def raise_for_status_with_body(response: httpx.Response) -> None:
+    """Raise a structured ``OmsError`` when the response carries the
+    standardised error envelope, otherwise fall back to ``httpx.HTTPStatusError``
+    for backward compatibility.
+    """
+    if response.is_success:
+        return
+
+    # Try to parse the standardised error envelope
+    try:
+        data = response.json()
+        if isinstance(data, dict) and isinstance(data.get("error"), dict):
+            raise from_error_body(data["error"], response.status_code, response=response)
+    except (json.JSONDecodeError, ValueError, KeyError):
+        pass
+
+    # Fallback: plain httpx error with body context (pre-existing behaviour)
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as err:
