@@ -14,7 +14,7 @@ class SingleOrderFromBatch(BaseModel):
 
 
 class BatchCreateOrderRequestResponse(BaseModel):
-    batch_create_order_request_response: list[SingleOrderFromBatch]
+    batch_order_status: list[SingleOrderFromBatch]
 
 
 def parse_batch_order_response(
@@ -29,5 +29,5 @@ def parse_batch_order_response(
         list_of_single_orders_from_batch.append(single_order_from_batch)
 
     return BatchCreateOrderRequestResponse(
-        batch_create_order_request_response=list_of_single_orders_from_batch
+        batch_order_status=list_of_single_orders_from_batch
     )
