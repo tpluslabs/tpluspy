@@ -14,6 +14,10 @@ from tplus.client.base import BaseClient
 from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import BatchCreateOrderRequest, parse_batch_order_response
+from tplus.model.close_all_positions_preview import (
+    CloseAllPreviewResponse,
+    parse_close_all_preview,
+)
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
@@ -43,10 +47,6 @@ from tplus.model.trades import (
 from tplus.model.user_margin import (
     UserMarginInfo,
     parse_user_margin_info,
-)
-from tplus.model.close_all_positions_preview import (
-    CloseAllPreviewResponse,
-    parse_close_all_preview,
 )
 from tplus.model.user_solvency import (
     UserSolvency,

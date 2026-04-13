@@ -28,6 +28,7 @@ class CloseAllPreviewResponse(BaseModel):
     orders: list[UnsignedCloseOrder]
     errors: list[str]
 
+
 def parse_unsigned_close_order(data: dict) -> UnsignedCloseOrder:
     return UnsignedCloseOrder(
         asset_id=AssetIdentifier.model_validate(data["asset_id"]),
