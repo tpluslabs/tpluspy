@@ -7,7 +7,7 @@ The OMS returns errors in a standardised envelope::
             "code": "INSUFFICIENT_MARGIN",
             "message": "Insufficient margin for order",
             "details": {"order_id": "abc123"},
-            "retryable": false
+            "retryable": false,
         }
     }
 
@@ -89,21 +89,25 @@ class ServerError(OmsError):
 
 # Prefixes / exact codes that map to each subclass.  Checked in order;
 # first match wins.
-_AUTH_CODES = frozenset({
-    "UNAUTHORIZED",
-    "INVALID_SIGNATURE",
-})
+_AUTH_CODES = frozenset(
+    {
+        "UNAUTHORIZED",
+        "INVALID_SIGNATURE",
+    }
+)
 _AUTH_PREFIXES = ("SIGNER_", "NONCE_")
 
 _RATE_LIMIT_CODES = frozenset({"RATE_LIMITED"})
 
 _NOT_FOUND_SUFFIXES = ("_NOT_FOUND",)
 
-_SERVER_CODES = frozenset({
-    "INTERNAL_ERROR",
-    "CE_COMMUNICATION_ERROR",
-    "TIMEOUT",
-})
+_SERVER_CODES = frozenset(
+    {
+        "INTERNAL_ERROR",
+        "CE_COMMUNICATION_ERROR",
+        "TIMEOUT",
+    }
+)
 
 _ORDER_PREFIXES = (
     "INSUFFICIENT_MARGIN",
