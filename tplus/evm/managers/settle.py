@@ -360,7 +360,6 @@ class SettlementManager(ChainConnectedManager):
                 "nonce": nonce,
                 "validUntil": expiry,
             },
-            HexBytes(user.public_key),
             "",
             HexBytes(approval.inner.signature),
             **kwargs,
