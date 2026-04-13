@@ -47,3 +47,46 @@ jobs:
 # TODO: Uncomment when/if this actually matters (dependency-heavy)
 #      - name: EVM Tests
 #        run: pytest tests/evm
+
+  release-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check for unreleased interface changes
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 origin/main 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No tags found, skipping check."
+            exit 0
+          fi
+
+          # Files that constitute the public interface
+          INTERFACE_PATHS="tplus/evm/manifests/ tplus/evm/contracts.py tplus/evm/constants.py tplus/client/"
+
+          UNRELEASED=""
+          for path in $INTERFACE_PATHS; do
+            changes=$(git diff --name-only "$LATEST_TAG"..origin/main -- "$path" 2>/dev/null)
+            if [ -n "$changes" ]; then
+              UNRELEASED="$UNRELEASED$changes"$'\n'
+            fi
+          done
+
+          if [ -n "$UNRELEASED" ]; then
+            echo "::warning::There are unreleased interface changes on main since $LATEST_TAG. If this PR also touches interfaces, consider tagging a release after merge so changes don't accumulate."
+            echo ""
+            echo "Unreleased interface changes since $LATEST_TAG:"
+            echo "$UNRELEASED"
+          fi
+
+          # Now check if THIS PR touches interface files
+          PR_CHANGES=$(git diff --name-only origin/main...HEAD -- $INTERFACE_PATHS 2>/dev/null)
+          if [ -n "$PR_CHANGES" ]; then
+            echo ""
+            echo "::warning::This PR modifies public interface files. Tag a new release after merging."
+            echo "Changed interface files in this PR:"
+            echo "$PR_CHANGES"
+          fi
