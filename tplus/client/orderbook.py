@@ -14,6 +14,10 @@ from tplus.client.base import BaseClient
 from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import BatchCreateOrderRequest, parse_batch_order_response
+from tplus.model.close_all_positions_preview import (
+    CloseAllPreviewResponse,
+    parse_close_all_preview,
+)
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
@@ -779,6 +783,36 @@ class OrderBookClient(BaseClient):
 
         parsed_data: UserSolvency = parse_user_solvency(response_data)
         return parsed_data
+
+    async def get_close_all_positions_preview(
+        self,
+        sub_account_index: int,
+        user_id: str | None = None,
+    ) -> CloseAllPreviewResponse:
+        """
+        Preview unsigned orders to close all margin positions in a sub-account.
+
+        GET /positions/close-all/{user_id}/{sub_account_index}
+
+        Args:
+            sub_account_index: Sub-account index (e.g. 1 for cross-margin).
+            user_id: Hex user public key; defaults to the authenticated user.
+
+        Returns:
+            CloseAllPreviewResponse with unsigned orders and any per-asset errors.
+        """
+        uid = user_id if user_id is not None else self.user.public_key
+        endpoint = f"/positions/close-all/{uid}/{sub_account_index}"
+
+        self.logger.debug(
+            f"Getting close-all preview for user {uid}, sub_account={sub_account_index}"
+        )
+        response_data = await self._request("GET", endpoint)
+
+        if not isinstance(response_data, dict):
+            raise Exception("Invalid response from get_close_all_preview.")
+
+        return parse_close_all_preview(response_data)
 
     async def get_user_margin_info(
         self,

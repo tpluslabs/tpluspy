@@ -19,6 +19,7 @@ from tplus.exceptions import (
 # from_error_body classification tests
 # ---------------------------------------------------------------------------
 
+
 class TestFromErrorBody:
     def test_insufficient_margin(self):
         body = {
@@ -116,6 +117,7 @@ class TestFromErrorBody:
 # raise_for_status_with_body tests
 # ---------------------------------------------------------------------------
 
+
 class TestRaiseForStatusWithBody:
     def test_success_does_not_raise(self):
         from tplus.client.base import raise_for_status_with_body
@@ -126,14 +128,16 @@ class TestRaiseForStatusWithBody:
     def test_structured_error_raises_oms_error(self):
         from tplus.client.base import raise_for_status_with_body
 
-        body = json.dumps({
-            "error": {
-                "code": "INSUFFICIENT_MARGIN",
-                "message": "Insufficient margin for order",
-                "details": {"order_id": "abc"},
-                "retryable": False,
+        body = json.dumps(
+            {
+                "error": {
+                    "code": "INSUFFICIENT_MARGIN",
+                    "message": "Insufficient margin for order",
+                    "details": {"order_id": "abc"},
+                    "retryable": False,
+                }
             }
-        })
+        )
         resp = httpx.Response(400, request=httpx.Request("POST", "http://x"), text=body)
         with pytest.raises(OrderRejected) as exc_info:
             raise_for_status_with_body(resp)
@@ -170,6 +174,7 @@ class TestRaiseForStatusWithBody:
 # OmsError hierarchy tests
 # ---------------------------------------------------------------------------
 
+
 class TestOmsErrorHierarchy:
     def test_order_rejected_is_oms_error(self):
         assert issubclass(OrderRejected, OmsError)
@@ -187,9 +192,7 @@ class TestOmsErrorHierarchy:
         assert issubclass(ServerError, OmsError)
 
     def test_str_format(self):
-        exc = OmsError(
-            code="TEST", message="test msg", status_code=400
-        )
+        exc = OmsError(code="TEST", message="test msg", status_code=400)
         assert str(exc) == "[TEST] test msg"
 
     def test_catching_base_catches_subclass(self):
