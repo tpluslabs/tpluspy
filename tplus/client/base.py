@@ -11,7 +11,7 @@ import websockets
 from pydantic import BaseModel
 from typing_extensions import Self
 
-from tplus.exceptions import MissingClientUserError
+from tplus.exceptions import MissingClientUserError, from_error_body
 from tplus.logger import get_logger
 from tplus.utils.user import User
 
@@ -328,6 +328,22 @@ class BaseClient:
 
 
 def raise_for_status_with_body(response: httpx.Response) -> None:
+    """Raise a structured ``OmsError`` when the response carries the
+    standardised error envelope, otherwise fall back to ``httpx.HTTPStatusError``
+    for backward compatibility.
+    """
+    if response.is_success:
+        return
+
+    # Try to parse the standardised error envelope
+    try:
+        data = response.json()
+        if isinstance(data, dict) and isinstance(data.get("error"), dict):
+            raise from_error_body(data["error"], response.status_code, response=response)
+    except (json.JSONDecodeError, ValueError, KeyError):
+        pass
+
+    # Fallback: plain httpx error with body context (pre-existing behaviour)
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as err:

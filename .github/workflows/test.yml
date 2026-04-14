@@ -47,3 +47,64 @@ jobs:
 # TODO: Uncomment when/if this actually matters (dependency-heavy)
 #      - name: EVM Tests
 #        run: pytest tests/evm
+
+  release-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check for unreleased interface changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 origin/main 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No tags found, skipping check."
+            exit 0
+          fi
+
+          # Files that constitute the public interface
+          INTERFACE_PATHS="tplus/evm/manifests/ tplus/evm/contracts.py tplus/evm/constants.py tplus/client/"
+
+          UNRELEASED=""
+          for path in $INTERFACE_PATHS; do
+            changes=$(git diff --name-only "$LATEST_TAG"..origin/main -- "$path" 2>/dev/null)
+            if [ -n "$changes" ]; then
+              UNRELEASED="$UNRELEASED$changes"$'\n'
+            fi
+          done
+
+          PR_CHANGES=$(git diff --name-only origin/main...HEAD -- $INTERFACE_PATHS 2>/dev/null)
+
+          # Build comment body if there's anything to report
+          COMMENT=""
+
+          if [ -n "$PR_CHANGES" ]; then
+            COMMENT="⚠️ **This PR modifies public interface files.** Tag a new release after merging so downstream consumers (tplus-core) can pin to it."
+            COMMENT="$COMMENT"$'\n\n'"Changed:\n\`\`\`\n$PR_CHANGES\n\`\`\`"
+          fi
+
+          if [ -n "$UNRELEASED" ]; then
+            if [ -n "$COMMENT" ]; then
+              COMMENT="$COMMENT"$'\n\n---\n\n'
+            fi
+            COMMENT="${COMMENT}📋 **There are also unreleased interface changes on main since \`$LATEST_TAG\`:**"
+            COMMENT="$COMMENT"$'\n\n'"\`\`\`\n$UNRELEASED\`\`\`"
+          fi
+
+          if [ -n "$COMMENT" ]; then
+            # Delete any previous release-check comment to avoid spam
+            gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+              --jq '.[] | select(.body | startswith("⚠️ **This PR modifies") or startswith("📋 **There are also unreleased")) | .id' \
+              | while read -r id; do
+                gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/comments/$id" 2>/dev/null
+              done
+
+            echo -e "$COMMENT" | gh pr comment "$PR_NUMBER" --body-file -
+          fi
