@@ -11,7 +11,13 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from tplus.client.base import BaseClient
+from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.batch_order import BatchCreateOrderRequest, parse_batch_order_response
+from tplus.model.close_all_positions_preview import (
+    CloseAllPreviewResponse,
+    parse_close_all_preview,
+)
 from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
@@ -20,6 +26,7 @@ from tplus.model.market_order import (
     MarketQuoteQuantity,
 )
 from tplus.model.order import (
+    CreateOrderRequest,
     OrderEvent,
     OrderOperationResponse,
     OrderResponse,
@@ -201,8 +208,24 @@ class OrderBookClient(BaseClient):
         Create a limit order (async). Uses WS /control if enabled.
         """
         # TODO: Fix the signature if this method such that `asset_id` is required.
-        asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
+        order_id, signed_message = await self.prepare_limit_order_request(
+            asset_id, price, quantity, side, target, time_in_force
+        )
 
+        self.logger.debug(
+            f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
+        )
+        if self._use_ws_control:
+            payload = {"CreateOrderRequest": signed_message.model_dump()}
+            ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=15.0)
+            return self._extract_operation_response(ws_resp)
+        resp = await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
+        return OrderOperationResponse.model_validate(resp)
+
+    async def prepare_limit_order_request(
+        self, asset_id, price, quantity, side, target, time_in_force
+    ):
+        asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id_unwrapped)
         signed_message = create_limit_order_ob_request_payload(
@@ -217,15 +240,15 @@ class OrderBookClient(BaseClient):
             time_in_force=time_in_force,
             target=target,
         )
-        self.logger.debug(
-            f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
+        return order_id, signed_message
+
+    async def send_multiple_orders(self, create_order_requests: list[CreateOrderRequest]):
+        request = BatchCreateOrderRequest(orders=create_order_requests)
+        batch_order_response_data = await self._request(
+            "POST", "/orders/batch-create", json_data=request.model_dump()
         )
-        if self._use_ws_control:
-            payload = {"CreateOrderRequest": signed_message.model_dump()}
-            ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=15.0)
-            return self._extract_operation_response(ws_resp)
-        resp = await self._request("POST", "/orders/create", json_data=signed_message.model_dump())
-        return OrderOperationResponse.model_validate(resp)
+        parsed_batch_order_response = parse_batch_order_response(batch_order_response_data)
+        return parsed_batch_order_response
 
     async def cancel_order(
         self, order_id: str, asset_id: AssetIdentifier
@@ -350,28 +373,40 @@ class OrderBookClient(BaseClient):
     async def get_user_trades(self) -> list[UserTrade]:
         """
         Get all trades for the authenticated user (async).
+        Returns empty list if user is not yet known to the OMS.
         """
         endpoint = f"/trades/user/{self.user.public_key}"
         self.logger.debug(f"Getting Trades for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return []
         return self.parse_user_trades(response_data)  # type: ignore
 
     async def get_user_trades_for_asset(self, asset_id: AssetIdentifier) -> list[UserTrade]:
         """
         Get trades for a specific asset for the authenticated user (async).
+        Returns empty list if user is not yet known to the OMS.
         """
         endpoint = f"/trades/user/{self.user.public_key}/{asset_id}"
         self.logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return []
         return self.parse_user_trades(response_data)  # type: ignore
 
     async def get_user_orders(self) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
         Get all orders for the authenticated user (async).
+        Returns empty results if user is not yet known to the OMS.
         """
         endpoint = f"/orders/user/{self.user.public_key}"
         self.logger.debug(f"Getting Orders for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            return [], {}
 
         if isinstance(response_data, dict) and "error" in response_data:
             self.logger.error(
@@ -422,6 +457,14 @@ class OrderBookClient(BaseClient):
                     f"Unexpected response type for book orders {asset_id}. Expected list, got {type(response_data).__name__}."
                 )
                 return []
+
+        except NotFoundError:
+            # Structured 404 from the new error format -- treat as "no orders".
+            self.logger.debug(
+                f"Received NotFoundError for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
+                f"Treating as empty order list."
+            )
+            return []
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404 and e.request.url.path == endpoint:
@@ -632,10 +675,14 @@ class OrderBookClient(BaseClient):
     async def get_user_inventory(self) -> dict[str, Any]:
         """
         Get inventory for the authenticated user (async).
+        Returns empty dict if user is not yet known to the OMS.
         """
         endpoint = f"/inventory/user/{self.user.public_key}"
         self.logger.debug(f"Getting Inventory for user {self.user.public_key}")
-        return await self._request("GET", endpoint)
+        try:
+            return await self._request("GET", endpoint)
+        except NotFoundError:
+            return {}
 
     async def stream_orders(self) -> AsyncIterator[OrderEvent]:
         """
@@ -721,17 +768,51 @@ class OrderBookClient(BaseClient):
     async def get_user_solvency(self) -> UserSolvency:
         """
         Get solvency for the authenticated user (async).
+        Returns empty solvency if user is not yet known to the OMS.
         """
         endpoint = f"/solvency/user/{self.user.public_key}"
 
         self.logger.debug(f"Getting Solvency for user {self.user.public_key}")
-        response_data = await self._request("GET", endpoint)
+        try:
+            response_data = await self._request("GET", endpoint)
+        except NotFoundError:
+            response_data = {"accounts": {}}
 
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_user_solvency.")
 
         parsed_data: UserSolvency = parse_user_solvency(response_data)
         return parsed_data
+
+    async def get_close_all_positions_preview(
+        self,
+        sub_account_index: int,
+        user_id: str | None = None,
+    ) -> CloseAllPreviewResponse:
+        """
+        Preview unsigned orders to close all margin positions in a sub-account.
+
+        GET /positions/close-all/{user_id}/{sub_account_index}
+
+        Args:
+            sub_account_index: Sub-account index (e.g. 1 for cross-margin).
+            user_id: Hex user public key; defaults to the authenticated user.
+
+        Returns:
+            CloseAllPreviewResponse with unsigned orders and any per-asset errors.
+        """
+        uid = user_id if user_id is not None else self.user.public_key
+        endpoint = f"/positions/close-all/{uid}/{sub_account_index}"
+
+        self.logger.debug(
+            f"Getting close-all preview for user {uid}, sub_account={sub_account_index}"
+        )
+        response_data = await self._request("GET", endpoint)
+
+        if not isinstance(response_data, dict):
+            raise Exception("Invalid response from get_close_all_preview.")
+
+        return parse_close_all_preview(response_data)
 
     async def get_user_margin_info(
         self,
@@ -776,7 +857,10 @@ class OrderBookClient(BaseClient):
             f"Getting Margin Info for user {self.user.public_key}, "
             f"sub_accounts={sub_accounts}, include_positions={include_positions}"
         )
-        response_data = await self._request("GET", endpoint, params=params if params else None)
+        try:
+            response_data = await self._request("GET", endpoint, params=params if params else None)
+        except NotFoundError:
+            response_data = {"accounts": {}}
 
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_user_margin_info.")
