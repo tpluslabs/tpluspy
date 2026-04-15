@@ -165,6 +165,27 @@ class AdminClient(BaseClearingEngineClient):
             },
         )
 
+    async def set_withdrawal_delay_params(
+        self,
+        min_delay: int,
+        max_delay: int,
+        delay_clamps: list[int],
+        delay_values: list[int],
+        cap_floor: int = 50_000,
+    ):
+        await self._post(
+            "admin/withdrawal-delay-parameters/modify",
+            json_data={
+                "withdrawal_delay_parameters": {
+                    "min_delay": min_delay,
+                    "max_delay": max_delay,
+                    "delay_clamps": delay_clamps,
+                    "delay_values": delay_values,
+                    "cap_floor": cap_floor,
+                },
+            },
+        )
+
     async def set_oracle_prices(
         self, asset_id: AssetIdentifier, asset_price: str | None, asset_price_decimals: int
     ):
