@@ -230,7 +230,7 @@ class OrderBookClient(AuthenticatedClient):
         side,
         target,
         time_in_force,
-        user: User | None = None,
+        user: "User | None" = None,
     ):
         user = self._validate_user(user=user)
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
