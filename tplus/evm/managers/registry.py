@@ -7,10 +7,12 @@ from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
+    from ape.api.transactions import ReceiptAPI
     from ape.types.address import AddressType
     from eth_pydantic_types.hex.bytes import HexBytes32
 
     from tplus.client.clearingengine import ClearingEngineClient
+    from tplus.model.risk_parameters import RiskParameters
 
 
 class RegistryOwner(ChainConnectedManager):
@@ -71,3 +73,13 @@ class RegistryOwner(ChainConnectedManager):
                 interval=1,
                 error_msg=f"Asset registration failed (asset={index}).",
             )
+
+    def set_pending_risk_parameters(
+        self, index: int, params: "RiskParameters | dict", **tx_kwargs
+    ) -> "ReceiptAPI":
+        tx_kwargs.setdefault("sender", self.owner)
+        return self.registry.set_pending_risk_parameters(index, params, **tx_kwargs)
+
+    def apply_pending_risk_parameters(self, index: int, **tx_kwargs) -> "ReceiptAPI":
+        tx_kwargs.setdefault("sender", self.owner)
+        return self.registry.apply_pending_risk_parameters(index, **tx_kwargs)
