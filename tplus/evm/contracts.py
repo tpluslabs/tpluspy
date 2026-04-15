@@ -535,6 +535,26 @@ class DepositVault(TPlusContract):
 
             raise  # Error as-is.
 
+    def withdraw(
+        self,
+        withdrawal: dict,
+        user: "bytes | UserPublicKey",
+        target: "AddressType",
+        valid_until: int,
+        epoch_hash: "bytes | HexBytes",
+        signatures: "list[bytes | HexBytes]",
+        **tx_kwargs,
+    ) -> "ReceiptAPI":
+        return self.contract.withdraw(
+            withdrawal,
+            user,
+            target,
+            valid_until,
+            epoch_hash,
+            signatures,
+            **tx_kwargs,
+        )
+
     def execute_atomic_settlement(
         self,
         settlement: dict,
