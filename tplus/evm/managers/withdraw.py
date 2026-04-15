@@ -11,6 +11,7 @@ from tplus.logger import get_logger
 from tplus.model.asset_identifier import Address32, AssetAddress, AssetIdentifier
 from tplus.model.types import ChainID
 from tplus.model.withdrawal import WithdrawalRequest
+from tplus.utils.address import to_evm_address
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -160,11 +161,7 @@ class WithdrawalManager(ChainConnectedManager):
 
         resolved_target = target
         if resolved_target is None:
-            # Zero Address32 means "no explicit target" — fall back to the signer.
-            if int(info.target, 16) == 0:
-                resolved_target = self.ape_account.address
-            else:
-                resolved_target = info.target.evm_address
+            resolved_target = to_evm_address(f"0x{str(info.target)[:40]}")
 
         asset_address = (
             info.asset.evm_address
