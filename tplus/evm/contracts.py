@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ape.contracts.base import ContractContainer, ContractInstance
     from ape.managers.project import LocalProject
 
+    from tplus.model.risk_parameters import RiskParameters
     from tplus.model.withdrawal import WithdrawalDelayParameters
     from tplus.utils.user import User
 
@@ -431,6 +432,23 @@ class Registry(TPlusContract):
             "minWeight": min_weight,
         }
         return self.contract.setAssetData(data, sender=sender)
+
+    def set_pending_risk_parameters(
+        self, index: int, params: "RiskParameters | dict", **kwargs
+    ) -> "ReceiptAPI":
+        if not isinstance(params, dict):
+            params = params.model_dump(mode="python", by_alias=True)
+
+        return self.contract.setPendingRiskParameters(index, params, **kwargs)
+
+    def apply_pending_risk_parameters(self, index: int, **kwargs) -> "ReceiptAPI":
+        return self.contract.applyPendingRiskParameters(index, **kwargs)
+
+    def validate_risk_parameters(self, params: "RiskParameters | dict") -> None:
+        if not isinstance(params, dict):
+            params = params.model_dump(mode="python", by_alias=True)
+
+        self.contract.validateRiskParameters(params)
 
     def set_pending_withdrawal_delay_parameters(
         self, params: "WithdrawalDelayParameters | dict", **kwargs
