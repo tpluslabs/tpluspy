@@ -56,7 +56,7 @@ class WithdrawalManager(ChainConnectedManager):
 
     async def init_withdrawal(
         self,
-        asset: AssetAddress | str,
+        asset: AssetAddress,
         amount: int,
         target: Address32 | str | None = None,
         user: "User | None" = None,
@@ -80,7 +80,6 @@ class WithdrawalManager(ChainConnectedManager):
             signer=user,
             asset=asset,
             amount=amount,
-            chain_id=self.chain_id,
             nonce=nonce,
             target=target,
         )
