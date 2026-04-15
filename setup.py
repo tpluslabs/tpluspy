@@ -18,6 +18,7 @@ setup(
     url="https://github.com/tpluslabs/tpluspy",
     include_package_data=True,
     install_requires=[
+        "click>=8.1",
         "cryptography>=44.0.1",
         "eth-pydantic-types>=0.2.6,<0.3",
         "eth-utils>=5.1.0,<6",
@@ -26,6 +27,11 @@ setup(
         "pydantic>=2.10.4,<3",
         "websockets>=13.1,<14",
     ],
+    entry_points={
+        "console_scripts": [
+            "tplus=tplus._cli:cli",
+        ],
+    },
     python_requires=">=3.10,<4",
     extras_require={
         "test": [

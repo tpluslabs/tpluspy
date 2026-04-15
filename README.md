@@ -10,6 +10,176 @@ To install, use either `pip` or `uv pip`:
 uv pip install -e .
 ```
 
+## CLI
+
+`tpluspy` installs a `tplus` command for interacting with T+ services from the shell.
+
+### Global options
+
+| Flag / Env | Purpose |
+| --- | --- |
+| `--account` / `TPLUS_ACCOUNT` | Default local account alias (used by signing/OMS/settle commands). |
+| `--orderbook-base-url` / `TPLUS_ORDERBOOK_BASE_URL` | Orderbook service base URL. |
+| `--clearing-base-url` / `TPLUS_CLEARING_BASE_URL` | Clearing engine base URL. |
+
+Run `tplus --help` to see the top-level command list.
+
+### `tplus accounts`
+
+Manage local Ed25519 accounts stored under `~/.tplus/users`.
+
+```shell
+# Import a private key (prompts for the key if --private-key is omitted).
+tplus accounts add alice --private-key <hex>
+
+# Generate a fresh key instead.
+tplus accounts add alice --generate
+
+# List and inspect accounts.
+tplus accounts list
+tplus accounts show alice
+```
+
+### `tplus sign`
+
+Sign a payload with a local account:
+
+```shell
+tplus sign --account alice -m "hello"
+echo "hello" | tplus sign --account alice
+```
+
+### `tplus markets`
+
+```shell
+tplus markets create <asset_id>
+tplus markets get <asset_id>
+tplus markets list
+tplus markets depth <asset_id>
+tplus markets klines <asset_id> [--page N] [--limit N] [--end-timestamp-ns N]
+```
+
+### `tplus orders`
+
+```shell
+tplus orders place --asset <asset_id> --side buy --type limit --quantity 10 --price 1000
+tplus orders place --asset <asset_id> --side sell --type market --quantity 5
+tplus orders cancel <order_id> --asset <asset_id>
+tplus orders replace <order_id> --asset <asset_id> --price 1050 --quantity 6
+tplus orders list [--asset <asset_id>] [--open-only]
+tplus orders transfer --source N --target N --asset <asset_id> --amount N
+tplus orders close --account N --asset <asset_id>
+```
+
+### `tplus balance`
+
+```shell
+tplus balance [--asset-id <asset_id>]
+```
+
+### `tplus trades`
+
+```shell
+tplus trades list [--asset <asset_id>]
+```
+
+### `tplus decimals`
+
+```shell
+tplus decimals get <address> [<address> ...]
+tplus decimals update <address> [<address> ...]
+```
+
+### `tplus stream`
+
+WebSocket streams; Ctrl-C to stop.
+
+```shell
+tplus stream orders
+tplus stream trades
+tplus stream depth <asset_id>
+tplus stream klines <asset_id>
+tplus stream user-trades [--user <pubkey>]
+```
+
+### `tplus withdraw` (alias: `tplus wd`) *(requires `[evm]` extras)*
+
+Mirrors `tplus settle`: `init` signs + submits the CE request, `execute`
+additionally polls for the CE approval and submits the on-chain `withdraw`.
+Both use Ape's `--network` / `--account` for the on-chain signer.
+
+```shell
+# CE-only.
+tplus withdraw init --network <ape-network> --account <ape-alias> \
+  --asset 0x...@42161 --amount 1000000 [--nonce N] [--target <addr>]
+
+# CE init + on-chain withdraw once approved.
+tplus withdraw execute --network <ape-network> --account <ape-alias> \
+  --asset 0x...@42161 --amount 1000000 \
+  [--nonce N] [--target <addr>] [--poll-interval 2] [--poll-timeout 60]
+
+tplus wd cancel --asset 0x... --nonce N
+tplus wd list [--user <pubkey>]
+tplus wd signatures [--user <pubkey>]
+```
+
+### `tplus assets` *(requires `[evm]` extras)*
+
+Registry-owner operations. Uses Ape's `--network` / `--account`.
+
+```shell
+# List assets. Defaults to reading from the Registry contract.
+tplus assets list [--network ethereum:sepolia:alchemy]
+
+# Query the clearing engine instead:
+tplus assets list --ce
+
+tplus assets set <index> <asset_address> \
+  --chain-id 42161 --max-deposit 1000000 --max-1hr 100000 --min-weight 1 \
+  [--no-wait]
+
+tplus assets set-risk <index> --params '{...}'
+tplus assets apply-risk <index>
+```
+
+### `tplus vault` *(requires `[evm]` extras)*
+
+Vault-owner operations. Uses Ape's `--network` / `--account`.
+
+```shell
+tplus vault set-domain-separator [--separator <hex>]
+tplus vault set-administrators [--admin-key <hex> ...] [--quorum N]
+tplus vault register-settler <alias-or-pubkey> --executor <addr> [--wait]
+tplus vault register-depositor <addr>
+```
+
+### `tplus deposit` *(requires `[evm]` extras)*
+
+Deposit tokens into the vault.
+
+```shell
+tplus deposit <token> --amount 1000000000000000000 [--wait]
+```
+
+### `tplus settle`
+
+Requires the `[evm]` extras (ape + EIP-712 deps). Commands accept Ape's
+`--network` / `--account` options for the on-chain signer.
+
+```shell
+# Initialize a settlement on the clearing engine only.
+tplus settle init \
+  --network arbitrum:mainnet:alchemy --account my-ape-alias \
+  --asset-in  <32-byte hex> --amount-in  1000000000000000000 --amount-in-decimals 18 \
+  --asset-out <32-byte hex> --amount-out 500000               --amount-out-decimals 6
+
+# Initialize and then execute the settlement on-chain once the CE approves.
+tplus settle execute \
+  --network arbitrum:mainnet:alchemy --account my-ape-alias \
+  --asset-in  <32-byte hex> --amount-in  1000000000000000000 --amount-in-decimals 18 \
+  --asset-out <32-byte hex> --amount-out 500000               --amount-out-decimals 6
+```
+
 ## Usage Example
 
 ### REST and WebSocket Client (`tplus.client`)

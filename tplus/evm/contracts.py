@@ -387,15 +387,16 @@ class Registry(TPlusContract):
 
         return self._get_assets()
 
+    def get_asset_addresses(self) -> list["AddressType"]:
+        data = self.contract.getAssets()
+        return [
+            self.network_manager.ethereum.decode_address(HexBytes(itm.assetAddress)[:20])
+            for itm in data
+        ]
+
     def _get_assets(self) -> list["ContractInstance"]:
-        contract = self.contract
-        data = contract.getAssets()
         res = []
-
-        for itm in data:
-            evm_address = HexBytes(itm.assetAddress)[:20]
-            address = self.network_manager.ethereum.decode_address(evm_address)
-
+        for address in self.get_asset_addresses():
             # Attempt to look up native contract.
             try:
                 contract = self.chain_manager.contracts.instance_at(address)
@@ -534,6 +535,26 @@ class DepositVault(TPlusContract):
                 raise ContractLogicError(erc20_err_name) from err
 
             raise  # Error as-is.
+
+    def withdraw(
+        self,
+        withdrawal: dict,
+        user: "bytes | UserPublicKey",
+        target: "AddressType",
+        valid_until: int,
+        epoch_hash: "bytes | HexBytes",
+        signatures: "list[bytes | HexBytes]",
+        **tx_kwargs,
+    ) -> "ReceiptAPI":
+        return self.contract.withdraw(
+            withdrawal,
+            user,
+            target,
+            valid_until,
+            epoch_hash,
+            signatures,
+            **tx_kwargs,
+        )
 
     def execute_atomic_settlement(
         self,
