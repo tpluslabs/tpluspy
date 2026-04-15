@@ -86,14 +86,14 @@ class TestBaseClient:
     def test_validate_user_public_key_from_string(self):
         key = UserPublicKey("ab" * 32)
         client = BaseClient(ClientSettings())
-        assert client._validate_user_public_key(key) == key
+        assert client._validate_user_public_key(user=key) == key
 
     def test_validate_user_public_key_from_user(self):
         from tplus.utils.user import User
 
         user = User()
         client = BaseClient(ClientSettings())
-        assert client._validate_user_public_key(user) == user.public_key
+        assert client._validate_user_public_key(user=user) == user.public_key
 
     def test_validate_user_public_key_no_default_raises(self):
         client = self._make_client()

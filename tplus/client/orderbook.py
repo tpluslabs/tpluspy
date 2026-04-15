@@ -146,7 +146,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         Create a market order (async). Uses WS /control if enabled.
         """
-        user = self._validate_user(user)
+        user = self._validate_user(user=user)
         # TODO: Fix the signature of this method so that `asset_id` is required.
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
 
@@ -200,10 +200,16 @@ class OrderBookClient(AuthenticatedClient):
         """
         Create a limit order (async). Uses WS /control if enabled.
         """
-        user = self._validate_user(user)
+        user = self._validate_user(user=user)
         # TODO: Fix the signature if this method such that `asset_id` is required.
         order_id, signed_message = await self.prepare_limit_order_request(
-            asset_id, price, quantity, side, target, time_in_force
+            asset_id,
+            price,
+            quantity,
+            side,
+            target,
+            time_in_force,
+            user=user,
         )
 
         self.logger.debug(
@@ -217,8 +223,16 @@ class OrderBookClient(AuthenticatedClient):
         return OrderOperationResponse.model_validate(resp)
 
     async def prepare_limit_order_request(
-        self, asset_id, price, quantity, side, target, time_in_force
+        self,
+        asset_id,
+        price,
+        quantity,
+        side,
+        target,
+        time_in_force,
+        user: User | None = None,
     ):
+        user = self._validate_user(user=user)
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id_unwrapped)
@@ -250,7 +264,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         Cancel an order (async). Uses WS /control if enabled.
         """
-        user = self._validate_user(user)
+        user = self._validate_user(user=user)
         signed_message = create_cancel_order_ob_request_payload(
             order_id=order_id, asset_identifier=asset_id, signer=user
         )
@@ -275,7 +289,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         Replace an existing order with new parameters (async). Uses WS /control if enabled.
         """
-        user = self._validate_user(user)
+        user = self._validate_user(user=user)
         market = await self.get_market(asset_id)
         signed_message = create_replace_order_ob_request_payload(
             original_order_id=original_order_id,
@@ -372,7 +386,7 @@ class OrderBookClient(AuthenticatedClient):
         Get all trades for the authenticated user (async).
         Returns empty list if user is not yet known to the OMS.
         """
-        public_key = self._validate_user_public_key(user)
+        public_key = self._validate_user_public_key(user=user)
         endpoint = f"/trades/user/{public_key}"
         self.logger.debug(f"Getting Trades for user {public_key}")
         try:
@@ -388,7 +402,7 @@ class OrderBookClient(AuthenticatedClient):
         Get trades for a specific asset for the authenticated user (async).
         Returns empty list if user is not yet known to the OMS.
         """
-        public_key = self._validate_user_public_key(user)
+        public_key = self._validate_user_public_key(user=user)
         endpoint = f"/trades/user/{public_key}/{asset_id}"
         self.logger.debug(f"Getting Trades for user {public_key}, asset {asset_id}")
         try:
@@ -404,7 +418,7 @@ class OrderBookClient(AuthenticatedClient):
         Get all orders for the authenticated user (async).
         Returns empty results if user is not yet known to the OMS.
         """
-        public_key = self._validate_user_public_key(user)
+        public_key = self._validate_user_public_key(user=user)
         endpoint = f"/orders/user/{public_key}"
         self.logger.debug(f"Getting Orders for user {public_key}")
         try:
@@ -439,7 +453,7 @@ class OrderBookClient(AuthenticatedClient):
         Get orders for a specific asset for the authenticated user (async).
         Handles 404 with empty list as "no orders" gracefully.
         """
-        public_key = self._validate_user_public_key(user)
+        public_key = self._validate_user_public_key(user=user)
         endpoint = f"/orders/user/{public_key}/{asset_id}"
         params_dict: dict[str, Any] | None = None
         if page is not None or limit is not None or open_only is not None:
@@ -683,7 +697,7 @@ class OrderBookClient(AuthenticatedClient):
         Get inventory for the authenticated user (async).
         Returns empty dict if user is not yet known to the OMS.
         """
-        public_key = self._validate_user_public_key(user)
+        public_key = self._validate_user_public_key(user=user)
         endpoint = f"/inventory/user/{public_key}"
         self.logger.debug(f"Getting Inventory for user {public_key}")
         try:
@@ -742,7 +756,7 @@ class OrderBookClient(AuthenticatedClient):
             :class:`tplus.model.trades.UserTrade` objects with detailed order-side information.
         """
         if user_id is None:
-            user_id = self._validate_user_public_key(user)
+            user_id = self._validate_user_public_key(user=user)
         path = f"/trades/user/events/{user_id}"
         async for trade in self._stream_ws(path, parse_single_user_trade):
             yield trade
@@ -761,7 +775,7 @@ class OrderBookClient(AuthenticatedClient):
             :class:`tplus.model.trades.UserTrade` instances containing only confirmed trades.
         """
         if user_id is None:
-            user_id = self._validate_user_public_key(user)
+            user_id = self._validate_user_public_key(user=user)
         path = f"/trades/user/{user_id}"
         async for trade in self._stream_ws(path, parse_single_user_trade):
             yield trade
@@ -779,7 +793,7 @@ class OrderBookClient(AuthenticatedClient):
         Get solvency for the authenticated user (async).
         Returns empty solvency if user is not yet known to the OMS.
         """
-        public_key = self._validate_user_public_key(user)
+        public_key = self._validate_user_public_key(user=user)
         endpoint = f"/solvency/user/{public_key}"
 
         self.logger.debug(f"Getting Solvency for user {public_key}")
@@ -797,7 +811,7 @@ class OrderBookClient(AuthenticatedClient):
     async def get_close_all_positions_preview(
         self,
         sub_account_index: int,
-        user_id: str | None = None,
+        user_id: UserType | None = None,
     ) -> CloseAllPreviewResponse:
         """
         Preview unsigned orders to close all margin positions in a sub-account.
@@ -811,7 +825,7 @@ class OrderBookClient(AuthenticatedClient):
         Returns:
             CloseAllPreviewResponse with unsigned orders and any per-asset errors.
         """
-        uid = user_id if user_id is not None else self.user.public_key
+        uid = self._validate_user_public_key(user=user_id)
         endpoint = f"/positions/close-all/{uid}/{sub_account_index}"
 
         self.logger.debug(
@@ -857,7 +871,7 @@ class OrderBookClient(AuthenticatedClient):
         Raises:
             Exception: If the API response is invalid.
         """
-        public_key = self._validate_user_public_key(user)
+        public_key = self._validate_user_public_key(user=user)
         endpoint = f"/margin/user/{public_key}"
 
         params: dict[str, Any] = {}
@@ -890,7 +904,7 @@ class OrderBookClient(AuthenticatedClient):
         target_account_type: None = None,
         user: "User | None" = None,
     ) -> dict[str, Any]:
-        user = self._validate_user(user)
+        user = self._validate_user(user=user)
         payload = self._build_transfer_to_subaccount(
             source_index,
             target_index,
@@ -919,7 +933,7 @@ class OrderBookClient(AuthenticatedClient):
         target_account_type=None,
         user: "User | None" = None,
     ):
-        user = self._validate_user(user)
+        user = self._validate_user(user=user)
         inner = {
             "user": user.public_key,
             "source_index": source_index,
@@ -941,7 +955,7 @@ class OrderBookClient(AuthenticatedClient):
     async def request_close_position(
         self, account: int, transfer_asset: str, user: "User | None" = None
     ) -> dict[str, Any]:
-        user = self._validate_user(user)
+        user = self._validate_user(user=user)
         payload = self._build_close_position_request(account, transfer_asset, user=user)
 
         response_data = await self._send_close_position_request(payload)
@@ -951,7 +965,7 @@ class OrderBookClient(AuthenticatedClient):
         self, account: int, transfer_asset: str, user: "User | None" = None
     ) -> dict:
         """Same signing rules as CE: compact JSON of inner, ed25519 over UTF-8 bytes."""
-        user = self._validate_user(user)
+        user = self._validate_user(user=user)
         inner = {
             "user": user.public_key,
             "account": account,

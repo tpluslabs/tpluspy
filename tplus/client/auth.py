@@ -84,7 +84,7 @@ class AuthenticatedClient(BaseClient):
             await self._authenticate(user=user)
 
     async def _authenticate(self, user: "User | None" = None) -> None:
-        user = user or self._validate_user()
+        user = user or self._validate_user(user=user)
         nonce_endpoint = f"/nonce/{user.public_key}"
         nonce_resp = await self._client.get(nonce_endpoint)  # type: ignore
         nonce_resp.raise_for_status()
