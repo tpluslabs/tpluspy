@@ -513,11 +513,11 @@ class DepositVault(TPlusContract):
 
         return self.contract.depositCounts(user, account_index)
 
-    def get_withdrawal_count(self, user: "UserPublicKey | User", account_index: int) -> int:
+    def get_withdrawal_count(self, user: "UserPublicKey | User") -> int:
         if not isinstance(user, UserPublicKey):
             user = user.public_key
 
-        return self.contract.withdrawalCounts(user, account_index)
+        return self.contract.withdrawalCounts(user)
 
     def deposit(
         self,

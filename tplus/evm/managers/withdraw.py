@@ -74,7 +74,7 @@ class WithdrawalManager(ChainConnectedManager):
         user = user or self.default_user
 
         if nonce is None:
-            nonce = self.vault.get_withdrawal_count(user, user.sub_account)
+            nonce = self.vault.get_withdrawal_count(user)
 
         request = WithdrawalRequest.create_signed(
             signer=user,
