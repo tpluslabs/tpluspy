@@ -76,6 +76,9 @@ class WithdrawalManager(ChainConnectedManager):
         if nonce is None:
             nonce = self.vault.get_withdrawal_count(user)
 
+        if target is None:
+            target = Address32(self.ape_account.address)
+
         request = WithdrawalRequest.create_signed(
             signer=user,
             asset=asset,
@@ -164,7 +167,9 @@ class WithdrawalManager(ChainConnectedManager):
                 resolved_target = info.target.evm_address
 
         asset_address = (
-            info.asset.evm_address if isinstance(info.asset, AssetIdentifier) else info.asset
+            info.asset.evm_address
+            if isinstance(info.asset, AssetIdentifier | AssetAddress)
+            else info.asset
         )
 
         withdrawal = {
