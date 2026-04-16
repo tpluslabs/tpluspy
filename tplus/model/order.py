@@ -72,6 +72,7 @@ class Order(BaseModel):
     creation_timestamp_ns: int
     target: TradeTarget = TradeTarget.margin_account_spot_trade()
     reduce_only: bool = False
+    max_trading_fees_rate: int = 50_000
     protocol_version: int = 1
 
     def signable_part(self) -> str:
