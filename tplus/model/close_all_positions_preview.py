@@ -15,8 +15,8 @@ class UnsignedCloseOrder(BaseModel):
 
     asset_id: AssetIdentifier
     side: Side
-    quantity: int
-    suggested_max_sellable_amount: int | None = None
+    quantity: Decimal
+    suggested_max_sellable_amount: Decimal | None = None
     oracle_price: Decimal | None = None
     book_price_decimals: int
     book_quantity_decimals: int
@@ -33,9 +33,9 @@ def parse_unsigned_close_order(data: dict) -> UnsignedCloseOrder:
     return UnsignedCloseOrder(
         asset_id=AssetIdentifier.model_validate(data["asset_id"]),
         side=Side(data["side"]),
-        quantity=int(data["quantity"]),
+        quantity=Decimal(data["quantity"]),
         suggested_max_sellable_amount=(
-            int(data["suggested_max_sellable_amount"])
+            Decimal(data["suggested_max_sellable_amount"])
             if data.get("suggested_max_sellable_amount") is not None
             else None
         ),
