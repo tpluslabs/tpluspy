@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from eth_pydantic_types.hex import HexInt
 from pydantic import BaseModel, Field, field_serializer
 
-from tplus.model.asset_identifier import Address32, AssetAddress
+from tplus.model.asset_identifier import Address32, AssetAddress, AssetIdentifier
 from tplus.model.types import UserPublicKey
 from tplus.utils.hex import str_to_vec
 
@@ -34,12 +34,14 @@ class WithdrawalRequest(BaseModel):
     def create_signed(
         cls,
         signer: "User",
-        asset: AssetAddress,
+        asset: AssetAddress | str,
         amount: int,
         nonce: int | None = None,
         target: Address32 | str | None = None,
     ) -> "WithdrawalRequest":
-        if not isinstance(asset, AssetAddress):
+        if isinstance(asset, str):
+            asset = AssetIdentifier.model_validate(asset)
+        elif not isinstance(asset, AssetAddress):
             raise TypeError(
                 f"asset must be an AssetAddress (address@chain), got {type(asset).__name__}."
             )
