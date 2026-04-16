@@ -558,12 +558,15 @@ class DepositVault(TPlusContract):
     def execute_atomic_settlement(
         self,
         settlement: dict,
+        settler: HexBytes,
         data: HexBytes,
         signature: HexBytes,
         **tx_kwargs,
     ) -> "ReceiptAPI":
         try:
-            return self.contract.executeAtomicSettlement(settlement, data, signature, **tx_kwargs)
+            return self.contract.executeAtomicSettlement(
+                settlement, settler, data, signature, **tx_kwargs
+            )
         except Exception as err:
             err_id = getattr(err, "message", "")
             if erc20_err_name := _decode_erc20_error(getattr(err, "message", f"{err}")):
