@@ -26,7 +26,7 @@ class UnsignedCloseOrder(BaseModel):
 
 class CloseAllPreviewResponse(BaseModel):
     orders: list[UnsignedCloseOrder]
-    errors: list[str]
+    errors: dict[str, str]
 
 
 def parse_unsigned_close_order(data: dict) -> UnsignedCloseOrder:
@@ -49,5 +49,5 @@ def parse_unsigned_close_order(data: dict) -> UnsignedCloseOrder:
 
 def parse_close_all_preview(data: dict) -> CloseAllPreviewResponse:
     orders = [parse_unsigned_close_order(o) for o in data.get("orders", [])]
-    errors = [str(e) for e in data.get("errors", [])]
+    errors = {str(k): str(v) for k, v in data.get("errors", {}).items()}
     return CloseAllPreviewResponse(orders=orders, errors=errors)
