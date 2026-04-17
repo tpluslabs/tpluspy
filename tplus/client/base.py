@@ -104,7 +104,7 @@ class BaseClient:
             client=client._client,
         )
 
-    def _validate_user(self, user: User | None = None) -> User:
+    def _resolve_user(self, user: User | None = None) -> User:
         if user is not None:
             return user
 

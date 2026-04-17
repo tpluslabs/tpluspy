@@ -146,7 +146,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         Create a market order (async). Uses WS /control if enabled.
         """
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         # TODO: Fix the signature of this method so that `asset_id` is required.
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
 
@@ -200,7 +200,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         Create a limit order (async). Uses WS /control if enabled.
         """
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         # TODO: Fix the signature if this method such that `asset_id` is required.
         order_id, signed_message = await self.prepare_limit_order_request(
             asset_id,
@@ -232,7 +232,7 @@ class OrderBookClient(AuthenticatedClient):
         time_in_force,
         user: "User | None" = None,
     ):
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id_unwrapped)
@@ -264,7 +264,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         Cancel an order (async). Uses WS /control if enabled.
         """
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         signed_message = create_cancel_order_ob_request_payload(
             order_id=order_id, asset_identifier=asset_id, signer=user
         )
@@ -289,7 +289,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         Replace an existing order with new parameters (async). Uses WS /control if enabled.
         """
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         market = await self.get_market(asset_id)
         signed_message = create_replace_order_ob_request_payload(
             original_order_id=original_order_id,
@@ -904,7 +904,7 @@ class OrderBookClient(AuthenticatedClient):
         target_account_type: None = None,
         user: "User | None" = None,
     ) -> dict[str, Any]:
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         payload = self._build_transfer_to_subaccount(
             source_index,
             target_index,
@@ -933,7 +933,7 @@ class OrderBookClient(AuthenticatedClient):
         target_account_type=None,
         user: "User | None" = None,
     ):
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         inner = {
             "user": user.public_key,
             "source_index": source_index,
@@ -955,7 +955,7 @@ class OrderBookClient(AuthenticatedClient):
     async def request_close_position(
         self, account: int, transfer_asset: str, user: "User | None" = None
     ) -> dict[str, Any]:
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         payload = self._build_close_position_request(account, transfer_asset, user=user)
 
         response_data = await self._send_close_position_request(payload)
@@ -965,7 +965,7 @@ class OrderBookClient(AuthenticatedClient):
         self, account: int, transfer_asset: str, user: "User | None" = None
     ) -> dict:
         """Same signing rules as CE: compact JSON of inner, ed25519 over UTF-8 bytes."""
-        user = self._validate_user(user=user)
+        user = self._resolve_user(user=user)
         inner = {
             "user": user.public_key,
             "account": account,

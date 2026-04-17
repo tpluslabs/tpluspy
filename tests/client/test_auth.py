@@ -64,14 +64,14 @@ class TestBaseClient:
     def test_validate_user_with_no_default_raises(self):
         client = self._make_client()
         with pytest.raises(MissingClientUserError):
-            client._validate_user()
+            client._resolve_user()
 
     def test_validate_user_returns_default(self):
         class FakeUser:
             public_key = "abc"
 
         client = BaseClient(ClientSettings(), default_user=FakeUser())  # type: ignore
-        assert client._validate_user().public_key == "abc"  # type: ignore
+        assert client._resolve_user().public_key == "abc"  # type: ignore
 
     def test_validate_user_prefers_explicit(self):
         class FakeUser:
@@ -81,7 +81,7 @@ class TestBaseClient:
             public_key = "xyz"
 
         client = BaseClient(ClientSettings(), default_user=FakeUser())  # type: ignore
-        assert client._validate_user(user=OtherUser()).public_key == "xyz"  # type: ignore
+        assert client._resolve_user(user=OtherUser()).public_key == "xyz"  # type: ignore
 
     def test_validate_user_public_key_from_string(self):
         key = UserPublicKey("ab" * 32)
