@@ -9,4 +9,4 @@ class InnerSettlementApproval(BaseModel):
 
 class SettlementApproval(BaseModel):
     inner: InnerSettlementApproval
-    expiry: int
+    expiry: int  # Unix timestamp in seconds, used as on-chain validUntil
