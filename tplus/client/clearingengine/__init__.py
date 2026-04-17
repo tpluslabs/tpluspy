@@ -1,7 +1,7 @@
 from functools import cached_property
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from tplus.client.base import BaseClient
+from tplus.client.base import ClientSettings
 from tplus.client.clearingengine.admin import AdminClient
 from tplus.client.clearingengine.assetregistry import AssetRegistryClient
 from tplus.client.clearingengine.base import BaseClearingEngineClient
@@ -22,54 +22,55 @@ class ClearingEngineClient(BaseClearingEngineClient):
     """
 
     @classmethod
-    def from_local(cls, user: "User", port: int = 3032):
-        return cls(user, base_url=f"http://127.0.0.1:{port}")
+    def from_local(cls, user: "User", port: int = 3032, insecure_ssl: bool = False):
+        settings = ClientSettings(base_url=f"http://127.0.0.1:{port}", insecure_ssl=insecure_ssl)
+        return cls(settings, default_user=user)
 
     @cached_property
     def settlements(self) -> SettlementClient:
         """
         APIs related to settlements.
         """
-        return SettlementClient.from_client(cast(BaseClient, self))
+        return SettlementClient.from_client(self)
 
     @cached_property
     def assets(self) -> AssetRegistryClient:
         """
         APIs related to registered assets.
         """
-        return AssetRegistryClient.from_client(cast(BaseClient, self))
+        return AssetRegistryClient.from_client(self)
 
     @cached_property
     def decimals(self) -> DecimalClient:
         """
         APIs related to decimals.
         """
-        return DecimalClient.from_client(cast(BaseClient, self))
+        return DecimalClient.from_client(self)
 
     @cached_property
     def deposits(self) -> DepositClient:
         """
         APIs related to deposits.
         """
-        return DepositClient.from_client(cast(BaseClient, self))
+        return DepositClient.from_client(self)
 
     @cached_property
     def withdrawals(self) -> WithdrawalClient:
         """
         APIs related to withdrawals.
         """
-        return WithdrawalClient.from_client(cast(BaseClient, self))
+        return WithdrawalClient.from_client(self)
 
     @cached_property
     def vaults(self) -> VaultClient:
         """
         APIs related to vaults.
         """
-        return VaultClient.from_client(cast(BaseClient, self))
+        return VaultClient.from_client(self)
 
     @cached_property
     def admin(self) -> AdminClient:
         """
         APIs related to the admin clearing-engine.
         """
-        return AdminClient.from_client(cast(BaseClient, self))
+        return AdminClient.from_client(self)

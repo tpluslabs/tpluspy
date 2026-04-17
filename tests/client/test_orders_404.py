@@ -17,7 +17,7 @@ async def test_get_user_orders_for_book_404_empty(monkeypatch):
     class DummyUser:
         public_key = "USER"
 
-    client = DummyClient(user=DummyUser(), base_url="http://example.com")  # type: ignore
+    client = DummyClient("http://example.com", default_user=DummyUser())  # type: ignore
     orders = await client.get_user_orders_for_book(
         asset_id=type("A", (), {"__str__": lambda self: "200"})()
     )
@@ -41,7 +41,7 @@ async def test_get_user_orders_for_book_not_found_error(monkeypatch):
     class DummyUser:
         public_key = "USER"
 
-    client = DummyClient(user=DummyUser(), base_url="http://example.com")  # type: ignore
+    client = DummyClient("http://example.com", default_user=DummyUser())  # type: ignore
     orders = await client.get_user_orders_for_book(
         asset_id=type("A", (), {"__str__": lambda self: "200"})()
     )

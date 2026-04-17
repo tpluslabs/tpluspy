@@ -12,7 +12,7 @@ def user() -> User:
 
 @pytest.fixture(scope="module")
 def clearing_engine(user):
-    return ClearingEngineClient(user, "http://127.0.0.1:3032")
+    return ClearingEngineClient.from_local(user)
 
 
 @pytest.fixture(scope="module")

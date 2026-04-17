@@ -47,7 +47,10 @@ async def test_pending_key_composite(monkeypatch, anyio_backend):
     class DummyUser:
         public_key = "USER"
 
-    client = DummyClient(user=DummyUser(), base_url="http://example.com")  # type: ignore
+    client = DummyClient(
+        "http://example.com",
+        default_user=DummyUser(),  # type: ignore
+    )
     client._use_ws_control = True
 
     order_id = "abc"

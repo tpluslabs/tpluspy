@@ -62,8 +62,8 @@ class SettlementManager(ChainConnectedManager):
     ):
         self.default_user = default_user
         self.ape_account = ape_account
-        self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient(
-            self.default_user, "http://127.0.0.1:3032"
+        self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient.from_local(
+            self.default_user
         )
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         self.vault = vault or DepositVault(chain_id=self.chain_id)

@@ -32,7 +32,7 @@ async def main():
     # Initialize client with the API base URL
     # Using async context manager ensures the client connection is closed properly
     try:
-        async with OrderBookClient(user, base_url=API_BASE_URL) as client:
+        async with OrderBookClient(API_BASE_URL, default_user=user) as client:
             logger.info("Client initialized.")
 
             # --- Simple GET Test First ---

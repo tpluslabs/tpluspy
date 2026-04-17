@@ -30,7 +30,7 @@ user = User()
 
 async def run_client():
     # Use async context manager for automatic cleanup
-    async with OrderBookClient(user=user, base_url=API_BASE_URL) as client:
+    async with OrderBookClient(API_BASE_URL, default_user=user) as client:
         print("Client initialized.")
         # ... use client methods ...
 

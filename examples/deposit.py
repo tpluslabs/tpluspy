@@ -51,7 +51,7 @@ async def main():
     )
 
     # Connect to the t+ clearing engine.
-    client = ClearingEngineClient(tplus_user, CLEARING_ENGINE_HOST)
+    client = ClearingEngineClient(CLEARING_ENGINE_HOST, default_user=tplus_user)
 
     deposit_to_chain(blockchain_user, tplus_user)
     await deposit_to_ce(tplus_user, client)

@@ -27,7 +27,7 @@ async def init_settlement(client, tplus_user):
 
 async def main():
     tplus_user = load_user(USERNAME)
-    client = ClearingEngineClient(tplus_user, CLEARING_ENGINE_HOST)
+    client = ClearingEngineClient(CLEARING_ENGINE_HOST, default_user=tplus_user)
     await init_settlement(client, tplus_user)
 
 
