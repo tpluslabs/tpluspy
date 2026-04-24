@@ -1,5 +1,5 @@
 from tplus.utils.user.manager import UserManager
-from tplus.utils.user.model import User
+from tplus.utils.user.model import LocalUser, User
 
 
 def load_user(name: str | None = None, password: str | None = None) -> User:
@@ -13,4 +13,4 @@ def load_user(name: str | None = None, password: str | None = None) -> User:
     raise ValueError("No default user; please add a user.")
 
 
-__all__ = ("User", "UserManager", "load_user")
+__all__ = ("LocalUser", "User", "UserManager", "load_user")

@@ -11,8 +11,10 @@ from cryptography.hazmat.primitives.serialization import (  # type: ignore
 )
 
 from tplus.utils.user.ed_keyfile import decrypt_keyfile, encrypt_keyfile
-from tplus.utils.user.model import User
+from tplus.utils.user.model import LocalUser, User
 from tplus.utils.user.validate import privkey_to_bytes
+
+PUBKEY_SUFFIX = ".pub"
 
 
 def _store(path: Path, password: str, private_key: bytes):
@@ -35,7 +37,7 @@ class UserManager:
             return
 
         for userfile in self._data_folder.iterdir():
-            if userfile.is_file():
+            if userfile.is_file() and userfile.suffix != PUBKEY_SUFFIX:
                 yield userfile.stem
 
     @property
@@ -49,13 +51,25 @@ class UserManager:
         password = password or getpass(f"Enter new password for '{name}': ")
         private_key_bytes = sk.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
         _store(path, password, private_key_bytes)
-        return User(private_key=sk)
+        user = User(private_key=sk)
+        self._write_pubkey(name, user)
+        return user
 
     def load(self, name: str, password=None) -> "User":
         path = self._get_existing_path(name)
-        password = password or getpass(f"Enter existing password for '{name}': ")
-        private_key = decrypt_keyfile(password, f"{path}")
-        return User(private_key=private_key)
+        pubkey_path = self._pubkey_path(name)
+
+        def _unlock() -> bytes:
+            pw = password if password is not None else getpass(f"Enter password for '{name}': ")
+            return decrypt_keyfile(pw, f"{path}")
+
+        if pubkey_path.is_file():
+            return LocalUser(public_key=pubkey_path.read_text().strip(), unlock=_unlock)
+
+        # Legacy keyfile with no pubkey sidecar — unlock once to derive it, then migrate.
+        user = User(private_key=_unlock())
+        self._write_pubkey(name, user)
+        return user
 
     def load_default(self, password=None) -> Optional["User"]:
         if name := self._default_user:
@@ -75,7 +89,9 @@ class UserManager:
         private_key_bytes = privkey_to_bytes(private_key)
         password = password or getpass(f"Enter new password for '{name}': ")
         _store(path, password, private_key_bytes)
-        return User(private_key=private_key_bytes)
+        user = User(private_key=private_key_bytes)
+        self._write_pubkey(name, user)
+        return user
 
     def get_non_existing_path(self, name: str) -> Path:
         path = self._data_folder / name
@@ -90,3 +106,11 @@ class UserManager:
             raise ValueError(f"User '{name}' not found.")
 
         return path
+
+    def _pubkey_path(self, name: str) -> Path:
+        return self._data_folder / f"{name}{PUBKEY_SUFFIX}"
+
+    def _write_pubkey(self, name: str, user: "User") -> None:
+        path = self._pubkey_path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{user.public_key}\n")

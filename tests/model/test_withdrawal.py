@@ -24,9 +24,8 @@ class TestWithdrawal:
         assert actual == expected
 
     def test_create_signed(self, inner_withdrawal, user):
-        signed = WithdrawalRequest.create_signed(
-            user, "0x62622E77D1349Face943C6e7D5c01C61465FE1dc", 100, "000000000000aa36a7"
-        )
+        asset = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7"
+        signed = WithdrawalRequest.create_signed(user, asset, 100)
         assert signed.signature  # truthiness
         assert (
             signed.inner.asset.root

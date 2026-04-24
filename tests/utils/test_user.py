@@ -1,7 +1,8 @@
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # type: ignore
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # type: ignore
 
-from tplus.utils.user import User
+from tplus.utils.user import LocalUser, User
 
 
 class TestUser:
@@ -22,17 +23,41 @@ class TestUser:
             == signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
         )
 
-    def test_hardcoded_key_signature(self):
-        private_key_hex = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
-        expected_public_hex = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
-        test_message = "testmessage"
-        expected_signature_hex = (
-            "8ac3a00dd2fd15fc8d15da0c9d6be551402a252e3bf3e7cb96898a33a431cca"
-            "26028f5fc0593d9d36909fce914bacb9c0d845146274f74a99f558cac5a4ffc02"
-        )
-
+    def test_hardcoded_key_signature(self, private_key_hex, public_key_hex, expected_sig_hex):
         user = User(private_key=private_key_hex)
-        assert user.public_key == expected_public_hex
+        assert user.public_key == public_key_hex
+        assert user.sign("testmessage").hex() == expected_sig_hex
 
-        signature = user.sign(test_message)
-        assert signature.hex() == expected_signature_hex
+    def test_local_user_pubkey_does_not_invoke_unlock(self, private_key_hex, public_key_hex):
+        unlocked = []
+
+        def unlock():
+            unlocked.append(True)
+            return private_key_hex
+
+        user = LocalUser(public_key=public_key_hex, unlock=unlock)
+
+        assert user.public_key == public_key_hex
+        assert unlocked == []
+
+    def test_local_user_sign_invokes_unlock_once(
+        self, private_key_hex, public_key_hex, expected_sig_hex
+    ):
+        calls = []
+
+        def unlock():
+            calls.append(True)
+            return private_key_hex
+
+        user = LocalUser(public_key=public_key_hex, unlock=unlock)
+
+        assert user.sign("testmessage").hex() == expected_sig_hex
+        assert user.sign("testmessage").hex() == expected_sig_hex
+        assert len(calls) == 1
+
+    def test_local_user_unlock_pubkey_mismatch_raises(self, private_key_hex):
+        wrong_pub = "00" * 32
+        user = LocalUser(public_key=wrong_pub, unlock=lambda: private_key_hex)
+
+        with pytest.raises(ValueError, match="does not match stored public key"):
+            user.sign("testmessage")

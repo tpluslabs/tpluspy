@@ -101,6 +101,8 @@ class OrderResponse(BaseModel):
     pending_filled_quantity: Decimal
     confirmed_filled_amount: Decimal
     pending_filled_amount: Decimal
+    confirmed_trading_fees_amount: Decimal
+    pending_trading_fees_amount: Decimal
     good_until_timestamp_ns: int | None
     timestamp_ns: int
     in_flight: bool | None = None

@@ -379,6 +379,12 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 class Registry(TPlusContract):
     NAME = "Registry"
 
+    @classmethod
+    def deploy_dev(cls, **kwargs):
+        owner = kwargs.get("sender") or get_dev_default_owner()
+        risk_param_delay = kwargs.get("risk_param_delay_seconds", 0)
+        return cls.deploy(owner, risk_param_delay, sender=owner)
+
     def get_assets(self, chain_id: ChainID | None = None) -> list["ContractInstance"]:
         connected_chain = ChainID.evm(self.chain_manager.chain_id)
         if connected_chain != chain_id and chain_id == ChainID.evm(11155111):
@@ -513,11 +519,11 @@ class DepositVault(TPlusContract):
 
         return self.contract.depositCounts(user, account_index)
 
-    def get_withdrawal_count(self, user: "UserPublicKey | User", account_index: int) -> int:
+    def get_withdrawal_count(self, user: "UserPublicKey | User") -> int:
         if not isinstance(user, UserPublicKey):
             user = user.public_key
 
-        return self.contract.withdrawalCounts(user, account_index)
+        return self.contract.withdrawalCounts(user)
 
     def deposit(
         self,
@@ -534,6 +540,26 @@ class DepositVault(TPlusContract):
                 raise ContractLogicError(erc20_err_name) from err
 
             raise  # Error as-is.
+
+    def withdraw(
+        self,
+        withdrawal: dict,
+        user: "bytes | UserPublicKey",
+        target: "AddressType",
+        valid_until: int,
+        epoch_hash: "bytes | HexBytes",
+        signatures: "list[bytes | HexBytes]",
+        **tx_kwargs,
+    ) -> "ReceiptAPI":
+        return self.contract.withdraw(
+            withdrawal,
+            user,
+            target,
+            valid_until,
+            epoch_hash,
+            signatures,
+            **tx_kwargs,
+        )
 
     def execute_atomic_settlement(
         self,

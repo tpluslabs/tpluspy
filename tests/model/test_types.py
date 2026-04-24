@@ -33,6 +33,17 @@ class TestChainID:
         my_dict = {chain_id: 123}
         assert my_dict[chain_id] == 123
 
+    @pytest.mark.parametrize("other", [None, 0, object()])
+    def test_eq(self, other):
+        chain_id1 = ChainID("000000000000aa36a7")
+        chain_id2 = ChainID("000000000000aa36a7")
+        assert chain_id1 == chain_id2
+
+    @pytest.mark.parametrize("other", [None, 0, object()])
+    def test_eq_non_string(self, other):
+        chain_id = ChainID("000000000000aa36a7")
+        assert chain_id != other
+
 
 class TestUserPublicKey:
     @pytest.mark.parametrize(
