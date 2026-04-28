@@ -20,6 +20,7 @@ def create_limit_order_ob_request_payload(
     trigger: OrderTrigger | None = None,
     target: TradeTarget | None = None,
     reduce_only: bool = False,
+    max_trading_fees_rate: int | None = None,
 ) -> CreateOrderRequest:
     side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
 
@@ -43,6 +44,7 @@ def create_limit_order_ob_request_payload(
         creation_timestamp_ns=time.time_ns(),
         target=actual_target,
         reduce_only=reduce_only,
+        max_trading_fees_rate=(50000 if max_trading_fees_rate is None else max_trading_fees_rate),
     )
     sign_payload_json = order.signable_part()
     signature_bytes = signer.sign(sign_payload_json)

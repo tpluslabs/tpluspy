@@ -151,6 +151,7 @@ class OrderBookClient(BaseClient):
         fill_or_kill: bool = False,
         asset_id: AssetIdentifier | None = None,
         target: TradeTarget | None = None,
+        max_trading_fees_rate: int | None = None,
     ) -> OrderOperationResponse:
         """
         Create a market order (async). Uses WS /control if enabled.
@@ -182,6 +183,7 @@ class OrderBookClient(BaseClient):
             quote_quantity=quote_qty_model,
             fill_or_kill=fill_or_kill,
             target=target,
+            max_trading_fees_rate=max_trading_fees_rate,
         )
         self.logger.debug(
             f"Sending Market Order (Asset {asset_id}): BaseQty={base_quantity}, QuoteQty={quote_quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
@@ -203,13 +205,14 @@ class OrderBookClient(BaseClient):
         time_in_force: GTC | GTD | IOC | None = None,
         asset_id: AssetIdentifier | None = None,
         target: TradeTarget | None = None,
+        max_trading_fees_rate: int | None = None,
     ) -> OrderOperationResponse:
         """
         Create a limit order (async). Uses WS /control if enabled.
         """
         # TODO: Fix the signature if this method such that `asset_id` is required.
         order_id, signed_message = await self.prepare_limit_order_request(
-            asset_id, price, quantity, side, target, time_in_force
+            asset_id, price, quantity, side, target, time_in_force, max_trading_fees_rate
         )
 
         self.logger.debug(
@@ -223,7 +226,14 @@ class OrderBookClient(BaseClient):
         return OrderOperationResponse.model_validate(resp)
 
     async def prepare_limit_order_request(
-        self, asset_id, price, quantity, side, target, time_in_force
+        self,
+        asset_id,
+        price,
+        quantity,
+        side,
+        target,
+        time_in_force,
+        max_trading_fees_rate: int | None = None,
     ):
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
@@ -239,6 +249,7 @@ class OrderBookClient(BaseClient):
             order_id=order_id,
             time_in_force=time_in_force,
             target=target,
+            max_trading_fees_rate=max_trading_fees_rate,
         )
         return order_id, signed_message
 
