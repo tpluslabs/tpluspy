@@ -1,0 +1,19 @@
+name: Python SDK Review
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  python-review:
+    if: contains(fromJSON('["manore993","aleks-tplus","antazoey","carlosdimatteo","deadeagle63","emmick4","farnyser","heytdep","jakubcech","jmcph4","juliakroger","markuspluna"]'), github.event.pull_request.user.login)
+    uses: tpluslabs/claude-auditor/.github/workflows/python-review.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      AUDITOR_APP_ID: ${{ secrets.AUDITOR_APP_ID }}
+      AUDITOR_APP_PRIVATE_KEY: ${{ secrets.AUDITOR_APP_PRIVATE_KEY }}
+      NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+      NOTION_SPRINTS_DB_ID: ${{ secrets.NOTION_SPRINTS_DB_ID }}
+      NOTION_DOCS_DB_ID: ${{ secrets.NOTION_DOCS_DB_ID }}
+      CODEX_AUTH_JSON_B64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
