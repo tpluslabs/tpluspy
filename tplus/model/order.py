@@ -198,6 +198,21 @@ class OrderCancelFailedEvent(BaseOrderEvent):
     reason: str | None = None
 
 
+class OrderRemovedEvent(BaseOrderEvent):
+    event_type: Literal["REMOVED"]
+    order_id: str
+    asset_id: AssetIdentifier
+    user_id: str
+    timestamp_ns: int
+    operator_pubkey: str
+    reason: str
+    filled_quantity: int
+    filled_amount: int
+    confirmed_quantity: int
+    confirmed_amount: int
+    book_quantity_decimals: int
+
+
 OrderEvent = (
     OrderCreatedEvent
     | OrderUpdatedEvent
@@ -206,6 +221,7 @@ OrderEvent = (
     | OrderCreateFailedEvent
     | OrderReplaceFailedEvent
     | OrderCancelFailedEvent
+    | OrderRemovedEvent
 )
 
 
@@ -217,6 +233,7 @@ _EVENT_TYPE_MODEL_MAP: dict[str, type[BaseOrderEvent]] = {
     "CREATEFAILED": OrderCreateFailedEvent,
     "REPLACEFAILED": OrderReplaceFailedEvent,
     "CANCELFAILED": OrderCancelFailedEvent,
+    "REMOVED": OrderRemovedEvent,
 }
 
 
