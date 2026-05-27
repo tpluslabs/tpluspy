@@ -3,11 +3,22 @@ name: Python SDK Review
 on:
   pull_request:
     types: [opened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review
+        required: true
+        type: string
 
 jobs:
   python-review:
-    if: contains(fromJSON('["manore993","aleks-tplus","antazoey","carlosdimatteo","deadeagle63","emmick4","farnyser","heytdep","jakubcech","jmcph4","juliakroger","markuspluna"]'), github.event.pull_request.user.login)
+    # On PR events the author allowlist gates the run. On workflow_dispatch the
+    # gate is who can dispatch the workflow (repo write access), so the allowlist
+    # is bypassed for manual triggers.
+    if: github.event_name == 'workflow_dispatch' || contains(fromJSON('["manore993","aleks-tplus","antazoey","carlosdimatteo","deadeagle63","emmick4","farnyser","heytdep","jakubcech","jmcph4","juliakroger","markuspluna"]'), github.event.pull_request.user.login)
     uses: tpluslabs/claude-auditor/.github/workflows/python-review.yml@main
+    with:
+      pr_number: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       AUDITOR_APP_ID: ${{ secrets.AUDITOR_APP_ID }}
