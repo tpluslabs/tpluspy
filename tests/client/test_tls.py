@@ -5,14 +5,10 @@ import pytest
 async def test_http_client_verify_flag(monkeypatch):
     from tplus.client.base import BaseClient
 
-    class DummyUser:
-        public_key = "USER"
-
-    c = BaseClient(user=DummyUser(), base_url="http://localhost")  # type: ignore
+    c = BaseClient(base_url="http://localhost")
     try:
-        # Insecure is False by default → default httpx AsyncClient verifies certs by default
-        # We cannot access private verify attribute reliably; ensure auth headers would carry token when set
-        assert isinstance(c._client, type(c._client))
+        assert c._settings.insecure_ssl is False
+        assert c._settings.verify_requests is True
     finally:
         await c.close()
 
@@ -21,12 +17,8 @@ async def test_http_client_verify_flag(monkeypatch):
 async def test_http_client_insecure_ssl_disables_verify(monkeypatch):
     from tplus.client.base import BaseClient
 
-    class DummyUser:
-        public_key = "USER"
-
-    c = BaseClient(user=DummyUser(), base_url="http://localhost", insecure_ssl=True)  # type: ignore
+    c = BaseClient(base_url="http://localhost", insecure_ssl=True)
     try:
-        # Construction should succeed with insecure flag; httpx accepts verify=False
-        assert c._insecure_ssl is True
+        assert c._settings.insecure_ssl is True
     finally:
         await c.close()

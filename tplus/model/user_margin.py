@@ -3,7 +3,7 @@ User margin info models for the T+ margin system.
 
 This module provides models to represent detailed margin information for user accounts,
 including:
-- Account equity: Total portfolio value at mark prices (no haircuts)
+- Account equity: Total portfolio value at mark prices (no margin risk adjustments)
 - Available margin: IM surplus - how much margin is available to open new positions
 - Utilized margin: Total margin consumed by existing positions
 - Maintenance margin surplus: Distance from liquidation (MM surplus)
@@ -48,11 +48,11 @@ class AccountMarginInfo(BaseModel):
     Margin breakdown for a single sub-account.
 
     Attributes:
-        account_equity: Total account value at mark prices (no CF/LF haircuts).
+        account_equity: Total account value at mark prices (no CF/LF risk adjustments).
             This reflects the total portfolio value using min(oracle, LTP) pricing.
 
         available_margin: IM surplus - margin available to open new positions.
-            Computed with IM pricing and CF/LF haircuts applied. A positive value
+            Computed with IM pricing and CF/LF risk adjustments applied. A positive value
             means the account can open more positions; negative means the account
             fails the IM solvency check.
 

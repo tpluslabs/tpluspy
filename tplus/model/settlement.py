@@ -150,15 +150,12 @@ class InnerSettlementRequest(BaseSettlement):
             "tplus_user": user,
             "sub_account_index": base_data.pop("sub_account_index"),
         }
-        if settler is not None:
-            payload["settler"] = settler
+        payload["settler"] = settler
 
         payload.update(base_data)
         payload["chain_id"] = chain_id
-        if expires_at is not None:
-            payload["expires_at"] = expires_at
-        if mm_pubkey is not None:
-            payload["mm_pubkey"] = mm_pubkey
+        payload["expires_at"] = expires_at
+        payload["mm_pubkey"] = mm_pubkey
 
         return (
             json.dumps(payload, separators=(",", ":"))
@@ -285,6 +282,11 @@ class TxSettlementRequest(BaseModel):
 class BatchSettlementRequest(BaseModel):
     """
     Batch settlement request.
+
+    The CE still processes batch settlements (``UserAction::InitBatchSettlement``);
+    this mirrors the ``orderbook_messages`` wire type. Note the OMS no longer
+    exposes a public ``settlement/batch/init`` endpoint, so there is currently no
+    client convenience method that submits one.
     """
 
     inner: "InnerBatchSettlementRequest"

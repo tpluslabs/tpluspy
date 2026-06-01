@@ -5,12 +5,10 @@ from ape import networks
 from ape.cli import select_account
 from ape_tokens.testing import MockERC20
 
-from tplus.client import ClearingEngineClient
 from tplus.evm.contracts import vault
 from tplus.utils.user import load_user
 
 USERNAME = "az"
-CLEARING_ENGINE_HOST = "http://127.0.0.1:3032"
 CHAIN_ID = 42161
 TOKEN = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
 
@@ -38,11 +36,6 @@ def deposit_to_chain(blockchain_user, tplus_user):
     time.sleep(10)
 
 
-async def deposit_to_ce(tplus_user, client):
-    # Tell the CE to update deposit to ingest your new deposit.
-    await client.deposits.update_nonce(tplus_user.public_key, CHAIN_ID)
-
-
 async def main():
     # Load your accounts.
     tplus_user = load_user(USERNAME)
@@ -50,11 +43,8 @@ async def main():
         f"Select your ETH account (chain={CHAIN_ID}) use to deposit to the vault contract"
     )
 
-    # Connect to the t+ clearing engine.
-    client = ClearingEngineClient(tplus_user, CLEARING_ENGINE_HOST)
-
+    # The CE ingests the on-chain deposit via vault-event subscriptions.
     deposit_to_chain(blockchain_user, tplus_user)
-    await deposit_to_ce(tplus_user, client)
 
 
 if __name__ == "__main__":

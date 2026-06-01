@@ -1,175 +1,113 @@
+"""
+End-to-end REST walkthrough for tpluspy.
+
+Connects to a running tplus-core OMS, places a market and a limit order on a
+single asset, and then reads back the user's orders / trades / inventory.
+"""
+
 import asyncio
-import json
 import logging
 
 import httpx
 
-# Adjust the import path based on your project structure
-# Assumes 'tplus' is a package in your PYTHONPATH or installed
-from tplus.client import OrderBookClient
+from tplus.client import MarketDataClient, OrderBookClient
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.limit_order import GTC
 from tplus.utils.user import User
 
-# Configure basic logging for the example
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - [%(name)s] %(message)s"
 )
 logger = logging.getLogger("RestExample")
 
-# --- IMPORTANT: Replace with your actual API endpoint URL ---
-# Use the correct URL for your running tplus-core instance
-API_BASE_URL = "http://127.0.0.1:8000/"  # Example URL
+# Replace with your running tplus-core OMS URL.
+API_BASE_URL = "http://127.0.0.1:8000"
+# Read-only market-data service.
+MARKET_DATA_URL = "http://127.0.0.1:8011"
 
-# Example Asset ID to use
-example_asset = AssetIdentifier.model_validate(200)
+# Asset to trade. Either a registry index (e.g. 200) or an `address@chain_id`
+# string in the t+ 9-byte chain form -- see docs/userguides/asset-identifiers.md.
+EXAMPLE_ASSET = AssetIdentifier(200)
 
 
-async def main():
+async def main() -> None:
     user = User()
-    logger.info(f"Using API Base URL: {API_BASE_URL}")
-    logger.info(f"Example Asset Index: {example_asset}")
+    logger.info("Using API base URL: %s", API_BASE_URL)
+    logger.info("Trading asset: %s", EXAMPLE_ASSET)
+    logger.info("Public key: %s", user.public_key)
 
-    # Initialize client with the API base URL
-    # Using async context manager ensures the client connection is closed properly
-    try:
-        async with OrderBookClient(user, base_url=API_BASE_URL) as client:
-            logger.info("Client initialized.")
+    async with (
+        OrderBookClient(API_BASE_URL, default_user=user) as client,
+        MarketDataClient(MARKET_DATA_URL) as md_client,
+    ):
+        # ---------------- read-only sanity check ----------------
+        try:
+            book = await md_client.get_orderbook_snapshot(EXAMPLE_ASSET)
+        except httpx.RequestError as err:
+            logger.error("Cannot reach the market-data-service at %s: %s", MARKET_DATA_URL, err)
+            return
 
-            # --- Simple GET Test First ---
-            logger.info("=" * 20 + " Simple GET Test " + "=" * 20)
-            logger.info(f"--- Getting Order Book Snapshot for asset {example_asset} ---")
-            try:
-                orderbook = await client.get_orderbook_snapshot(example_asset)
-                logger.info(
-                    f"Order Book Snapshot ({example_asset}): Sequence={orderbook.sequence_number}, Asks={len(orderbook.asks)}, Bids={len(orderbook.bids)}"
-                )
-                logger.info("Simple GET test SUCCEEDED.")
-            except httpx.RequestError as e:
-                logger.error(f"Simple GET test FAILED (Connection Error): {e}", exc_info=True)
-                logger.warning("Skipping further tests as basic GET failed.")
-                return
-            except Exception as e:
-                logger.error(f"Simple GET test FAILED: {e}", exc_info=True)
-                logger.warning("Skipping further tests as basic GET failed.")
-                return
+        logger.info(
+            "Order book: seq=%s asks=%d bids=%d",
+            book.sequence_number,
+            len(book.asks),
+            len(book.bids),
+        )
 
-            logger.info("\n" + "=" * 20 + " POST Endpoints " + "=" * 20)
-            await asyncio.sleep(1)
+        # Cache market metadata (decimals etc.) so subsequent calls don't refetch.
+        market = await client.get_market(EXAMPLE_ASSET)
+        logger.info(
+            "Market: price_decimals=%s qty_decimals=%s",
+            market.book_price_decimals,
+            market.book_quantity_decimals,
+        )
 
-            # --- Create Orders (POST) ---
-            logger.info("--- Attempting Market Order ---")
-            try:
-                market_order_response = await client.create_market_order(
-                    quantity=10, side="Buy", fill_or_kill=False
-                )
-                logger.info(f"Market Order Response: {json.dumps(market_order_response, indent=2)}")
-            except Exception as e:
-                logger.error(f"Market Order Failed: {e}", exc_info=True)
+        # ---------------- create orders ----------------
+        market_order = await client.create_market_order(
+            asset_id=EXAMPLE_ASSET,
+            side="Buy",
+            base_quantity=10,
+            fill_or_kill=False,
+        )
+        logger.info("Market order: %s", market_order.model_dump())
 
-            await asyncio.sleep(0.5)
+        limit_order = await client.create_limit_order(
+            asset_id=EXAMPLE_ASSET,
+            quantity=5,
+            price=1_000,
+            side="Sell",
+            time_in_force=GTC(),
+        )
+        logger.info("Limit order: %s", limit_order.model_dump())
 
-            logger.info("--- Attempting Limit Order ---")
-            try:
-                limit_order_response = await client.create_limit_order(
-                    quantity=5,
-                    price=1000,  # Example price, adjust as needed
-                    side="Sell",
-                )
-                logger.info(f"Limit Order Response: {json.dumps(limit_order_response, indent=2)}")
-            except Exception as e:
-                logger.error(f"Limit Order Failed: {e}", exc_info=True)
+        # ---------------- read back state ----------------
+        # Each of these uses the authenticated user's public key implicitly.
+        orders, _raw = await client.get_user_orders()
+        logger.info("User has %d orders", len(orders))
 
-            logger.info("\n" + "=" * 20 + " GET Endpoints " + "=" * 20)
-            await asyncio.sleep(1)
+        open_orders = await client.get_open_orders_for_book(EXAMPLE_ASSET)
+        logger.info("Open orders for %s: %d", EXAMPLE_ASSET, len(open_orders))
 
-            user_id = user.public_key
+        trades = await client.get_user_trades_for_asset(EXAMPLE_ASSET)
+        logger.info("User has %d trades on %s", len(trades), EXAMPLE_ASSET)
 
-            # --- Get Orders (GET) ---
-            logger.info(f"--- Getting Orders for user {user_id} ---")
-            try:
-                # Unpack tuple
-                user_orders, raw_orders_response = await client.get_user_orders(user_id)
-                # Log raw response
-                logger.info(
-                    f"Raw User Orders Response ({user_id}): {json.dumps(raw_orders_response, indent=2)}"
-                )
-                # Log parsed orders (which might be empty due to parsing issues)
-                logger.info(
-                    f"Parsed User Orders ({user_id}): {json.dumps([o.model_dump() for o in user_orders], indent=2)}"
-                )
-            except Exception as e:
-                logger.error(f"Get User Orders Failed: {e}", exc_info=True)
+        inventory = await client.get_user_inventory()
+        logger.info("Inventory keys: %s", list(inventory.keys()) if inventory else "<empty>")
 
-            await asyncio.sleep(0.5)
+        klines = await md_client.get_klines(EXAMPLE_ASSET, limit=20)
+        logger.info("Got %d klines", len(klines))
 
-            logger.info(f"--- Getting Orders for user {user_id}, asset {example_asset} ---")
-            try:
-                # Unpack tuple
-                (
-                    user_asset_orders,
-                    raw_asset_orders_response,
-                ) = await client.get_user_orders_for_book(user_id, example_asset)
-                # Log raw response
-                logger.info(
-                    f"Raw User Asset Orders Response ({user_id}, {example_asset}): {json.dumps(raw_asset_orders_response, indent=2)}"
-                )
-                # Log parsed orders
-                logger.info(
-                    f"Parsed User Asset Orders ({user_id}, {example_asset}): {json.dumps([o.model_dump() for o in user_asset_orders], indent=2)}"
-                )
-            except Exception as e:
-                logger.error(f"Get User Asset Orders Failed: {e}", exc_info=True)
-
-            # --- Get Trades (GET) ---
-            await asyncio.sleep(0.5)
-            logger.info(f"--- Getting Trades for user {user_id} ---")
-            try:
-                user_trades = await client.get_user_trades(user_id)
-                logger.info(
-                    f"User Trades ({user_id}): {json.dumps([t.model_dump() for t in user_trades], indent=2)}"
-                )
-            except Exception as e:
-                logger.error(f"Get User Trades Failed: {e}", exc_info=True)
-
-            await asyncio.sleep(0.5)
-
-            logger.info(f"--- Getting Trades for user {user_id}, asset {example_asset} ---")
-            try:
-                user_asset_trades = await client.get_user_trades_for_asset(user_id, example_asset)
-                logger.info(
-                    f"User Asset Trades ({user_id}, {example_asset}): {json.dumps([t.model_dump() for t in user_asset_trades], indent=2)}"
-                )
-            except Exception as e:
-                logger.error(f"Get User Asset Trades Failed: {e}", exc_info=True)
-
-            # --- Get Inventory (GET) ---
-            await asyncio.sleep(0.5)
-            logger.info(f"--- Getting Inventory for user {user_id} ---")
-            try:
-                inventory = await client.get_user_inventory(user_id)
-                logger.info(f"User Inventory ({user_id}): {json.dumps(inventory, indent=2)}")
-            except Exception as e:
-                logger.error(f"Get User Inventory Failed: {e}", exc_info=True)
-
-            # --- Get Market Data (GET) ---
-            await asyncio.sleep(0.5)
-            logger.info(f"--- Getting Klines for asset {example_asset} ---")
-            try:
-                klines = await client.get_klines(example_asset)
-                logger.info(f"Klines ({example_asset}): {json.dumps(klines, indent=2)}")
-            except Exception as e:
-                logger.error(f"Get Klines Failed: {e}", exc_info=True)
-
-    except httpx.RequestError as e:
-        logger.critical(f"HTTP connection error during client setup: {e}", exc_info=True)
-    except Exception as e:
-        logger.critical(f"Failed to initialize or run client: {e}", exc_info=True)
-    finally:
-        logger.info("Example script finished.")
+        # ---------------- cancel the resting limit order ----------------
+        if limit_order.order_id:
+            cancel_resp = await client.cancel_order(
+                order_id=limit_order.order_id,
+                asset_id=EXAMPLE_ASSET,
+            )
+            logger.info("Cancel response: %s", cancel_resp.model_dump())
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Process interrupted by user.")
+        logger.info("Interrupted by user.")

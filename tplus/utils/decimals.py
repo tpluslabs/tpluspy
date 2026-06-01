@@ -22,6 +22,9 @@ def convert_decimals(amount: int, from_decimals: int, to_decimals: int, rounding
     with optional round-down or ceiling division when scaling down.
     """
     round_value = rounding.lower()
+    if round_value not in ("up", "down"):
+        raise ValueError(f"Unknown rounding value '{round_value}'; expecting 'up' or 'down'.")
+
     if to_decimals > from_decimals:
         # Scale up: multiply
         exponent = to_decimals - from_decimals
@@ -34,11 +37,8 @@ def convert_decimals(amount: int, from_decimals: int, to_decimals: int, rounding
         factor = 10**exponent
         if round_value == "down":
             return amount // factor
-        elif round_value == "up":
-            # Ceiling division
-            return (amount + factor - 1) // factor
-        else:
-            raise ValueError(f"Unknown rounding value '{round_value}'; expecting 'up' or 'down'.")
+        # Ceiling division
+        return (amount + factor - 1) // factor
 
     else:
         # Equal, no change

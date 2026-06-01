@@ -53,9 +53,36 @@ def parse_trades(data: list[dict]) -> list[Trade]:
     ]
 
 
+class UserTradesPage(BaseModel):
+    trades: list[UserTrade]
+    page: int
+    limit: int
+    total_trades: int
+    total_pages: int
+    cursor_size: int
+    has_next_page: bool
+    next_page: int | None = None
+
+
 def parse_user_trades(data: list[dict]) -> list[UserTrade]:
     """Parse user trade data into UserTrade objects."""
     return [UserTrade.model_validate(item) for item in data]
+
+
+def parse_user_trades_page(data: list[dict] | dict) -> UserTradesPage:
+    if isinstance(data, list):
+        trades = parse_user_trades(data)
+        count = len(trades)
+        return UserTradesPage(
+            trades=trades,
+            page=0,
+            limit=count,
+            total_trades=count,
+            total_pages=1 if count else 0,
+            cursor_size=count,
+            has_next_page=False,
+        )
+    return UserTradesPage.model_validate(data)
 
 
 class BaseTradeEvent(BaseModel):

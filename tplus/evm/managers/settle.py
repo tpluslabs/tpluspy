@@ -1,5 +1,5 @@
-import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING
@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 from hexbytes import HexBytes
 
 from tplus.client.clearingengine import ClearingEngineClient
+from tplus.client.orderbook import OrderBookClient
 from tplus.evm.contracts import DepositVault
-from tplus.evm.exceptions import SettlementError
 from tplus.evm.managers.chaindata import ChainDataFetcher
 from tplus.evm.managers.deposit import DepositManager
 from tplus.evm.managers.evm import ChainConnectedManager
@@ -17,7 +17,6 @@ from tplus.model.approval import SettlementApproval
 from tplus.model.settlement import MakerOrderAttachment, SettlementMode, TxSettlementRequest
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.amount import Amount
-from tplus.utils.user.decrypt import decrypt_settlement_approval
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -43,6 +42,7 @@ class SettlementInfo:
     nonce: int
     chain_id: "ChainID"
     settler: "UserPublicKey | None" = None
+    sub_account_index: int = 0
 
 
 class SettlementManager(ChainConnectedManager):
@@ -56,15 +56,26 @@ class SettlementManager(ChainConnectedManager):
         default_user: "User",
         ape_account: "AccountAPI",
         clearing_engine: ClearingEngineClient | None = None,
+        oms_client: OrderBookClient | None = None,
         chain_id: ChainID | None = None,
         vault: DepositVault | None = None,
         settlement_vault: DepositVault | None = None,
     ):
         self.default_user = default_user
         self.ape_account = ape_account
-        self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient(
-            self.default_user, "http://127.0.0.1:3032"
+        self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient.from_local(
+            self.default_user
         )
+        if oms_client is not None:
+            self.oms = oms_client
+        else:
+            oms_base_url = os.getenv("API_BASE_URL", "https://127.0.0.1:8000")
+            oms_insecure_ssl = self.ce._settings.insecure_ssl
+            self.oms = OrderBookClient(
+                default_user=self.default_user,
+                base_url=oms_base_url,
+                insecure_ssl=oms_insecure_ssl,
+            )
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         self.vault = vault or DepositVault(chain_id=self.chain_id)
 
@@ -73,25 +84,6 @@ class SettlementManager(ChainConnectedManager):
         #       for the actual `.executeAtomicSettlement()` call because of the cb.
         self.settlement_vault = settlement_vault or self.vault
         self.logger = get_logger()
-
-        self._approval_handling_tasks = {}
-
-    async def cleanup_tasks(self):
-        """Cancel all pending approval-handling tasks and await their completion."""
-        all_tasks = [
-            task
-            for user_tasks in self._approval_handling_tasks.values()
-            for task in user_tasks.values()
-        ]
-        for task in all_tasks:
-            task.cancel()
-        for task in all_tasks:
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
-
-        self._approval_handling_tasks.clear()
 
     @cached_property
     def deposits(self) -> DepositManager:
@@ -121,58 +113,12 @@ class SettlementManager(ChainConnectedManager):
         vaults: bool = True,
         assets: bool = True,
         decimals: Sequence["AssetAddress"] | None = None,
-        deposits: bool = True,
-        settlements: bool = True,
     ):
         return await self.chaindata.prefetch_chaindata(
             vaults=vaults,
             assets=assets,
             decimals=decimals,
-            deposits=deposits,
-            settlements=settlements,
         )
-
-    def decrypt_settlement_approval_message(
-        self, message: dict, user: "User | None" = None
-    ) -> SettlementApproval | None:
-        """
-        Decrypt and parse a settlement approval message from the WebSocket.
-
-        Args:
-            message: The raw message dictionary from the WebSocket containing encrypted_data.
-            user: Specify the tplus user. Defaults to the default_user
-
-        Returns:
-            SettlementApproval: The decrypted approval dictionary, or None if decryption/parsing fails.
-
-        Raises:
-            SettlementError: If the message contains a settlement error from the CE.
-        """
-        if "Err" in message:
-            raise SettlementError(message["Err"])
-
-        user = user or self.default_user
-        key = "Approved"
-
-        try:
-            encrypted_data = message[key]
-        except KeyError as err:
-            self.logger.warning(f"Missing expected key '{key}' in approval message: {err}")
-            return None
-
-        try:
-            encrypted_data_bytes = bytes.fromhex(encrypted_data)
-        except Exception as err:
-            self.logger.warning(f"Invalid hexbytes {encrypted_data}. Error: {err}")
-            return None
-
-        try:
-            data = decrypt_settlement_approval(encrypted_data_bytes, user.sk)
-        except Exception as err:
-            self.logger.warning(f"Failed to decrypt approval: {err}")
-            return None
-
-        return SettlementApproval.model_validate(data)
 
     async def init_settlement(
         self,
@@ -186,14 +132,9 @@ class SettlementManager(ChainConnectedManager):
         account_index: int | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
         then_execute: bool = False,
-        on_approved: "Callable[[SettlementInfo, SettlementApproval], Awaitable[None] | None] | None" = None,
-        on_error: "Callable[[SettlementError], Awaitable[None] | None] | None" = None,
-    ) -> SettlementInfo:
+    ) -> tuple[SettlementInfo, SettlementApproval]:
         """
-        Initialize a settlement asynchronously without waiting for approval.
-
-        This method initializes the settlement in the clearing-engine and returns
-        settlement information that can be used to track and match approvals later.
+        Initialize a settlement and return its approval synchronously.
 
         Args:
             asset_in: The address of the asset in going into the protocol.
@@ -206,29 +147,23 @@ class SettlementManager(ChainConnectedManager):
             account_index: Specify the index of the tplus account for this settlement approval. Defaults to the
               selected user's account index.
             then_execute: Set to ``True`` to wait for the approval and then execute the settlement on-chain.
-            on_approved: Custom callback for receiving the approval from the CE.
-            on_error: Called when the CE sends a settlement error on the approval stream
-              (see :class:`~tplus.evm.exceptions.SettlementError`).
 
         Returns:
-            SettlementInfo: Information about the settlement including the expected nonce.
+            tuple[SettlementInfo, SettlementApproval]: Settlement metadata and the approval returned by CE.
         """
-
-        if on_approved and then_execute:
-            raise ValueError("Cannot provide both `on_approved` and `then_execute`.")
 
         user = user or self.default_user
 
+        if account_index is None:
+            account_index = user.sub_account
+
         expected_nonce = self.vault.settlementCounts(
             user.public_key,
-            user.sub_account,
+            account_index,
         )
 
         amount_in_normalized = amount_in.to_inventory_amount("up")
         amount_out_normalized = amount_out.to_inventory_amount("down")
-
-        if account_index is None:
-            account_index = user.sub_account
 
         request_data = {
             "chain_id": self.chain_id,
@@ -241,6 +176,9 @@ class SettlementManager(ChainConnectedManager):
         }
         if settler is not None:
             request_data["settler"] = settler
+        elif maker_order is None:
+            # Non-delegated: sign over an explicit settler, not null.
+            request_data["settler"] = user.public_key
 
         request = TxSettlementRequest.create_signed(request_data, user)
         if maker_order is not None:
@@ -254,53 +192,11 @@ class SettlementManager(ChainConnectedManager):
             nonce=expected_nonce,
             chain_id=self.chain_id,
             settler=settler or user.public_key,
+            sub_account_index=account_index,
         )
 
-        approval_task: asyncio.Task | None = None
-        handler: SettlementApprovalHandler | None = None
-
-        if on_approved or then_execute:
-            if then_execute:
-
-                async def _internal_on_approved(info, approval):
-                    await self.execute_settlement(info, approval)
-
-                effective_callback = _internal_on_approved
-            else:
-                effective_callback = on_approved
-
-            handler = SettlementApprovalHandler(self)
-
-            approval_task = asyncio.create_task(
-                handler.handle_approvals(
-                    on_approval_received=effective_callback,
-                    on_error=on_error,
-                    stop_at=1,
-                    pending_settlements={expected_nonce: settlement_info},
-                )
-            )
-
-            await handler.wait_until_subscribed()
-
-            self._approval_handling_tasks.setdefault(user.public_key, {})
-            self._approval_handling_tasks[user.public_key][expected_nonce] = approval_task
-
-            def _cleanup(_task: asyncio.Task):
-                tasks = self._approval_handling_tasks.get(user.public_key)
-                if not tasks:
-                    return
-                tasks.pop(expected_nonce, None)
-                if not tasks:
-                    self._approval_handling_tasks.pop(user.public_key, None)
-
-            approval_task.add_done_callback(_cleanup)
-
-        try:
-            await self._init_settlement(request)
-        except Exception:
-            if approval_task:
-                approval_task.cancel()
-            raise
+        approval_data = await self._init_settlement(request)
+        approval = SettlementApproval.model_validate(approval_data)
 
         self.logger.info(
             f"Initialized settlement - Asset in: {asset_in}, "
@@ -308,13 +204,13 @@ class SettlementManager(ChainConnectedManager):
             f"Amount out: {amount_out.amount}, Expected nonce: {expected_nonce}"
         )
 
-        if then_execute and approval_task:
-            await approval_task
+        if then_execute:
+            await self.execute_settlement(settlement_info, approval)
 
-        return settlement_info
+        return settlement_info, approval
 
-    async def _init_settlement(self, request: "TxSettlementRequest"):
-        return await self.ce.settlements.init_settlement(request)
+    async def _init_settlement(self, request: "TxSettlementRequest") -> dict:
+        return await self.oms.init_settlement(request)
 
     async def execute_settlement(
         self,
@@ -366,7 +262,7 @@ class SettlementManager(ChainConnectedManager):
                 "tokenOut": token_out_address,
                 "amountOut": settlement_info.amount_out.amount,
                 "user": HexBytes(user.public_key),
-                "account": user.sub_account,
+                "account": settlement_info.sub_account_index,
                 "nonce": nonce,
                 "validUntil": expiry,
             },
@@ -377,88 +273,3 @@ class SettlementManager(ChainConnectedManager):
         )
 
         return tx
-
-
-class SettlementApprovalHandler:
-    """
-    Handles settlement approval stream independently of settlement initialization.
-    Can be run in a separate async task to process approvals as they arrive.
-    """
-
-    def __init__(
-        self,
-        settlement_manager: SettlementManager,
-    ):
-        self.settlement_manager = settlement_manager
-        self.logger = settlement_manager.logger
-        self.on_approval_received = None
-        self._subscribed_event = asyncio.Event()
-
-    async def wait_until_subscribed(self):
-        """Wait until the approval stream subscription is active."""
-        await self._subscribed_event.wait()
-
-    async def handle_approvals(
-        self,
-        on_approval_received=None,
-        on_error: "Callable[[SettlementError], Awaitable[None] | None] | None" = None,
-        pending_settlements: dict[int, SettlementInfo] | None = None,
-        stop_at: int | None = None,
-        user: "UserPublicKey | None" = None,
-    ) -> None:
-        user = user or self.settlement_manager.default_user.public_key
-        self.logger.info(f"Starting approval handler for user {user}")
-
-        pending_settlements = pending_settlements or {}
-        amount_handled = 0
-
-        try:
-            stream = self.settlement_manager.ce.settlements.stream_approvals(user)
-            ait = stream.__aiter__()
-            pending_first = asyncio.create_task(ait.__anext__())
-            self._subscribed_event.set()
-
-            try:
-                message = await pending_first
-            except StopAsyncIteration:
-                return
-
-            while True:
-                approval = None
-                try:
-                    approval = self.settlement_manager.decrypt_settlement_approval_message(message)
-                except SettlementError as err:
-                    if on_error:
-                        result = on_error(err)
-                        if asyncio.iscoroutine(result):
-                            await result
-                    else:
-                        self.logger.warning(
-                            "Settlement approval stream returned error (no on_error callback): %s",
-                            err,
-                        )
-
-                if approval:
-                    nonce = approval.inner.nonce
-                    settlement_info = pending_settlements.get(nonce)
-
-                    if settlement_info is None:
-                        self.logger.debug(f"Received approval for unknown nonce {nonce}, ignoring")
-                    else:
-                        self.logger.info(f"Received approval for nonce {nonce}")
-                        del pending_settlements[nonce]
-
-                        callback = on_approval_received or self.on_approval_received
-                        if callback:
-                            result = callback(settlement_info, approval)
-                            if asyncio.iscoroutine(result):
-                                await result
-
-                        amount_handled += 1
-                        if stop_at and amount_handled >= stop_at:
-                            break
-
-                message = await ait.__anext__()
-
-        except asyncio.TimeoutError:
-            self.logger.info("Approval handler timed out")

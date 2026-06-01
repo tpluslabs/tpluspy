@@ -4,14 +4,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import yaml
-from ape.api.accounts import AccountAPI
 from ape.api.convert import ConvertibleAPI
 from ape.exceptions import ContractLogicError, ContractNotFoundError, ConversionError, ProjectError
 from ape.managers.project import Project
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
 from ape.utils.misc import ZERO_ADDRESS
-from eth_pydantic_types.hex.bytes import HexBytes, HexBytes32
+from eth_pydantic_types.hex.bytes import HexBytes
 
 from tplus.evm.abi import get_erc20_type
 from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
@@ -23,9 +22,11 @@ from tplus.utils.bytes32 import to_bytes32
 from tplus.utils.hex import to_hex
 
 if TYPE_CHECKING:
+    from ape.api.accounts import AccountAPI
     from ape.api.transactions import ReceiptAPI
     from ape.contracts.base import ContractContainer, ContractInstance
     from ape.managers.project import LocalProject
+    from eth_pydantic_types.hex.bytes import HexBytes32
 
     from tplus.model.risk_parameters import RiskParameters
     from tplus.model.withdrawal import WithdrawalDelayParameters
@@ -34,6 +35,8 @@ if TYPE_CHECKING:
 CHAIN_MAP = {
     1: "ethereum:mainnet",
     11155111: "ethereum:sepolia",
+    143: "monad:mainnet",
+    10143: "monad:testnet",
     42161: "arbitrum:mainnet",
     421614: "arbitrum:sepolia",
 }
@@ -41,6 +44,10 @@ NETWORK_MAP = {
     "ethereum": {
         "mainnet": 1,
         "sepolia": 11155111,
+    },
+    "monad": {
+        "mainnet": 143,
+        "testnet": 10143,
     },
     "arbitrum": {
         "mainnet": 42161,
@@ -167,7 +174,7 @@ def load_tplus_contract_container(name: str, version: str | None = None) -> "Con
     return contract
 
 
-def get_dev_default_owner() -> AccountAPI:
+def get_dev_default_owner() -> "AccountAPI":
     return ManagerAccessMixin.account_manager.test_accounts[0]
 
 
@@ -195,7 +202,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
     def __init__(
         self,
-        default_deployer: AccountAPI | None = None,
+        default_deployer: "AccountAPI | None" = None,
         chain_id: ChainID | None = None,
         address: str | None = None,
         tplus_contracts_version: str | None = None,
@@ -225,7 +232,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return ChainAddress.from_str(f"{to_bytes32(self.address).hex()}@{self.chain_id}")
 
     @classmethod
-    def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "TPlusContract":
+    def deploy(cls, *args, sender: "AccountAPI", **kwargs) -> "TPlusContract":
         tplus_contracts_version = kwargs.pop("tplus_contracts_version", None)
         contract_container = load_tplus_contract_container(
             cls.NAME, version=tplus_contracts_version
@@ -308,7 +315,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return self.chain_manager.provider.network.is_local
 
     @property
-    def default_deployer(self) -> AccountAPI:
+    def default_deployer(self) -> "AccountAPI":
         if deployer := self._default_deployer:
             return deployer
 
@@ -385,17 +392,22 @@ class Registry(TPlusContract):
         risk_param_delay = kwargs.get("risk_param_delay_seconds", 0)
         return cls.deploy(owner, risk_param_delay, sender=owner)
 
-    def get_assets(self, chain_id: ChainID | None = None) -> list["ContractInstance"]:
+    def get_assets(
+        self,
+        chain_id: ChainID | None = None,
+        start: int = 0,
+        end: int = 65535,
+    ) -> list["ContractInstance"]:
         connected_chain = ChainID.evm(self.chain_manager.chain_id)
         if connected_chain != chain_id and chain_id == ChainID.evm(11155111):
             with self.network_manager.ethereum.sepolia.use_default_provider():
-                return self._get_assets()
+                return self._get_assets(start, end)
 
-        return self._get_assets()
+        return self._get_assets(start, end)
 
-    def _get_assets(self) -> list["ContractInstance"]:
+    def _get_assets(self, start: int, end: int) -> list["ContractInstance"]:
         contract = self.contract
-        data = contract.getAssets()
+        data = contract.getAssets(start, end)
         res = []
 
         for itm in data:
@@ -418,7 +430,7 @@ class Registry(TPlusContract):
     def set_asset(
         self,
         index: int,
-        asset_address: HexBytes32 | AddressType,
+        asset_address: "HexBytes32 | AddressType",
         chain_id: ChainID,
         max_deposit: int,
         max_1hr_deposits: int,
@@ -513,11 +525,11 @@ class DepositVault(TPlusContract):
 
         return self.contract.settlementCounts(user, account_index)
 
-    def get_deposit_count(self, user: "UserPublicKey | User", account_index: int) -> int:
+    def get_deposit_count(self, user: "UserPublicKey | User") -> int:
         if not isinstance(user, UserPublicKey):
             user = user.public_key
 
-        return self.contract.depositCounts(user, account_index)
+        return self.contract.depositCounts(user)
 
     def get_withdrawal_count(self, user: "UserPublicKey | User") -> int:
         if not isinstance(user, UserPublicKey):
@@ -593,7 +605,7 @@ class DepositVault(TPlusContract):
             raise  # Error as-is
 
     @classmethod
-    def deploy(cls, *args, sender: AccountAPI, **kwargs) -> "DepositVault":
+    def deploy(cls, *args, sender: "AccountAPI", **kwargs) -> "DepositVault":
         args = list(args)
         address = sender.get_deployment_address()
         instance = super().deploy(*args, sender=sender, **kwargs)
@@ -605,7 +617,7 @@ class DepositVault(TPlusContract):
         return instance
 
     @classmethod
-    def deploy_dev(cls, sender: AccountAPI | None = None, **kwargs) -> TPlusContract:
+    def deploy_dev(cls, sender: "AccountAPI | None" = None, **kwargs) -> TPlusContract:
         """
         Deploy and set up a development vault.
         """
@@ -626,7 +638,7 @@ class DepositVault(TPlusContract):
     def set_administrators(
         self,
         administrators: list["AddressType"],
-        vault_owner: AccountAPI,
+        vault_owner: "AccountAPI",
         withdrawal_quorum: int | None = None,
     ) -> "ReceiptAPI":
         if withdrawal_quorum is None:
@@ -636,7 +648,9 @@ class DepositVault(TPlusContract):
             administrators, withdrawal_quorum, sender=vault_owner
         )
 
-    def set_domain_separator(self, domain_separator: bytes, *, sender: AccountAPI) -> "ReceiptAPI":
+    def set_domain_separator(
+        self, domain_separator: bytes, *, sender: "AccountAPI"
+    ) -> "ReceiptAPI":
         return self.contract.setDomainSeparator(domain_separator, sender=sender)
 
 

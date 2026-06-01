@@ -92,10 +92,10 @@ class VaultOwner(ChainConnectedManager):
                 raise ValueError("Must have clearing_engine to wait for settler registration.")
 
             await wait_for_condition(
-                update_fn=lambda: ce.settlements.update_approved_settlers(
+                update_fn=lambda: ce.admin_settlements.update_approved_settlers(
                     self.chain_id, self.vault.address
                 ),
-                get_fn=lambda: ce.settlements.get_approved_settlers(self.chain_id),
+                get_fn=lambda: ce.admin_settlements.get_approved_settlers(self.chain_id),
                 check_fn=lambda settlers: settler in settlers,
                 timeout=10,
                 interval=1,

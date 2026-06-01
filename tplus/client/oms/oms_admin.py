@@ -1,8 +1,8 @@
-from tplus.client.base import BaseClient
+from tplus.client.auth import AuthenticatedClient
 from tplus.model.asset_identifier import AssetIdentifier
 
 
-class OmsAdminClient(BaseClient):
+class OmsAdminClient(AuthenticatedClient):
     async def set_settings(
         self,
         solvency_verifier: str,

@@ -32,3 +32,4 @@ class RiskParameters(BaseModel):
     max_funding_rate: int = Field(alias="maxFundingRate")
     max_utilization_rate: int = Field(alias="maxUtilizationRate")
     buffer_multiple: int = Field(alias="bufferMultiple")
+    min_sub_account_balance: int = Field(default=0, alias="minSubAccountBalance")

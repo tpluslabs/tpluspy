@@ -1,0 +1,3 @@
+# Use incrementing numbers (1, 2, 3) for ordered lists instead of the
+# default "consistent" mode (which rewrites every item to `1.`).
+number = true

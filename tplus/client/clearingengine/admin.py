@@ -40,6 +40,13 @@ class AdminClient(BaseClearingEngineClient):
         """
         return await self._get("admin/verifying-key")
 
+    async def get_latest_checkpoint_root(self) -> str | None:
+        """
+        Get the clearing-engine's latest locally completed checkpoint root.
+        """
+        response = await self._get("admin/checkpoint/root")
+        return response.get("root")
+
     async def modify_user_inventory(
         self,
         user: "UserPublicKey",
@@ -133,6 +140,7 @@ class AdminClient(BaseClearingEngineClient):
         skew_cliff: int,
         premium_clamp: int,
         buffer_multiplier: int,
+        min_sub_account_balance: str | int = 0,
     ):
         asset_index = _asset_id_to_index(asset_id)
         risk_parameters = {
@@ -156,6 +164,7 @@ class AdminClient(BaseClearingEngineClient):
             "skew_cliff": skew_cliff,
             "premium_clamp": premium_clamp,
             "buffer_multiplier": buffer_multiplier,
+            "min_sub_account_balance": min_sub_account_balance,
         }
         await self._post(
             "admin/risk-parameters/modify",
@@ -269,6 +278,12 @@ class AdminClient(BaseClearingEngineClient):
     async def reset_users(self):
         await self._post(
             "admin/users/reset",
+            json_data={},
+        )
+
+    async def reset_max_one_hr_deposit(self):
+        await self._post(
+            "admin/deposits/reset-1hr",
             json_data={},
         )
 

@@ -8,7 +8,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tpluspy",
-    version="0.1.1",
+    version="0.0.0.dev0",
     description="""tpluspy: Client utilities for interacting with tplus""",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -51,6 +51,13 @@ setup(
             "eip712>=0.3.1",
             "eth-ape>=0.8.48,<0.9",
             "hexbytes>=1.3.1,<2",
+        ],
+        "docs": [
+            "Sphinx>=7.0,<9",
+            "myst-parser>=2.0,<5",
+            "sphinx-rtd-theme>=2.0,<4",
+            "sphinx-autobuild>=2024.2.4",
+            "linkify-it-py>=2.0,<3",
         ],
     },
     py_modules=["tpluspy"],

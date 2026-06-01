@@ -41,10 +41,6 @@ class DepositManager(ChainConnectedManager):
         self.vault.deposit(user, token, amount, sender=self.account)
 
         if wait:
-            if not (ce := self.ce):
-                raise ValueError("Must have clearing_engine to wait for deposit ingestion.")
-
-            # There actually isn't a way to really wait for deposits since there isn't an API
-            # to "get" them. Instead, just wait 3 seconds.
+            # The CE ingests the deposit via vault-event subscriptions; just give
+            # it a moment since there is no "get deposit" API to poll.
             await asyncio.sleep(3)
-            await ce.deposits.update_nonce(user, self.chain_id)

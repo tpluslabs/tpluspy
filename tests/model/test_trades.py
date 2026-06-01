@@ -10,7 +10,49 @@ from tplus.model.trades import (
     TradeRollbackedEvent,
     parse_single_trade,
     parse_trade_event,
+    parse_user_trades_page,
 )
+
+
+def _user_trade(trade_id: int, timestamp_ns: int) -> dict:
+    return {
+        "asset_id": "1",
+        "trade_id": trade_id,
+        "order_id": "oid",
+        "price": "100",
+        "quantity": "1",
+        "timestamp_ns": timestamp_ns,
+        "is_maker": False,
+        "is_buyer": True,
+        "status": "Confirmed",
+        "rollback_reason": None,
+    }
+
+
+def test_parse_user_trades_page_parses_envelope():
+    page = parse_user_trades_page(
+        {
+            "trades": [_user_trade(2, 300), _user_trade(1, 100)],
+            "page": 0,
+            "limit": 2,
+            "total_trades": 5,
+            "total_pages": 3,
+            "cursor_size": 2,
+            "has_next_page": True,
+            "next_page": 1,
+        }
+    )
+    assert [t.trade_id for t in page.trades] == [2, 1]
+    assert page.total_trades == 5
+    assert page.has_next_page is True
+    assert page.next_page == 1
+
+
+def test_parse_user_trades_page_tolerates_bare_list():
+    page = parse_user_trades_page([_user_trade(1, 100)])
+    assert page.total_trades == 1
+    assert page.has_next_page is False
+    assert page.next_page is None
 
 
 @pytest.fixture(scope="module")

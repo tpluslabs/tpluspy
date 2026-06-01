@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from decimal import Decimal
 from enum import Enum
@@ -28,17 +26,17 @@ class TradeTarget(BaseModel):
     """Whether to spend from spot balance (True) or margin balance (False)."""
 
     @classmethod
-    def main_account_spot_trade(cls) -> TradeTarget:
+    def main_account_spot_trade(cls) -> "TradeTarget":
         """Trade target set to main account spending spot balance."""
         return cls(account=0, is_spot=True)
 
     @classmethod
-    def margin_account_spot_trade(cls) -> TradeTarget:
+    def margin_account_spot_trade(cls) -> "TradeTarget":
         """Trade target set to margin account spending spot balance."""
         return cls(account=1, is_spot=True)
 
     @classmethod
-    def margin_account_margin_trade(cls) -> TradeTarget:
+    def margin_account_margin_trade(cls) -> "TradeTarget":
         """Trade target set to margin account spending margin balance."""
         return cls(account=1, is_spot=False)
 
@@ -118,6 +116,7 @@ class OrderResponse(BaseModel):
     is_fill_or_kill: bool | None = None
     is_liquidation: bool | None = None
     is_reduce_only: bool | None = None
+    trigger_enabled_quantity: Decimal | None = None
 
 
 def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
@@ -183,18 +182,21 @@ class OrderReplacedEvent(BaseOrderEvent):
 class OrderCreateFailedEvent(BaseOrderEvent):
     event_type: Literal["CREATEFAILED"]
     order_id: str
+    user_id: str
     reason: str | None = None
 
 
 class OrderReplaceFailedEvent(BaseOrderEvent):
     event_type: Literal["REPLACEFAILED"]
     order_id: str
+    user_id: str
     reason: str | None = None
 
 
 class OrderCancelFailedEvent(BaseOrderEvent):
     event_type: Literal["CANCELFAILED"]
     order_id: str
+    user_id: str
     reason: str | None = None
 
 
@@ -223,9 +225,12 @@ _EVENT_TYPE_MODEL_MAP: dict[str, type[BaseOrderEvent]] = {
 def parse_order_event(data: dict[str, Any]) -> OrderEvent:
     """
     Parses an order event dictionary coming from the WebSocket stream.
-    The server sends events in the form:
-        {"Created": {<payload>}}, {"ReplaceFailed": {<payload>}}, ...
+
+    The server sends events in the form
+    ``{"Created": {<payload>}}``, ``{"ReplaceFailed": {<payload>}}``, ...
+
     This helper will:
+
     1. Extract the *single* event key.
     2. Determine the appropriate Pydantic model (using an explicit mapping).
     3. Instantiate and return the typed event object.
