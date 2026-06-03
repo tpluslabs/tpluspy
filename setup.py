@@ -8,7 +8,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tpluspy",
-    version="0.1.2",
+    version="0.2.0",
     description="""tpluspy: Client utilities for interacting with tplus""",
     long_description=long_description,
     long_description_content_type="text/markdown",
