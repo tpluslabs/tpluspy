@@ -15,9 +15,26 @@ Each exception carries the parsed fields so callers can branch on ``code``,
 inspect ``details``, or check ``retryable`` without parsing JSON themselves.
 """
 
-from __future__ import annotations
-
 import httpx
+
+
+class BaseTplusException(Exception):
+    """
+    Base exception class.
+    """
+
+
+class MissingClientUserError(BaseTplusException):
+    """
+    Raised when a user is not specified in a client when required.
+    """
+
+    def __init__(self, context: str | None = None):
+        message = "User required. Create client with a default user or specify user in request."
+        if context is not None:
+            message = f"{message}. Context: {context}"
+
+        super().__init__(message)
 
 
 class OmsError(httpx.HTTPStatusError):
@@ -106,6 +123,7 @@ _SERVER_CODES = frozenset(
         "INTERNAL_ERROR",
         "CE_COMMUNICATION_ERROR",
         "TIMEOUT",
+        "TIMEOUT_UNKNOWN_STATE",
     }
 )
 

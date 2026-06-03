@@ -55,7 +55,7 @@ class TestTxSettlementRequest:
         """
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7"}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7","expires_at":null,"mm_pubkey":null}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
@@ -150,8 +150,8 @@ class TestDelegatedSettlement:
             1_700_000_000_000_000_000,
         )
         payload = request.signing_payload()
-        # settler must be absent (None), mm_pubkey + expires_at appended at the end
-        assert '"settler"' not in payload
+        # Delegated flow: settler is null in the signed JSON (CE derives executor from maker order).
+        assert '"settler":null' in payload
         assert f'"mm_pubkey":"{mm_user.public_key}"' in payload
         assert '"expires_at":1700000000000000000' in payload
         # Field ordering: chain_id, then expires_at, then mm_pubkey (append order in signing_payload)

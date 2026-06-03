@@ -10,6 +10,16 @@ To install, use either `pip` or `uv pip`:
 uv pip install -e .
 ```
 
+## CLI
+
+`tpluspy` installs a `tplus` command for interacting with T+ services from the
+shell — managing local accounts, placing orders, deposits/withdrawals, and
+on-chain registry/vault operations. Run `tplus --help` for the full command
+tree.
+
+For a comprehensive guide covering every subcommand, global options, and the
+local dev bootstrap flow, see [docs/userguides/cli.md](docs/userguides/cli.md).
+
 ## Usage Example
 
 ### REST and WebSocket Client (`tplus.client`)
@@ -30,7 +40,7 @@ user = User()
 
 async def run_client():
     # Use async context manager for automatic cleanup
-    async with OrderBookClient(user=user, base_url=API_BASE_URL) as client:
+    async with OrderBookClient(API_BASE_URL, default_user=user) as client:
         print("Client initialized.")
         # ... use client methods ...
 
@@ -160,7 +170,7 @@ See `examples/websocket_usage.py` for a runnable demonstration using `asyncio.ga
 
 ### Contracts
 
-To interact with the contracts or sign T+ specific EIP-712 messages, ensure you have installed the `evm` extra:
+To interact with the contracts or sign T+ settlement messages, ensure you have installed the `evm` extra:
 
 ```shell
 pip install tpluspy[evm]
@@ -184,9 +194,9 @@ In [2]: registry.admin()
 Out[2]: '0x467a95fC5359edE5d5dDc4f10A1F4B680694858E'
 ```
 
-#### EIP-712
+#### Settlement signatures
 
-Sign EIP-712 messages, such as settlements, using the `eip712` library.
+Sign settlement messages using the structured `Order` type from `tplus.utils.domain`.
 
 ```python
 from ape import accounts, convert, chain

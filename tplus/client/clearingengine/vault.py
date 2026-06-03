@@ -23,13 +23,6 @@ class VaultClient(BaseClearingEngineClient):
         request = {"asset_address": str(asset_address)}
         await self._post("vault/balance/update", json_data=request)
 
-    async def get(self) -> list[ChainAddress]:
-        """
-        Get all registered vaults.
-        """
-        result: list = await self._get("vaults") or []  # type: ignore
-        return [ChainAddress.model_validate(a) for a in result]
-
     async def set_credential_manager_address(self, credential_manager: ChainAddress):
         """
         Admin-only endpoint for setting the credential manager address. Used in testing environment.

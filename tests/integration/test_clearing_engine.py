@@ -12,7 +12,7 @@ def user() -> User:
 
 @pytest.fixture(scope="module")
 def clearing_engine(user):
-    return ClearingEngineClient(user, "http://127.0.0.1:3032")
+    return ClearingEngineClient.from_local(user)
 
 
 @pytest.fixture(scope="module")
@@ -34,8 +34,8 @@ async def test_update_approved_settlers(clearing_engine, chain_id, vault_address
     """
     Ensure we get a 200 response when requesting an update of approved settlers.
     """
-    await clearing_engine.settlements.update_approved_settlers(chain_id, vault_address)
+    await clearing_engine.admin_settlements.update_approved_settlers(chain_id, vault_address)
     # ^ Happy path is that the test does not fail.
     with pytest.raises(ValueError):
         # However, it does fail if using integer based chain ID as the routing ID isn't present.
-        await clearing_engine.settlements.update_approved_settlers(31337, vault_address)
+        await clearing_engine.admin_settlements.update_approved_settlers(31337, vault_address)

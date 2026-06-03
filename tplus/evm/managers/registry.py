@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from ape.types.address import AddressType
     from eth_pydantic_types.hex.bytes import HexBytes32
 
+    from tplus.client import AssetRegistryClient
     from tplus.client.clearingengine import ClearingEngineClient
     from tplus.model.risk_parameters import RiskParameters
 
@@ -26,16 +27,21 @@ class RegistryOwner(ChainConnectedManager):
         registry: Registry | None = None,
         chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
+        asset_registry_client: "AssetRegistryClient | None" = None,
     ):
         self.owner = owner
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
 
-        if registry is None:
-            self.registry = Registry(chain_id=self.chain_id)
-        else:
+        if registry is not None:
             self.registry = registry
+        else:
+            try:
+                self.registry = Registry.from_ce_address()
+            except ValueError:
+                self.registry = Registry(chain_id=self.chain_id)
 
         self.ce = clearing_engine
+        self.asset_registry = asset_registry_client
 
     async def set_asset(
         self,
@@ -64,10 +70,14 @@ class RegistryOwner(ChainConnectedManager):
         if wait:
             if not (ce := self.ce):
                 raise ValueError("Must have clearing_engine to wait for asset registration.")
+            if not (asset_registry := self.asset_registry):
+                raise ValueError(
+                    "Must provide asset_registry_client (OMS URL) to wait for asset registration."
+                )
 
             await wait_for_condition(
                 update_fn=lambda: ce.assets.update(),
-                get_fn=lambda: ce.assets.get(),
+                get_fn=lambda: asset_registry.get_asset_config(),
                 check_fn=lambda assets: f"{index}" in assets,
                 timeout=10,
                 interval=1,
@@ -83,3 +93,15 @@ class RegistryOwner(ChainConnectedManager):
     def apply_pending_risk_parameters(self, index: int, **tx_kwargs) -> "ReceiptAPI":
         tx_kwargs.setdefault("sender", self.owner)
         return self.registry.apply_pending_risk_parameters(index, **tx_kwargs)
+
+    def set_pending_withdrawal_delay_parameters(self, params, **tx_kwargs) -> "ReceiptAPI":
+        tx_kwargs.setdefault("sender", self.owner)
+        return self.registry.set_pending_withdrawal_delay_parameters(params, **tx_kwargs)
+
+    def apply_pending_withdrawal_delay_parameters(self, **tx_kwargs) -> "ReceiptAPI":
+        tx_kwargs.setdefault("sender", self.owner)
+        return self.registry.apply_pending_withdrawal_delay_parameters(**tx_kwargs)
+
+    def set_risk_manager_multisig(self, multisig: "AddressType | str", **tx_kwargs) -> "ReceiptAPI":
+        tx_kwargs.setdefault("sender", self.owner)
+        return self.registry.set_risk_manager_multisig(multisig, **tx_kwargs)

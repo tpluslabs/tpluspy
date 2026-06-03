@@ -2,34 +2,16 @@ from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import ChainAddress
 
 
-class AssetRegistryClient(BaseClearingEngineClient):
+class AdminAssetRegistryClient(BaseClearingEngineClient):
     """
-    Clearing engine APIs related to assets.
+    Clearing engine admin APIs related to asset registry maintenance.
     """
 
     async def get_registry_address(self) -> ChainAddress:
         """
         Get the address of the registry the CE is pointed at.
         """
-        return await self._get("registry")  # type: ignore
-
-    async def get(self) -> dict:
-        """
-        Get all registered assets in the CE.
-
-        Returns:
-            dict: A mapping of stringified asset index (base 10) to chain ID to asset information.
-        """
-        return await self._get("assets")
-
-    async def get_risk_parameters(self):
-        """
-        Get all registered risk parameters in the CE.
-
-        Returns:
-            dict: A mapping of asset identifiers to their respective risk parameters.
-        """
-        return await self._get("params")
+        return ChainAddress.model_validate(await self._get("registry"))
 
     async def update(self):
         """

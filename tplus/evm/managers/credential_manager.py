@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ape.types.address import AddressType
 
     from tplus.client.clearingengine import ClearingEngineClient
+    from tplus.client.oms.assetregistry import AssetRegistryClient
 
 
 OP_ADD_VAULT = keccak(b"OP_ADD_VAULT")
@@ -64,17 +65,24 @@ class CredentialManagerOwner(ManagerAccessMixin):
         credential_manager: CredentialManager | None = None,
         chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
+        asset_registry_client: "AssetRegistryClient | None" = None,
     ):
         self.admin = admin
         self.signers = signers
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
 
-        if credential_manager is None:
-            self.credential_manager = CredentialManager(chain_id=self.chain_id)
-        else:
+        if credential_manager is not None:
             self.credential_manager = credential_manager
+        else:
+            # Prefer the CE-registered deployment so we don't accidentally trip
+            # the local-network auto-redeploy path.
+            try:
+                self.credential_manager = CredentialManager.from_ce_address()
+            except ValueError:
+                self.credential_manager = CredentialManager(chain_id=self.chain_id)
 
         self.ce = clearing_engine
+        self.asset_registry = asset_registry_client
 
     @property
     def governance_nonce(self) -> int:
@@ -125,10 +133,14 @@ class CredentialManagerOwner(ManagerAccessMixin):
         if wait:
             if not (ce := self.ce):
                 raise ValueError("Must have clearing_engine to wait for vault registration.")
+            if self.asset_registry is None:
+                raise ValueError(
+                    "Must have OMS asset_registry_client to wait for vault registration."
+                )
 
             await wait_for_condition(
                 update_fn=lambda: ce.vaults.update(),
-                get_fn=lambda: ce.vaults.get(),
+                get_fn=lambda: self.asset_registry.get_vaults(),
                 # cond: checks if the vault address is part any of the ChainAddress returned.
                 check_fn=lambda vaults: vault in vaults,
                 timeout=10,

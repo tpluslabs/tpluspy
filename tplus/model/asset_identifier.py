@@ -37,11 +37,9 @@ class Address32(HexStr32):
 
 class AssetIdentifier(ChainAddress):
     """
-    Represents an asset identifier, typically as a string (e.g., "SYMBOL@EXCHANGE" or a unique ID).
-    It can be initialized with a user-friendly string like "0x...address@42161" (chain as integer ID),
-    a pre-formatted string like "hex_address@hex_chain", an index string like "12345",
-    or deserialized from the OMS dictionary format
-    e.g., {"Index": 12345} or {"Address": {"address": [...], "chain": [...]}}.
+    A t+ asset identifier — either a registry index (e.g. ``"200"``) or
+    an ``address@chain`` string where ``chain`` is the 18-hex-char t+
+    chain ID. Over JSON the backend sends both forms as plain strings.
     """
 
     root: str

@@ -156,8 +156,12 @@ class ChainID(str):
         raise TypeError(f"Cannot coerce {type(value)} to ChainID")
 
     def __eq__(self, other):
-        other = f"{other}"
-        if other.startswith("0x"):
-            other = other[2:]
+        if other is None:
+            return False
+
+        if not isinstance(other, ChainID):
+            other = f"{other}"
+            if other.startswith("0x"):
+                other = other[2:]
 
         return f"{self}" == other

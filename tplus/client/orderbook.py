@@ -3,14 +3,15 @@ import asyncio
 import base64
 import contextlib
 import json
-import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from tplus.client.base import BaseClient
+from tplus.client.auth import AuthenticatedClient
+from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import BatchCreateOrderRequest, parse_batch_order_response
@@ -18,7 +19,6 @@ from tplus.model.close_all_positions_preview import (
     CloseAllPreviewResponse,
     parse_close_all_preview,
 )
-from tplus.model.klines import KlineUpdate, parse_kline_update
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, parse_market
 from tplus.model.market_order import (
@@ -34,16 +34,21 @@ from tplus.model.order import (
     parse_order_event,
     parse_orders,
 )
-from tplus.model.orderbook import OrderBook, OrderBookDiff
-from tplus.model.trades import (
-    Trade,
-    TradeEvent,
-    UserTrade,
-    parse_single_trade,
-    parse_single_user_trade,
-    parse_trade_event,
-    parse_trades,
+from tplus.model.order_trigger import OrderTrigger
+from tplus.model.position import (
+    PositionResponse,
+    UserPositionsPage,
+    parse_positions_page,
 )
+from tplus.model.settlement import TxSettlementRequest
+from tplus.model.trades import (
+    UserTrade,
+    UserTradesPage,
+    parse_single_user_trade,
+    parse_user_trades,
+    parse_user_trades_page,
+)
+from tplus.model.user_event import UserActivityEvent, parse_user_event
 from tplus.model.user_margin import (
     UserMarginInfo,
     parse_user_margin_info,
@@ -52,6 +57,7 @@ from tplus.model.user_solvency import (
     UserSolvency,
     parse_user_solvency,
 )
+from tplus.types import UserType
 from tplus.utils.limit_order import (
     create_limit_order_ob_request_payload,
 )
@@ -79,7 +85,16 @@ def compute_remaining(order: OrderResponse) -> int:
     return max(0, total_qty - confirmed - pending)
 
 
-class OrderBookClient(BaseClient):
+def _page_params(page: int | None, limit: int | None, **extra: Any) -> dict[str, Any] | None:
+    params: dict[str, Any] = {k: v for k, v in extra.items() if v is not None}
+    if page is not None:
+        params["page"] = int(page)
+    if limit is not None:
+        params["limit"] = int(limit)
+    return params or None
+
+
+class OrderBookClient(AuthenticatedClient):
     """Client for HTTP + WebSocket interactions with the OMS.
 
     Extra keyword-arguments for the underlying ``websockets.connect`` call can
@@ -89,21 +104,12 @@ class OrderBookClient(BaseClient):
 
     def __init__(
         self,
-        user: "User",
+        base_url: str = "http://localhost:3032",
         *,
-        base_url: str,
-        websocket_kwargs: dict[str, Any] | None = None,
-        log_level: int = logging.INFO,
         use_ws_control: bool = False,
-        insecure_ssl: bool = False,
+        **kwargs,
     ) -> None:
-        super().__init__(
-            user,
-            base_url=base_url,
-            websocket_kwargs=websocket_kwargs,
-            log_level=log_level,
-            insecure_ssl=insecure_ssl,
-        )
+        super().__init__(base_url, **kwargs)
         # Cache Market details per asset to avoid repeated GET /market calls
         self._market_cache: dict[str, Market] = {}
         # When True, create/replace/cancel are sent via WS /control instead of HTTP
@@ -118,23 +124,51 @@ class OrderBookClient(BaseClient):
         # Optional user callback for control channel state updates
         self._on_control_state: Callable[[str], None] | None = None
 
-    async def create_market(self, asset_id: AssetIdentifier | str) -> dict[str, Any]:
+    @cached_property
+    def assets(self) -> AssetRegistryClient:
         """
-        Create and send a market (async).
+        Public registry snapshot APIs served by OMS.
+        """
+        return AssetRegistryClient.from_client(self)
+
+    async def create_market(self, asset_id: AssetIdentifier | str) -> dict[str, Any]:
+        """Create a market for ``asset_id``.
+
+        The endpoint is idempotent -- calling it for an already-existing
+        market simply returns the current configuration.
+
+        Args:
+            asset_id: Asset to create the market for. Strings are coerced
+                to :class:`AssetIdentifier`.
+
+        Returns:
+            The OMS response describing the (possibly pre-existing) market.
         """
         if isinstance(asset_id, str):
             asset_id = AssetIdentifier(asset_id)
         message_dict = {"asset_id": asset_id.model_dump()}
         self.logger.debug(f"Creating Market for Asset {asset_id}")
-        return await self._request("POST", "/market/create", json_data=message_dict)
+        return await self._request(
+            "POST", "/market/create", json_data=message_dict, requires_auth=False
+        )
 
     async def get_market(self, asset_id: AssetIdentifier) -> Market:
-        """Get a market (async) with simple per-asset caching."""
+        """Fetch a market description with simple per-asset caching.
+
+        Args:
+            asset_id: Asset whose market to fetch.
+
+        Returns:
+            The :class:`Market` describing the book's price/quantity decimals.
+
+        Raises:
+            ValueError: If the OMS response is missing required fields.
+        """
         key = str(asset_id)
         if (cached := self._market_cache.get(key)) is not None:
             return cached
 
-        response = await self._request("GET", f"/market/{asset_id}")
+        response = await self._request("GET", f"/market/{asset_id}", requires_auth=False)
 
         if "asset_id" not in response:
             raise ValueError(f"Invalid market data: {response}")
@@ -152,29 +186,66 @@ class OrderBookClient(BaseClient):
         asset_id: AssetIdentifier | None = None,
         target: TradeTarget | None = None,
         max_trading_fees_rate: int | None = None,
+        trigger: OrderTrigger | None = None,
+        max_sellable_amount: int | None = None,
+        max_sellable_quantity: int | None = None,
+        user: "User | None" = None,
     ) -> OrderOperationResponse:
+        """Create a market order.
+
+        Either ``base_quantity`` or ``quote_quantity`` should be supplied
+        (not both). Quantities are integers in the book's native units.
+
+        Args:
+            side: ``"Buy"`` or ``"Sell"``.
+            base_quantity: Quantity expressed in base-asset units.
+            quote_quantity: Quantity expressed in quote-asset units.
+            fill_or_kill: If True, the entire order must fill or be cancelled.
+            asset_id: Asset to trade.
+            target: Optional sub-account / collateral target for the trade.
+            max_trading_fees_rate: Optional maximum trading fee rate the
+                caller is willing to pay (basis points; book-specific).
+            trigger: Optional :class:`OrderTrigger` for conditional activation.
+            max_sellable_amount: Slippage cap on quote spent. Pairs with
+                ``base_quantity``.
+            max_sellable_quantity: Slippage cap on base sold. Pairs with
+                ``quote_quantity``.
+
+        Returns:
+            The :class:`OrderOperationResponse` from the OMS.
+
+        Note:
+            When ``use_ws_control=True`` was passed to the constructor, the
+            request is sent over a persistent ``/control`` WebSocket; otherwise
+            it is sent as ``POST /orders/create``.
         """
-        Create a market order (async). Uses WS /control if enabled.
-        """
+        user = self._resolve_user(user=user)
         # TODO: Fix the signature of this method so that `asset_id` is required.
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
+
+        if max_sellable_amount is not None and base_quantity is None:
+            raise ValueError("max_sellable_amount requires base_quantity")
+        if max_sellable_quantity is not None and quote_quantity is None:
+            raise ValueError("max_sellable_quantity requires quote_quantity")
 
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id_unwrapped)
         base_qty_model = (
-            MarketBaseQuantity(quantity=base_quantity, max_sellable_amount=None)
+            MarketBaseQuantity(quantity=base_quantity, max_sellable_amount=max_sellable_amount)
             if base_quantity is not None
             else None
         )
         quote_qty_model = (
-            MarketQuoteQuantity(quantity=quote_quantity, max_sellable_quantity=None)
+            MarketQuoteQuantity(
+                quantity=quote_quantity, max_sellable_quantity=max_sellable_quantity
+            )
             if quote_quantity is not None
             else None
         )
 
         ob_request_payload = create_market_order_ob_request_payload(
             side=side,
-            signer=self.user,
+            signer=user,
             book_quantity_decimals=market.book_quantity_decimals,
             book_price_decimals=market.book_price_decimals,
             asset_identifier=asset_id_unwrapped,
@@ -182,6 +253,7 @@ class OrderBookClient(BaseClient):
             base_quantity=base_qty_model,
             quote_quantity=quote_qty_model,
             fill_or_kill=fill_or_kill,
+            trigger=trigger,
             target=target,
             max_trading_fees_rate=max_trading_fees_rate,
         )
@@ -206,13 +278,43 @@ class OrderBookClient(BaseClient):
         asset_id: AssetIdentifier | None = None,
         target: TradeTarget | None = None,
         max_trading_fees_rate: int | None = None,
+        trigger: OrderTrigger | None = None,
+        user: "User | None" = None,
     ) -> OrderOperationResponse:
+        """Create a limit order.
+
+        Args:
+            quantity: Order quantity in the book's base-asset units.
+            price: Limit price in the book's quote-asset units.
+            side: ``"Buy"`` or ``"Sell"``.
+            time_in_force: One of :class:`GTC`, :class:`IOC`, or :class:`GTD`.
+                Defaults to GTC if omitted.
+            asset_id: Asset to trade.
+            target: Optional sub-account / collateral target for the trade.
+            max_trading_fees_rate: Optional maximum trading fee rate the
+                caller is willing to pay.
+            trigger: Optional :class:`OrderTrigger` for conditional activation.
+
+        Returns:
+            The :class:`OrderOperationResponse` from the OMS.
+
+        Note:
+            When ``use_ws_control=True`` was passed to the constructor, the
+            request is sent over a persistent ``/control`` WebSocket; otherwise
+            it is sent as ``POST /orders/create``.
         """
-        Create a limit order (async). Uses WS /control if enabled.
-        """
+        user = self._resolve_user(user=user)
         # TODO: Fix the signature if this method such that `asset_id` is required.
         order_id, signed_message = await self.prepare_limit_order_request(
-            asset_id, price, quantity, side, target, time_in_force, max_trading_fees_rate
+            asset_id,
+            price,
+            quantity,
+            side,
+            target,
+            time_in_force,
+            max_trading_fees_rate=max_trading_fees_rate,
+            trigger=trigger,
+            user=user,
         )
 
         self.logger.debug(
@@ -234,7 +336,10 @@ class OrderBookClient(BaseClient):
         target,
         time_in_force,
         max_trading_fees_rate: int | None = None,
+        trigger: OrderTrigger | None = None,
+        user: "User | None" = None,
     ):
+        user = self._resolve_user(user=user)
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
         order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id_unwrapped)
@@ -242,7 +347,7 @@ class OrderBookClient(BaseClient):
             quantity=quantity,
             price=price,
             side=side,
-            signer=self.user,
+            signer=user,
             book_quantity_decimals=market.book_quantity_decimals,
             book_price_decimals=market.book_price_decimals,
             asset_identifier=asset_id_unwrapped,
@@ -250,6 +355,7 @@ class OrderBookClient(BaseClient):
             time_in_force=time_in_force,
             target=target,
             max_trading_fees_rate=max_trading_fees_rate,
+            trigger=trigger,
         )
         return order_id, signed_message
 
@@ -262,13 +368,20 @@ class OrderBookClient(BaseClient):
         return parsed_batch_order_response
 
     async def cancel_order(
-        self, order_id: str, asset_id: AssetIdentifier
+        self, order_id: str, asset_id: AssetIdentifier, user: "User | None" = None
     ) -> OrderOperationResponse:
+        """Cancel a previously submitted order.
+
+        Args:
+            order_id: ID returned by the original create call.
+            asset_id: Asset the order belongs to.
+
+        Returns:
+            The :class:`OrderOperationResponse` from the OMS.
         """
-        Cancel an order (async). Uses WS /control if enabled.
-        """
+        user = self._resolve_user(user=user)
         signed_message = create_cancel_order_ob_request_payload(
-            order_id=order_id, asset_identifier=asset_id, signer=self.user
+            order_id=order_id, asset_identifier=asset_id, signer=user
         )
         self.logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
         if self._use_ws_control:
@@ -286,15 +399,25 @@ class OrderBookClient(BaseClient):
         asset_id: AssetIdentifier,
         new_quantity: int | None = None,
         new_price: int | None = None,
+        user: "User | None" = None,
     ) -> OrderOperationResponse:
+        """Replace an existing open order with new parameters.
+
+        Args:
+            original_order_id: ID of the order to replace. Must still be open.
+            asset_id: Asset the order belongs to.
+            new_quantity: New quantity in base-asset units. Optional.
+            new_price: New limit price in quote-asset units. Optional.
+
+        Returns:
+            The :class:`OrderOperationResponse` from the OMS.
         """
-        Replace an existing order with new parameters (async). Uses WS /control if enabled.
-        """
+        user = self._resolve_user(user=user)
         market = await self.get_market(asset_id)
         signed_message = create_replace_order_ob_request_payload(
             original_order_id=original_order_id,
             asset_identifier=asset_id,
-            signer=self.user,
+            signer=user,
             new_price=new_price,
             new_quantity=new_quantity,
             book_price_decimals=market.book_price_decimals,
@@ -315,107 +438,106 @@ class OrderBookClient(BaseClient):
         )
         return OrderOperationResponse.model_validate(resp)
 
-    def parse_trades(self, trades_data: list[dict[str, Any]]) -> list[Trade]:
-        """
-        Parse trade data into Trade objects.
-        """
-        return parse_trades(trades_data)
-
     def parse_user_trades(self, trades_data: list[dict[str, Any]]) -> list[UserTrade]:
-        """
-        Parse user trade data into UserTrade objects.
-        """
-        from tplus.model.trades import parse_user_trades
-
+        """Parse user trade data into UserTrade objects."""
         return parse_user_trades(trades_data)
 
-    async def get_orderbook_snapshot(self, asset_id: AssetIdentifier) -> OrderBook:
-        """
-        Get a snapshot of the order book for a given asset (async).
-        """
-        endpoint = f"/marketdepth/{asset_id}"
-        self.logger.debug(f"Getting Order Book Snapshot for asset {asset_id}")
-        response = await self._request("GET", endpoint)
-        if not isinstance(response, dict):
-            self.logger.error(
-                f"Received non-dictionary response for order book snapshot: {response}"
-            )
-            raise ValueError(
-                f"Invalid API response for order book snapshot: expected a dictionary, got {type(response).__name__}"
-            )
-        try:
-            return OrderBook(**response)
-        except TypeError as e:
-            self.logger.error(
-                f"Failed to parse order book snapshot response dict into OrderBook object: {e}. Response dict: {response}"
-            )
-            raise ValueError(
-                f"Could not parse API response dictionary for order book snapshot: {response}"
-            ) from e
+    # Public market data (klines, depth, public trades, tickers) → MarketDataClient.
 
-    async def get_klines(
+    async def get_user_trades(
+        self, user: UserType | None = None, *, page: int | None = None, limit: int | None = None
+    ) -> list[UserTrade]:
+        """
+        Get trades for the authenticated user, newest first.
+        Returns empty list if user is not yet known to the OMS.
+        """
+        page_result = await self.get_user_trades_page(user=user, page=page, limit=limit)
+        return page_result.trades
+
+    async def get_user_trades_for_asset(
         self,
         asset_id: AssetIdentifier,
+        user: UserType | None = None,
+        *,
         page: int | None = None,
         limit: int | None = None,
-        end_timestamp_ns: int | None = None,
-    ) -> list[KlineUpdate]:
+    ) -> list[UserTrade]:
         """
-        Get K-line (candlestick) data for a given asset (async).
-        """
-        endpoint = f"/klines/{asset_id}"
-        params_dict = {}
-        if page:
-            params_dict["page"] = page
-        if limit:
-            params_dict["limit"] = limit
-        if end_timestamp_ns:
-            params_dict["end_timestamp_ns"] = end_timestamp_ns
-
-        self.logger.debug(f"Getting Klines for asset {asset_id}")
-        response_data = await self._request("GET", endpoint, params=params_dict)
-
-        if not isinstance(response_data, list):
-            raise Exception("Invalide response from get_klines.")
-
-        parsed_data = parse_kline_update(response_data)
-        return parsed_data
-
-    async def get_user_trades(self) -> list[UserTrade]:
-        """
-        Get all trades for the authenticated user (async).
+        Get trades for a specific asset for the authenticated user, newest first.
         Returns empty list if user is not yet known to the OMS.
         """
-        endpoint = f"/trades/user/{self.user.public_key}"
-        self.logger.debug(f"Getting Trades for user {self.user.public_key}")
-        try:
-            response_data = await self._request("GET", endpoint)
-        except NotFoundError:
-            return []
-        return self.parse_user_trades(response_data)  # type: ignore
+        page_result = await self.get_user_trades_page(
+            asset_id=asset_id, user=user, page=page, limit=limit
+        )
+        return page_result.trades
 
-    async def get_user_trades_for_asset(self, asset_id: AssetIdentifier) -> list[UserTrade]:
+    async def get_user_trades_page(
+        self,
+        *,
+        asset_id: AssetIdentifier | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+        user: UserType | None = None,
+    ) -> UserTradesPage:
+        """Fetch one page of user trades with pagination metadata (`has_next_page`, etc.)."""
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/trades/user/{public_key}"
+        if asset_id is not None:
+            endpoint = f"{endpoint}/{asset_id}"
+        try:
+            data = await self._request("GET", endpoint, params=_page_params(page, limit))
+        except NotFoundError:
+            return parse_user_trades_page([])
+        return parse_user_trades_page(data)
+
+    async def get_user_positions(
+        self,
+        user: UserType | None = None,
+        *,
+        sub_account: int | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> list[PositionResponse]:
         """
-        Get trades for a specific asset for the authenticated user (async).
+        Get open positions for the authenticated user.
         Returns empty list if user is not yet known to the OMS.
         """
-        endpoint = f"/trades/user/{self.user.public_key}/{asset_id}"
-        self.logger.debug(f"Getting Trades for user {self.user.public_key}, asset {asset_id}")
-        try:
-            response_data = await self._request("GET", endpoint)
-        except NotFoundError:
-            return []
-        return self.parse_user_trades(response_data)  # type: ignore
+        page_result = await self.get_user_positions_page(
+            sub_account=sub_account, page=page, limit=limit, user=user
+        )
+        return page_result.positions
 
-    async def get_user_orders(self) -> tuple[list[OrderResponse], dict[str, Any]]:
+    async def get_user_positions_page(
+        self,
+        *,
+        sub_account: int | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+        user: UserType | None = None,
+    ) -> UserPositionsPage:
+        """Fetch one page of user positions with pagination metadata (`has_next_page`, etc.)."""
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/positions/{public_key}"
+        params = _page_params(page, limit, sub_account=sub_account)
+        try:
+            data = await self._request("GET", endpoint, params=params)
+        except NotFoundError:
+            return parse_positions_page([])
+        return parse_positions_page(data)
+
+    async def get_user_orders(
+        self, user: UserType | None = None, *, page: int | None = None, limit: int | None = None
+    ) -> tuple[list[OrderResponse], dict[str, Any]]:
         """
-        Get all orders for the authenticated user (async).
+        Get orders for the authenticated user, newest first.
+        Returns `(orders, raw_page)` where `raw_page` carries pagination metadata.
         Returns empty results if user is not yet known to the OMS.
         """
-        endpoint = f"/orders/user/{self.user.public_key}"
-        self.logger.debug(f"Getting Orders for user {self.user.public_key}")
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/orders/user/{public_key}"
+        self.logger.debug(f"Getting Orders for user {public_key}")
         try:
-            response_data = await self._request("GET", endpoint)
+            response_data = await self._request("GET", endpoint, params=_page_params(page, limit))
         except NotFoundError:
             return [], {}
 
@@ -424,14 +546,16 @@ class OrderBookClient(BaseClient):
                 f"Received error when fetching user orders: {response_data['error']}. Check authentication."
             )
             return [], {}
-        if not isinstance(response_data, list):
-            self.logger.error(
-                f"Unexpected response type when fetching user orders. Expected list, got {type(response_data).__name__}. Data: {response_data}"
-            )
-            return [], {}
 
-        parsed_orders = parse_orders(response_data)
-        return parsed_orders, response_data
+        if isinstance(response_data, dict):
+            return parse_orders(response_data.get("orders", [])), response_data
+        if isinstance(response_data, list):
+            return parse_orders(response_data), {"orders": response_data}
+
+        self.logger.error(
+            f"Unexpected response type when fetching user orders: {type(response_data).__name__}."
+        )
+        return [], {}
 
     async def get_user_orders_for_book(
         self,
@@ -440,12 +564,14 @@ class OrderBookClient(BaseClient):
         page: int | None = None,
         limit: int | None = None,
         open_only: bool | None = None,
+        user: UserType | None = None,
     ) -> list[OrderResponse]:
         """
         Get orders for a specific asset for the authenticated user (async).
         Handles 404 with empty list as "no orders" gracefully.
         """
-        endpoint = f"/orders/user/{self.user.public_key}/{asset_id}"
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/orders/user/{public_key}/{asset_id}"
         params_dict: dict[str, Any] | None = None
         if page is not None or limit is not None or open_only is not None:
             params_dict = {
@@ -454,7 +580,7 @@ class OrderBookClient(BaseClient):
             }
             if open_only is not None:
                 params_dict["open_only"] = bool(open_only)
-        self.logger.debug(f"Getting Orders for user {self.user.public_key}, asset {asset_id}")
+        self.logger.debug(f"Getting Orders for user {public_key}, asset {asset_id}")
         try:
             response_data = await self._request("GET", endpoint, params=params_dict)
 
@@ -472,7 +598,7 @@ class OrderBookClient(BaseClient):
         except NotFoundError:
             # Structured 404 from the new error format -- treat as "no orders".
             self.logger.debug(
-                f"Received NotFoundError for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
+                f"Received NotFoundError for {endpoint} (User: {public_key}, Asset: {asset_id}). "
                 f"Treating as empty order list."
             )
             return []
@@ -483,18 +609,18 @@ class OrderBookClient(BaseClient):
                     content = e.response.json()
                     if isinstance(content, list) and not content:
                         self.logger.debug(
-                            f"Received 404 with empty list for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}). "
+                            f"Received 404 with empty list for {endpoint} (User: {public_key}, Asset: {asset_id}). "
                             f"This is expected if the user has no orders for this asset yet. Treating as success with no orders."
                         )
                         return []
                     else:
                         self.logger.warning(
-                            f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "
+                            f"Received 404 for {endpoint} (User: {public_key}, Asset: {asset_id}), "
                             f"but response body was not an empty list as expected for 'no orders'. Body: {e.response.text[:200]}"
                         )
                 except json.JSONDecodeError:
                     self.logger.warning(
-                        f"Received 404 for {endpoint} (User: {self.user.public_key}, Asset: {asset_id}), "
+                        f"Received 404 for {endpoint} (User: {public_key}, Asset: {asset_id}), "
                         f"but response body was not valid JSON. Body: {e.response.text[:200]}"
                     )
             raise e
@@ -683,107 +809,116 @@ class OrderBookClient(BaseClient):
             self._control_ws_task = None
         await super().close()
 
-    async def get_user_inventory(self) -> dict[str, Any]:
+    async def get_user_inventory(self, user: UserType | None = None) -> dict[str, Any]:
         """
         Get inventory for the authenticated user (async).
         Returns empty dict if user is not yet known to the OMS.
         """
-        endpoint = f"/inventory/user/{self.user.public_key}"
-        self.logger.debug(f"Getting Inventory for user {self.user.public_key}")
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/inventory/user/{public_key}"
+        self.logger.debug(f"Getting Inventory for user {public_key}")
         try:
             return await self._request("GET", endpoint)
         except NotFoundError:
             return {}
 
-    async def stream_orders(self) -> AsyncIterator[OrderEvent]:
+    async def get_multisig_config(self, user: UserType | None = None) -> dict[str, Any]:
         """
-        Stream all order events (creations, updates, cancellations).
+        Get the user's multisig config from OMS.
+        Returns the default single-signer config if no explicit config is stored.
         """
-        async for event in self._stream_ws("/orders", parse_order_event):
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/multisig/config/{public_key}"
+        self.logger.debug(f"Getting multisig config for user {public_key}")
+        try:
+            return await self._request("GET", endpoint, user=user)
+        except NotFoundError:
+            return {
+                "master_weight": 1,
+                "signers": [],
+                "thresholds": {"low": 1, "medium": 1, "high": 1},
+            }
+
+    async def stream_orders(self, user: UserType | None = None) -> AsyncIterator[OrderEvent]:
+        """Stream order events for the authenticated user.
+
+        Args:
+            user: Optional User or public key. If not provided, the default user is used.
+
+        Yields:
+            :class:`OrderEvent` records as they arrive on the WebSocket.
+        """
+        async for event in self._stream_ws("/orders", parse_order_event, user=user):
             yield event
-
-    async def stream_finalized_trades(self) -> AsyncIterator[Trade]:
-        """
-        Stream only confirmed/finalized trades.
-        """
-        async for trade in self._stream_ws("/trades", parse_single_trade):
-            yield trade
-
-    async def stream_all_trades(self) -> AsyncIterator[TradeEvent]:
-        """
-        Stream all trade events (e.g., Pending, Confirmed).
-        """
-        async for event in self._stream_ws("/trades/events", parse_trade_event):
-            yield event
-
-    async def stream_depth(self, asset_id: AssetIdentifier) -> AsyncIterator[OrderBookDiff]:
-        """
-        Stream order book diff updates for a specific asset.
-        """
-        path = f"/marketdepth/diff/{asset_id}"
-        async for diff in self._stream_ws(path, lambda d: OrderBookDiff(**d)):
-            yield diff
-
-    async def stream_klines(self, asset_id: AssetIdentifier) -> AsyncIterator[KlineUpdate]:
-        """
-        Stream K-line (candlestick) updates for a specific asset.
-        """
-        path = f"/klines/diff/{asset_id}"
-        async for kline in self._stream_ws(path, parse_kline_update):
-            yield kline
 
     async def stream_user_trade_events(
-        self, user_id: str | None = None
+        self, user: UserType | None = None
     ) -> AsyncIterator[UserTrade]:
         """
         Stream **all** trade events (``Pending``, ``Confirmed``, ``Rollbacked``) for a specific user.
 
         Args:
-            user_id: Optional explicit user identifier.  If not provided, the authenticated user's
-                public key is used.
+            user: Optional User or public key. If not provided, the default user is used.
         Yields:
             :class:`tplus.model.trades.UserTrade` objects with detailed order-side information.
         """
-        if user_id is None:
-            user_id = self.user.public_key
+        user_id = self._validate_user_public_key(user=user)
         path = f"/trades/user/events/{user_id}"
         async for trade in self._stream_ws(path, parse_single_user_trade):
             yield trade
 
     async def stream_user_finalized_trades(
-        self, user_id: str | None = None
+        self, user: UserType | None = None
     ) -> AsyncIterator[UserTrade]:
         """
         Stream **finalized** (confirmed) trades for a specific user.
 
         Args:
-            user_id: Optional explicit user identifier.  If not provided, the authenticated user's
-                public key is used.
+            user: Optional User or public key. If not provided, the default user is used.
         Yields:
             :class:`tplus.model.trades.UserTrade` instances containing only confirmed trades.
         """
-        if user_id is None:
-            user_id = self.user.public_key
+        user_id = self._validate_user_public_key(user=user)
         path = f"/trades/user/{user_id}"
         async for trade in self._stream_ws(path, parse_single_user_trade):
             yield trade
 
-    async def stream_user_trades(self, user_id: str | None = None) -> AsyncIterator[UserTrade]:
+    async def stream_user_trades(self, user: UserType | None = None) -> AsyncIterator[UserTrade]:
         """
         [DEPRECATED] Use stream_user_trade_events or stream_user_finalized_trades instead.
         This method streams finalized (confirmed) trades for a specific user.
         """
-        async for trade in self.stream_user_finalized_trades(user_id=user_id):
+        async for trade in self.stream_user_finalized_trades(user=user):
             yield trade
 
-    async def get_user_solvency(self) -> UserSolvency:
+    async def stream_user_events(
+        self, user: UserType | None = None
+    ) -> AsyncIterator[UserActivityEvent]:
+        """Stream typed user-activity events on `/account/events/{user_id}`.
+
+        Each event is a `DepositLanded`, `WithdrawalCompleted`,
+        `PositionCleared`, or `SubAccountAssetTransferred` model carrying the
+        amount/chain/asset context the FE needs to render notifications
+        without diffing balance state. Liquidation fills surface as
+        `is_liquidation=True` on the user-trades stream rather than here.
+
+        Args:
+            user: Optional User or public key. If not provided, the default user is used.
+        """
+        user_id = self._validate_user_public_key(user=user)
+        path = f"/account/events/{user_id}"
+        async for event in self._stream_ws(path, parse_user_event):
+            yield event
+
+    async def get_user_solvency(self, user: UserType | None = None) -> UserSolvency:
         """
         Get solvency for the authenticated user (async).
         Returns empty solvency if user is not yet known to the OMS.
         """
-        endpoint = f"/solvency/user/{self.user.public_key}"
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/solvency/user/{public_key}"
 
-        self.logger.debug(f"Getting Solvency for user {self.user.public_key}")
+        self.logger.debug(f"Getting Solvency for user {public_key}")
         try:
             response_data = await self._request("GET", endpoint)
         except NotFoundError:
@@ -798,7 +933,7 @@ class OrderBookClient(BaseClient):
     async def get_close_all_positions_preview(
         self,
         sub_account_index: int,
-        user_id: str | None = None,
+        user: UserType | None = None,
     ) -> CloseAllPreviewResponse:
         """
         Preview unsigned orders to close all margin positions in a sub-account.
@@ -807,12 +942,12 @@ class OrderBookClient(BaseClient):
 
         Args:
             sub_account_index: Sub-account index (e.g. 1 for cross-margin).
-            user_id: Hex user public key; defaults to the authenticated user.
+            user: User or hex public key; defaults to the authenticated user.
 
         Returns:
             CloseAllPreviewResponse with unsigned orders and any per-asset errors.
         """
-        uid = user_id if user_id is not None else self.user.public_key
+        uid = self._validate_user_public_key(user=user)
         endpoint = f"/positions/close-all/{uid}/{sub_account_index}"
 
         self.logger.debug(
@@ -829,12 +964,13 @@ class OrderBookClient(BaseClient):
         self,
         sub_accounts: list[int] | None = None,
         include_positions: bool = False,
+        user: UserType | None = None,
     ) -> UserMarginInfo:
         """
         Get detailed margin breakdown for the authenticated user (async).
 
         Returns margin metrics for each sub-account including:
-        - Account equity: Total portfolio value at mark prices (no haircuts applied)
+        - Account equity: Total portfolio value at mark prices (no margin risk adjustments applied)
         - Available margin: IM surplus - how much margin is available for new positions
         - Utilized margin: Total margin currently consumed by existing positions
         - Maintenance margin surplus: Distance from liquidation (MM surplus)
@@ -849,6 +985,7 @@ class OrderBookClient(BaseClient):
                 If None or empty, returns info for all sub-accounts.
             include_positions: If True, includes per-position breakdown
                 with size and notional value for each position.
+            user: Optional User or public key. Falls back to the default user.
 
         Returns:
             UserMarginInfo containing margin breakdown per sub-account.
@@ -856,7 +993,8 @@ class OrderBookClient(BaseClient):
         Raises:
             Exception: If the API response is invalid.
         """
-        endpoint = f"/margin/user/{self.user.public_key}"
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/margin/user/{public_key}"
 
         params: dict[str, Any] = {}
         if sub_accounts:
@@ -865,7 +1003,7 @@ class OrderBookClient(BaseClient):
             params["include_positions"] = include_positions
 
         self.logger.debug(
-            f"Getting Margin Info for user {self.user.public_key}, "
+            f"Getting Margin Info for user {public_key}, "
             f"sub_accounts={sub_accounts}, include_positions={include_positions}"
         )
         try:
@@ -886,9 +1024,16 @@ class OrderBookClient(BaseClient):
         transfer_asset: AssetIdentifier,
         transfer_amount: int,
         target_account_type: None = None,
+        user: "User | None" = None,
     ) -> dict[str, Any]:
+        user = self._resolve_user(user=user)
         payload = self._build_transfer_to_subaccount(
-            source_index, target_index, transfer_asset, transfer_amount, target_account_type
+            source_index,
+            target_index,
+            transfer_asset,
+            transfer_amount,
+            target_account_type,
+            user=user,
         )
 
         response_data = await self._send_transfer_request(payload)
@@ -902,10 +1047,17 @@ class OrderBookClient(BaseClient):
         return response_data
 
     def _build_transfer_to_subaccount(
-        self, source_index, target_index, transfer_asset, transfer_amount, target_account_type=None
+        self,
+        source_index,
+        target_index,
+        transfer_asset,
+        transfer_amount,
+        target_account_type=None,
+        user: "User | None" = None,
     ):
+        user = self._resolve_user(user=user)
         inner = {
-            "user": self.user.public_key,
+            "user": user.public_key,
             "source_index": source_index,
             "target_index": target_index,
             "transfer_asset": str(transfer_asset),
@@ -914,7 +1066,7 @@ class OrderBookClient(BaseClient):
         }
         self.logger.debug(f"Transfer request: {inner}")
         signing_payload = json.dumps(inner, separators=(",", ":"))
-        signature = list(self.user.sign(signing_payload))
+        signature = list(user.sign(signing_payload))
         payload = {
             "inner": inner,
             "signature": signature,
@@ -922,23 +1074,29 @@ class OrderBookClient(BaseClient):
         }
         return payload
 
-    async def request_close_position(self, account: int, transfer_asset: str) -> dict[str, Any]:
-        payload = self._build_close_position_request(account, transfer_asset)
+    async def request_close_position(
+        self, account: int, transfer_asset: str, user: "User | None" = None
+    ) -> dict[str, Any]:
+        user = self._resolve_user(user=user)
+        payload = self._build_close_position_request(account, transfer_asset, user=user)
 
         response_data = await self._send_close_position_request(payload)
         return response_data
 
-    def _build_close_position_request(self, account: int, transfer_asset: str) -> dict:
+    def _build_close_position_request(
+        self, account: int, transfer_asset: str, user: "User | None" = None
+    ) -> dict:
         """Same signing rules as CE: compact JSON of inner, ed25519 over UTF-8 bytes."""
+        user = self._resolve_user(user=user)
         inner = {
-            "user": self.user.public_key,
+            "user": user.public_key,
             "account": account,
             "asset_identifier": transfer_asset,
         }
 
         self.logger.debug(f"Preparing close position request: {inner}")
         signing_payload = json.dumps(inner, separators=(",", ":"))
-        signature = list(self.user.sign(signing_payload))
+        signature = list(user.sign(signing_payload))
         payload = {
             "inner": inner,
             "signature": signature,
@@ -952,3 +1110,50 @@ class OrderBookClient(BaseClient):
             "POST", "/account/transfer/close-position", json_data=payload
         )
         return response_data
+
+    async def init_settlement(self, request: dict | TxSettlementRequest) -> dict[str, Any]:
+        """Initialize a settlement via the OMS, returning the CE approval.
+
+        Args:
+            request: A signed :class:`~tplus.model.settlement.TxSettlementRequest`
+                (or an equivalent dict).
+
+        Returns:
+            The approval returned by the clearing engine.
+        """
+        if isinstance(request, dict):
+            request = TxSettlementRequest.model_validate(request)
+
+        data = request.model_dump(mode="json", exclude_none=True)
+        response = await self._post("settlement/init", json_data=data)
+        if isinstance(response, dict) and response.get("success") is False:
+            reason = response.get("details") or "Settlement initialization failed"
+            raise RuntimeError(str(reason))
+
+        if isinstance(response, dict):
+            approval = response.get("approval")
+            if isinstance(approval, dict):
+                return approval
+
+        raise RuntimeError("Settlement initialization succeeded but no approval was returned")
+
+    async def get_settlement_signatures(self, user: str) -> list[dict]:
+        """Get CE-approved settlement signatures for ``user``.
+
+        This happens after settlement initialization.
+
+        Args:
+            user (str): The settler.
+
+        Returns:
+            A list of approval dictionaries containing signatures, nonces, and expirys.
+        """
+        prefix = "settlement/signatures"
+        result = await self._get(f"{prefix}/{user}")
+        if isinstance(result, list):
+            return result
+
+        if isinstance(result, dict) and "error" in result:
+            raise RuntimeError(result["error"])
+
+        raise RuntimeError(f"Unknown result format for {prefix} response: {result}.")

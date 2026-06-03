@@ -1,12 +1,15 @@
 import asyncio
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from hexbytes import HexBytes
 
 from tplus.client.clearingengine import ClearingEngineClient
+from tplus.client.withdrawal import WithdrawalClient
 from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainConnectedManager
+from tplus.exceptions import OmsError
 from tplus.logger import get_logger
 from tplus.model.asset_identifier import Address32, AssetAddress, AssetIdentifier
 from tplus.model.types import ChainID
@@ -43,14 +46,25 @@ class WithdrawalManager(ChainConnectedManager):
         default_user: "User",
         ape_account: "AccountAPI",
         clearing_engine: ClearingEngineClient | None = None,
+        withdrawal_client: WithdrawalClient | None = None,
         chain_id: ChainID | None = None,
         vault: DepositVault | None = None,
     ):
         self.default_user = default_user
         self.ape_account = ape_account
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient(
-            self.default_user, "http://127.0.0.1:3032"
+            "http://127.0.0.1:3032", default_user=self.default_user
         )
+        if withdrawal_client is not None:
+            self.withdrawals = withdrawal_client
+        else:
+            oms_base_url = os.getenv("API_BASE_URL", "https://127.0.0.1:8000")
+            oms_insecure_ssl = getattr(self.ce._settings, "insecure_ssl", False)
+            self.withdrawals = WithdrawalClient(
+                default_user=self.default_user,
+                base_url=oms_base_url,
+                insecure_ssl=oms_insecure_ssl,
+            )
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         self.vault = vault or DepositVault(chain_id=self.chain_id)
         self.logger = get_logger()
@@ -88,7 +102,7 @@ class WithdrawalManager(ChainConnectedManager):
             target=target,
         )
 
-        await self.ce.withdrawals.init_withdrawal(request)
+        await self.withdrawals.init_withdrawal(request)
         self.logger.info(
             f"Initialized withdrawal - Asset: {request.inner.asset}, "
             f"Amount: {amount}, Nonce: {nonce}"
@@ -122,10 +136,26 @@ class WithdrawalManager(ChainConnectedManager):
         deadline = loop.time() + timeout
 
         while loop.time() < deadline:
-            signatures = await self.ce.withdrawals.get_signatures(user_pubkey)
-            matching = [s for s in signatures if s.get("inner", {}).get("nonce") == nonce]
-            if matching:
-                return matching
+            try:
+                queued = await self.withdrawals.get_queued_withdrawals(user_pubkey)
+            except OmsError as err:
+                # Queue polling is read-only; transient CE overlay timeouts should
+                # not fail approval polling.
+                if err.code == "TIMEOUT_UNKNOWN_STATE":
+                    await asyncio.sleep(interval)
+                    continue
+                raise
+            for withdrawal in queued:
+                if withdrawal.get("nonce") != nonce:
+                    continue
+                status = withdrawal.get("status")
+                if not isinstance(status, dict):
+                    continue
+                if status.get("type") != "approved":
+                    continue
+                approvals = status.get("approvals")
+                if isinstance(approvals, list) and approvals:
+                    return approvals
             await asyncio.sleep(interval)
 
         raise TimeoutError(f"Timed out waiting for withdrawal approval (nonce={nonce}).")

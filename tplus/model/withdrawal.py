@@ -104,3 +104,6 @@ class WithdrawalDelayParameters(BaseModel):
     max_delay: int = Field(alias="maxDelay")
     delay_clamps: list[int] = Field(alias="delayClamps")
     delay_values: list[int] = Field(alias="delayValues")
+    cap_floor: int = Field(default=50_000, alias="capFloor")
+
+    model_config = {"populate_by_name": True}

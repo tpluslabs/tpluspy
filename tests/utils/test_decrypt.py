@@ -1,41 +1,33 @@
 import hashlib
 import json
+import os
 
 import pytest
 from Crypto.Cipher import AES
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
-from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    PublicFormat,
+)
 
-from tplus.utils.user.decrypt import decrypt_settlement_approval, ed25519_to_x25519_private_key
+from tplus.utils.user.decrypt import decrypt_ed25519_sealed, ed25519_to_x25519_private_key
 
 
-def encrypt_to_ed25519_public_key(
-    data: bytes, recipient_ed25519_private: Ed25519PrivateKey
-) -> tuple[bytes, Ed25519PrivateKey]:
-    """
-    Simulates what backend does.
-    """
-    import os
-
-    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-
-    # Generate ephemeral X25519 key pair
+def seal_to_ed25519_public_key(data: bytes, recipient_ed25519_private: Ed25519PrivateKey) -> bytes:
+    """Simulate what the backend does when sealing data to an Ed25519 key."""
     ephemeral_private = X25519PrivateKey.generate()
     ephemeral_public = ephemeral_private.public_key()
 
-    # Convert recipient Ed25519 to X25519
-    recipient_x25519_private = ed25519_to_x25519_private_key(recipient_ed25519_private)
-    recipient_x25519_public = recipient_x25519_private.public_key()
+    recipient_x25519_public = ed25519_to_x25519_private_key(recipient_ed25519_private).public_key()
 
-    # ECDH
     shared_secret = ephemeral_private.exchange(recipient_x25519_public)
     encryption_key = hashlib.sha256(shared_secret).digest()
 
     nonce = os.urandom(12)
     cipher = AES.new(encryption_key, AES.MODE_GCM, nonce=nonce)
-
     ciphertext, tag = cipher.encrypt_and_digest(data)
 
     result = bytearray()
@@ -43,60 +35,41 @@ def encrypt_to_ed25519_public_key(
     result.extend(nonce)
     result.extend(ciphertext)
     result.extend(tag)
+    return bytes(result)
 
-    return bytes(result), recipient_ed25519_private
 
-
-class TestDecryptSettlementApproval:
-    def test_decrypt_settlement_approval_success(self):
+class TestDecryptEd25519Sealed:
+    def test_decrypt_success(self):
         recipient_private_key = Ed25519PrivateKey.generate()
-        approval_data = {
-            "inner": {
-                "signature": [1] * 64,
-                "nonce": 42,
-            },
-            "expiry": 1000000,
-            "chain_id": 42161,
-        }
-        approval_json = json.dumps(approval_data, separators=(",", ":")).encode("utf-8")
-        encrypted_data, recipient_key = encrypt_to_ed25519_public_key(
-            approval_json, recipient_private_key
-        )
-        decrypted_data = decrypt_settlement_approval(encrypted_data, recipient_key)
-        assert decrypted_data == approval_data
+        payload = {"inner": {"signature": [1] * 64, "nonce": 42}, "expiry": 1000000}
+        payload_json = json.dumps(payload, separators=(",", ":")).encode("utf-8")
 
-    def test_decrypt_settlement_approval_too_short(self):
+        encrypted_data = seal_to_ed25519_public_key(payload_json, recipient_private_key)
+        decrypted = decrypt_ed25519_sealed(encrypted_data, recipient_private_key)
+
+        assert json.loads(decrypted) == payload
+
+    def test_decrypt_too_short(self):
         recipient_private_key = Ed25519PrivateKey.generate()
-        short_data = b"short"
         with pytest.raises(ValueError, match="Encrypted data too short"):
-            decrypt_settlement_approval(short_data, recipient_private_key)
+            decrypt_ed25519_sealed(b"short", recipient_private_key)
 
-    def test_decrypt_settlement_approval_wrong_key(self):
+    def test_decrypt_wrong_key(self):
         correct_key = Ed25519PrivateKey.generate()
         wrong_key = Ed25519PrivateKey.generate()
+        payload_json = json.dumps({"nonce": 42}, separators=(",", ":")).encode("utf-8")
 
-        # Create and encrypt approval data with correct key
-        approval_data = {"inner": {"signature": [1] * 64, "nonce": 42}, "expiry": 1000000}
-        approval_json = json.dumps(approval_data, separators=(",", ":")).encode("utf-8")
-
-        encrypted_data, _ = encrypt_to_ed25519_public_key(approval_json, correct_key)
+        encrypted_data = seal_to_ed25519_public_key(payload_json, correct_key)
         with pytest.raises(ValueError):
-            decrypt_settlement_approval(encrypted_data, wrong_key)
+            decrypt_ed25519_sealed(encrypted_data, wrong_key)
 
     def test_ed25519_to_x25519_private_key_conversion(self):
-        ed25519_key = Ed25519PrivateKey.generate()
-        x25519_key = ed25519_to_x25519_private_key(ed25519_key)
+        x25519_key = ed25519_to_x25519_private_key(Ed25519PrivateKey.generate())
         assert isinstance(x25519_key, X25519PrivateKey)
-        x25519_public = x25519_key.public_key()
-        assert isinstance(x25519_public, X25519PublicKey)
+        assert isinstance(x25519_key.public_key(), X25519PublicKey)
 
     def test_ed25519_to_x25519_private_key_deterministic(self):
         ed25519_key = Ed25519PrivateKey.generate()
-        x25519_key1 = ed25519_to_x25519_private_key(ed25519_key)
-        x25519_key2 = ed25519_to_x25519_private_key(ed25519_key)
-        x25519_key3 = ed25519_to_x25519_private_key(ed25519_key)
-        key1_bytes = x25519_key1.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-        key2_bytes = x25519_key2.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-        key3_bytes = x25519_key3.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-
-        assert key1_bytes == key2_bytes == key3_bytes, "Conversion should be deterministic"
+        keys = [ed25519_to_x25519_private_key(ed25519_key) for _ in range(3)]
+        raw = [k.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()) for k in keys]
+        assert raw[0] == raw[1] == raw[2], "Conversion should be deterministic"

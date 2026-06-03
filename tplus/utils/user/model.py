@@ -43,6 +43,17 @@ def _coerce_sk(value: "str | bytes | Ed25519PrivateKey") -> Ed25519PrivateKey:
 
 
 class User:
+    """An in-memory T+ user identified by an Ed25519 keypair.
+
+    Args:
+        private_key: The Ed25519 private key. Accepts a hex string, raw
+            bytes, or an existing :class:`Ed25519PrivateKey`. Both 32-byte
+            seeds and 64-byte ``seed || pubkey`` concatenations are
+            accepted. If ``None``, a fresh keypair is generated.
+        sub_account: Optional sub-account index. Defaults to the main
+            sub-account (``0``).
+    """
+
     def __init__(
         self,
         private_key: "str | bytes | Ed25519PrivateKey | None" = None,
@@ -61,23 +72,40 @@ class User:
 
     @cached_property
     def public_key(self) -> UserPublicKey:
+        """Hex-encoded Ed25519 public key (no ``0x`` prefix)."""
         return UserPublicKey(self.pubkey())
 
     @cached_property
     def public_key_vec(self) -> list[int]:
+        """Public key as a list of byte-valued integers."""
         return str_to_vec(self.public_key)
 
     @property
     def sub_account(self) -> int:
+        """Active sub-account index. Defaults to the main sub-account."""
         return self._sub_account or MAIN_SUB_ACCOUNT
 
     def pubkey(self) -> str:
+        """Return the hex-encoded raw Ed25519 public key."""
         return self.vk.public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
 
     def pubkey_vec(self) -> list[int]:
+        """Return the public key as a list of byte-valued integers."""
         return str_to_vec(self.public_key)
 
     def sign(self, payload: str):
+        """Sign ``payload`` with the user's Ed25519 private key.
+
+        Whitespace (spaces, ``\\r``, ``\\n``) is stripped before signing so
+        that callers can pass pretty-printed JSON; T+ canonicalises payloads
+        as compact JSON before verifying.
+
+        Args:
+            payload: UTF-8 string to sign.
+
+        Returns:
+            The 64-byte raw Ed25519 signature.
+        """
         payload = payload.replace(" ", "")
         payload = payload.replace("\r", "")
         payload = payload.replace("\n", "")
@@ -86,7 +114,20 @@ class User:
 
 
 class LocalUser(User):
-    """A User backed by a local encrypted keyfile that unlocks lazily on first sign."""
+    """A :class:`User` backed by a local encrypted keyfile.
+
+    The public key is loaded eagerly from the ``.pub`` sidecar; the private
+    key is decrypted lazily on the first call to :meth:`sign`. This lets
+    callers list and identify users without prompting for a password.
+
+    Args:
+        public_key: Hex-encoded Ed25519 public key, raw bytes, or an
+            existing :class:`Ed25519PublicKey`.
+        unlock: Callable returning the raw private key (or
+            :class:`Ed25519PrivateKey`) when invoked. Typically wraps a
+            password prompt and a decrypt step.
+        sub_account: Optional sub-account index.
+    """
 
     def __init__(
         self,

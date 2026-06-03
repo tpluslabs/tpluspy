@@ -32,7 +32,15 @@ class VaultOwner(ChainConnectedManager):
     ):
         self.owner = owner
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
-        self.vault = vault or DepositVault(chain_id=self.chain_id)
+
+        if vault is not None:
+            self.vault = vault
+        else:
+            try:
+                self.vault = DepositVault.latest_on_chain()
+            except ValueError:
+                self.vault = DepositVault(chain_id=self.chain_id)
+
         self.ce = clearing_engine
 
     def set_domain_separator(
@@ -43,6 +51,17 @@ class VaultOwner(ChainConnectedManager):
         domain_separator = domain_separator or get_dstack_domain(self.vault.chain_address)
 
         return self.vault.set_domain_separator(domain_separator, **tx_kwargs)
+
+    def set_credential_manager(
+        self,
+        new_credential_manager: "AddressType | str | AccountAPI | ContractInstance",
+        **tx_kwargs,
+    ) -> "ReceiptAPI":
+        tx_kwargs.setdefault("sender", self.owner)
+        new_credential_manager = self.conversion_manager.convert(
+            new_credential_manager, AddressType
+        )
+        return self.vault.set_credential_manager(new_credential_manager, **tx_kwargs)
 
     async def set_administrators(
         self,
@@ -92,10 +111,10 @@ class VaultOwner(ChainConnectedManager):
                 raise ValueError("Must have clearing_engine to wait for settler registration.")
 
             await wait_for_condition(
-                update_fn=lambda: ce.settlements.update_approved_settlers(
+                update_fn=lambda: ce.admin_settlements.update_approved_settlers(
                     self.chain_id, self.vault.address
                 ),
-                get_fn=lambda: ce.settlements.get_approved_settlers(self.chain_id),
+                get_fn=lambda: ce.admin_settlements.get_approved_settlers(self.chain_id),
                 check_fn=lambda settlers: settler in settlers,
                 timeout=10,
                 interval=1,

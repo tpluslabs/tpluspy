@@ -5,11 +5,10 @@ import websockets  # Import websocket exceptions
 
 # Adjust the import path based on your project structure
 # Assumes 'tplus' is a package in your PYTHONPATH or installed
-from tplus.client import OrderBookClient
+from tplus.client import MarketDataClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.orderbook import OrderBookDiff
 from tplus.model.trades import Trade  # Import specific model
-from tplus.utils.user import User
 
 # Configure basic logging for the example
 logging.basicConfig(
@@ -19,7 +18,7 @@ logger = logging.getLogger("WebSocketExample")
 
 # --- IMPORTANT: Replace with your actual API endpoint URL ---
 # Use the correct URL for your running tplus-core instance
-API_BASE_URL = "http://127.0.0.1:8000/"  # Example URL
+API_BASE_URL = "http://127.0.0.1:8011/"  # market-data-service
 
 # Example Asset ID to use
 example_asset = AssetIdentifier("200")
@@ -27,7 +26,7 @@ example_asset = AssetIdentifier("200")
 # --- Stream Handler Functions ---
 
 
-async def listen_depth(client: OrderBookClient, asset: AssetIdentifier, max_messages: int = 10):
+async def listen_depth(client: MarketDataClient, asset: AssetIdentifier, max_messages: int = 10):
     """Connects to the depth diff stream and logs received messages."""
     logger.info(f"Connecting to Depth stream for asset {asset}...")
     msg_count = 0
@@ -59,7 +58,7 @@ async def listen_depth(client: OrderBookClient, asset: AssetIdentifier, max_mess
         logger.info(f"[Depth-{asset}] Listener finished.")
 
 
-async def listen_finalized_trades(client: OrderBookClient, max_messages: int = 5):
+async def listen_finalized_trades(client: MarketDataClient, max_messages: int = 5):
     """Connects to the finalized trades stream and logs received messages."""
     logger.info("Connecting to Finalized Trades stream...")
     msg_count = 0
@@ -93,14 +92,13 @@ async def listen_finalized_trades(client: OrderBookClient, max_messages: int = 5
 
 
 async def main():
-    user = User()  # Create a user for potential future authenticated streams
     logger.info(f"Using API Base URL: {API_BASE_URL}")
     logger.info(f"Example Asset Index: {example_asset}")
 
     # Removed signal handling setup - Not supported on Windows default loop
 
     try:
-        async with OrderBookClient(user, base_url=API_BASE_URL) as client:
+        async with MarketDataClient(API_BASE_URL) as client:
             logger.info("Client initialized.")
 
             # Create tasks for the stream listeners

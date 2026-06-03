@@ -22,7 +22,9 @@ def ape_init_extras():
 
         if chain.provider.network.is_dev:
             if tplus_user := load_user(password=os.environ.get("TPLUSPY_USER_PASSWORD")):
-                clearing_engine = ClearingEngineClient(tplus_user, "http://127.0.0.1:3032")
+                clearing_engine = ClearingEngineClient(
+                    "http://127.0.0.1:3032", default_user=tplus_user
+                )
                 res["ce"] = clearing_engine
                 res["tplus_user"] = tplus_user
 
