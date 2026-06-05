@@ -43,10 +43,14 @@ async def test_create_limit_order_threads_trigger():
         price=100_00,
         side="Buy",
         asset_id=AssetIdentifier("200"),
+        order_id="caller-limit-id",
         trigger=_trigger_above(),
     )
 
-    assert client._require_captured()["order"]["trigger"] == {
+    order = client._require_captured()["order"]
+    assert order["order_id"] == "caller-limit-id"
+    assert "client_order_id" not in order
+    assert order["trigger"] == {
         "parent_order_id": None,
         "condition": {"PriceAbove": {"price": 100_00}},
     }
@@ -74,10 +78,14 @@ async def test_create_market_order_threads_trigger():
         side="Sell",
         base_quantity=5,
         asset_id=AssetIdentifier("200"),
+        order_id="caller-market-id",
         trigger=_trigger_below(),
     )
 
-    assert client._require_captured()["order"]["trigger"] == {
+    order = client._require_captured()["order"]
+    assert order["order_id"] == "caller-market-id"
+    assert "client_order_id" not in order
+    assert order["trigger"] == {
         "parent_order_id": "parent-123",
         "condition": {"PriceBelow": {"price": 90_00}},
     }
@@ -166,3 +174,23 @@ async def test_prepare_limit_order_request_threads_trigger():
         "parent_order_id": None,
         "condition": {"PriceAbove": {"price": 123_45}},
     }
+
+
+@pytest.mark.anyio
+async def test_prepare_limit_order_request_uses_caller_order_id():
+    client = _CapturingClient(user=User())
+
+    order_id, signed = await client.prepare_limit_order_request(
+        AssetIdentifier("200"),
+        100_00,
+        10,
+        "Buy",
+        None,
+        None,
+        order_id="caller-limit-id",
+    )
+
+    assert order_id == "caller-limit-id"
+    assert signed.order.order_id == "caller-limit-id"
+    assert not hasattr(signed.order, "client_order_id")
+    assert "client_order_id" not in signed.order.signable_part()

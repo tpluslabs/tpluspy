@@ -275,6 +275,19 @@ class AdminClient(BaseClearingEngineClient):
             json_data={"fee_account": user},
         )
 
+    async def set_avs_backstop_target(
+        self, user: UserPublicKey | None, account_index: int | None = None
+    ):
+        """Configure the AVS backstop target, or clear it (disabling the
+        post-liquidation transfer) when ``user`` is ``None``."""
+        await self._post(
+            "admin/avs-backstop-target/modify",
+            json_data={"user": user, "account_index": account_index},
+        )
+
+    async def clear_avs_backstop_target(self):
+        await self.set_avs_backstop_target(None)
+
     async def reset_users(self):
         await self._post(
             "admin/users/reset",

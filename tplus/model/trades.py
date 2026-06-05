@@ -29,7 +29,15 @@ class UserTrade(BaseModel):
     is_maker: bool = Field(..., description="True if this user was the maker")
     is_buyer: bool = Field(..., description="True if this user was the buyer")
     status: Literal["Pending", "Confirmed", "Rollbacked"]
-    rollback_reason: str | None
+    rollback_reason: str | None = None
+    is_liquidation: bool = False
+    sub_account: int = Field(
+        default=0, description="Sub-account index (0=main/spot, 1=default margin)"
+    )
+    trading_fee: Decimal = Field(
+        default=Decimal(0),
+        description="Trading fee in USD; positive=paid, negative=rebate",
+    )
 
     @property
     def buyer_is_maker(self) -> bool:
@@ -134,7 +142,10 @@ def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
             is_maker=bool(item["is_maker"]),
             is_buyer=bool(item["is_buyer"]),
             status=item["status"],
-            rollback_reason=item["rollback_reason"],
+            rollback_reason=item.get("rollback_reason"),
+            is_liquidation=bool(item.get("is_liquidation", False)),
+            sub_account=int(item.get("sub_account", 0)),
+            trading_fee=Decimal(str(item.get("trading_fee", 0))),
         )
     except (KeyError, ValueError, TypeError) as e:
         raise ValueError(f"Invalid user trade data: {item}") from e

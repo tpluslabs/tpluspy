@@ -184,6 +184,7 @@ class OrderBookClient(AuthenticatedClient):
         quote_quantity: int | None = None,
         fill_or_kill: bool = False,
         asset_id: AssetIdentifier | None = None,
+        order_id: str | None = None,
         target: TradeTarget | None = None,
         max_trading_fees_rate: int | None = None,
         trigger: OrderTrigger | None = None,
@@ -202,6 +203,8 @@ class OrderBookClient(AuthenticatedClient):
             quote_quantity: Quantity expressed in quote-asset units.
             fill_or_kill: If True, the entire order must fill or be cancelled.
             asset_id: Asset to trade.
+            order_id: Optional caller-supplied order id. When omitted, tpluspy
+                preserves its legacy generated id behavior.
             target: Optional sub-account / collateral target for the trade.
             max_trading_fees_rate: Optional maximum trading fee rate the
                 caller is willing to pay (basis points; book-specific).
@@ -210,7 +213,6 @@ class OrderBookClient(AuthenticatedClient):
                 ``base_quantity``.
             max_sellable_quantity: Slippage cap on base sold. Pairs with
                 ``quote_quantity``.
-
         Returns:
             The :class:`OrderOperationResponse` from the OMS.
 
@@ -228,7 +230,7 @@ class OrderBookClient(AuthenticatedClient):
         if max_sellable_quantity is not None and quote_quantity is None:
             raise ValueError("max_sellable_quantity requires quote_quantity")
 
-        order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
+        order_id = order_id or str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id_unwrapped)
         base_qty_model = (
             MarketBaseQuantity(quantity=base_quantity, max_sellable_amount=max_sellable_amount)
@@ -276,6 +278,7 @@ class OrderBookClient(AuthenticatedClient):
         side: str,
         time_in_force: GTC | GTD | IOC | None = None,
         asset_id: AssetIdentifier | None = None,
+        order_id: str | None = None,
         target: TradeTarget | None = None,
         max_trading_fees_rate: int | None = None,
         trigger: OrderTrigger | None = None,
@@ -290,11 +293,12 @@ class OrderBookClient(AuthenticatedClient):
             time_in_force: One of :class:`GTC`, :class:`IOC`, or :class:`GTD`.
                 Defaults to GTC if omitted.
             asset_id: Asset to trade.
+            order_id: Optional caller-supplied order id. When omitted, tpluspy
+                preserves its legacy generated id behavior.
             target: Optional sub-account / collateral target for the trade.
             max_trading_fees_rate: Optional maximum trading fee rate the
                 caller is willing to pay.
             trigger: Optional :class:`OrderTrigger` for conditional activation.
-
         Returns:
             The :class:`OrderOperationResponse` from the OMS.
 
@@ -312,6 +316,7 @@ class OrderBookClient(AuthenticatedClient):
             side,
             target,
             time_in_force,
+            order_id=order_id,
             max_trading_fees_rate=max_trading_fees_rate,
             trigger=trigger,
             user=user,
@@ -337,11 +342,12 @@ class OrderBookClient(AuthenticatedClient):
         time_in_force,
         max_trading_fees_rate: int | None = None,
         trigger: OrderTrigger | None = None,
+        order_id: str | None = None,
         user: "User | None" = None,
     ):
         user = self._resolve_user(user=user)
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
-        order_id = str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
+        order_id = order_id or str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
         market = await self.get_market(asset_id_unwrapped)
         signed_message = create_limit_order_ob_request_payload(
             quantity=quantity,

@@ -25,6 +25,16 @@ class PositionSide(str, Enum):
     LONG = "Long"
     SHORT = "Short"
 
+    @classmethod
+    def _missing_(cls, value: object) -> "PositionSide | None":
+        # Accept lowercase values from margin read responses.
+        if isinstance(value, str):
+            folded = value.strip().lower()
+            for member in cls:
+                if member.value.lower() == folded:
+                    return member
+        return None
+
 
 class PositionMarginInfo(BaseModel):
     """
