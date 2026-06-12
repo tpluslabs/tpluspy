@@ -496,6 +496,26 @@ class OrderBookClient(AuthenticatedClient):
             return parse_user_trades_page([])
         return parse_user_trades_page(data)
 
+    async def get_user_position_for_asset(
+        self,
+        asset_id: AssetIdentifier,
+        user: UserType | None = None,
+        *,
+        sub_account: int | None = None,
+    ) -> list[PositionResponse]:
+        """
+        Get positions for the authenticated user on a single asset.
+        Returns an empty list if the user is not yet known to the OMS.
+        """
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/positions/{public_key}/{asset_id}"
+        params = {"sub_account": sub_account} if sub_account is not None else None
+        try:
+            data = await self._request("GET", endpoint, params=params)
+        except NotFoundError:
+            return []
+        return parse_positions_page(data).positions
+
     async def get_user_positions(
         self,
         user: UserType | None = None,

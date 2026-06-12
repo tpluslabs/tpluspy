@@ -222,6 +222,32 @@ class AdminClient(BaseClearingEngineClient):
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
 
+    async def set_impact_prices(
+        self,
+        asset_id: AssetIdentifier,
+        buy_impact: str | None,
+        sell_impact: str | None,
+        decimals: int = 0,
+    ):
+        """Override the buy/sell impact prices for an asset on the CE (debug only).
+
+        The CE applies the override locally and propagates it to the OMS. Pass
+        ``buy_impact=None`` and ``sell_impact=None`` (the default) to clear the
+        override and set the asset's impact price back to ``None``.
+        """
+        prices: dict[str, Any]
+        if buy_impact is None and sell_impact is None:
+            prices = {str(asset_id): None}
+        else:
+            override: dict[str, Any] = {}
+            if buy_impact is not None:
+                override["buy_impact"] = {"price": buy_impact, "decimals": decimals}
+            if sell_impact is not None:
+                override["sell_impact"] = {"price": sell_impact, "decimals": decimals}
+            prices = {str(asset_id): override}
+
+        await self._post("admin/impact-prices/modify", json_data={"prices": prices})
+
     async def set_book_decimals(
         self,
         asset_id: AssetIdentifier,

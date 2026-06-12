@@ -80,6 +80,8 @@ class AccountMarginInfo(BaseModel):
         is_solvent: Whether the account passes the IM solvency check.
             True means available_margin >= 0.
 
+        is_liquidatable: Whether the account can be liquidated.
+
         positions: Per-position breakdown (only present if include_positions=True).
             Contains size and notional value for each position.
     """
@@ -90,6 +92,7 @@ class AccountMarginInfo(BaseModel):
     maintenance_margin_surplus: Decimal
     account_leverage: Decimal | None
     is_solvent: bool
+    is_liquidatable: bool
     positions: list[PositionMarginInfo] | None = None
 
 
@@ -132,6 +135,7 @@ def parse_account_margin_info(data: dict) -> AccountMarginInfo:
         maintenance_margin_surplus=Decimal(data["maintenance_margin_surplus"]),
         account_leverage=leverage,
         is_solvent=data["is_solvent"],
+        is_liquidatable=data["is_liquidatable"],
         positions=positions,
     )
 

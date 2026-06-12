@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
 
-PositionSide = Literal["long", "short"]
+PositionSide = Literal["long", "short", "closed"]
 
 
 class PositionResponse(BaseModel):
