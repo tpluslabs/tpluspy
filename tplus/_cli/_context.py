@@ -19,6 +19,12 @@ _AUTH_CACHE_DIR = Path.home() / ".tplus" / "auth"
 DEFAULT_TRANSPORT = "https"
 
 
+def _with_default_transport(url: str) -> str:
+    if url.startswith(("http://", "https://")):
+        return url
+    return f"{DEFAULT_TRANSPORT}://{url}"
+
+
 # ``dict`` base mirrors ``ape.cli.options.ApeCliContextObject`` so ape's
 # ``network_option`` callback can do ``ctx.obj["network"] = value`` without
 # importing ape here (which would slow down ``tplus --help``).
@@ -60,19 +66,13 @@ class CLIContext(dict):
                 "Pass --orderbook-base-url or set TPLUS_ORDERBOOK_BASE_URL."
             )
 
-        url = self.orderbook_base_url
-
-        # cut the user some slack if they forget to specify an explicit transport
-        if not (url.startswith("http") or url.startswith("https")):
-            url = f"{DEFAULT_TRANSPORT}://{url}"
-
         from tplus.client.auth import Auth
         from tplus.client.orderbook import OrderBookClient
         from tplus.utils.user.model import User
 
         user = User() if anonymous else self.load_user(alias)
         return OrderBookClient(
-            base_url=self.orderbook_base_url,
+            base_url=_with_default_transport(self.orderbook_base_url),
             default_user=user,
             auth=Auth(cache_dir=_AUTH_CACHE_DIR),
             insecure_ssl=self.ignore_ssl,
@@ -103,7 +103,7 @@ class CLIContext(dict):
                 "No orderbook base URL specified. "
                 "Pass --orderbook-base-url or set TPLUS_ORDERBOOK_BASE_URL."
             )
-        return self.orderbook_base_url
+        return _with_default_transport(self.orderbook_base_url)
 
     def withdrawal_client(self, alias: str | None = None) -> "WithdrawalClient":
         from tplus.client.withdrawal import WithdrawalClient
