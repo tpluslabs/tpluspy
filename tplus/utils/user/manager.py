@@ -119,9 +119,12 @@ class UserManager:
         path = self._get_existing_path(name)
         pubkey_path = self._pubkey_path(name)
 
-        def _unlock() -> bytes:
+        def _unlock() -> bytes | None:
             pw = _resolve_password(password, f"Enter password for '{name}': ")
-            return decrypt_keyfile(pw, f"{path}")
+            try:
+                return decrypt_keyfile(pw, f"{path}")
+            except ValueError as e:
+                print(f"bad password: {e}")
 
         if pubkey_path.is_file():
             return LocalUser(public_key=pubkey_path.read_text().strip(), unlock=_unlock)
