@@ -24,6 +24,12 @@ class BaseTplusException(Exception):
     """
 
 
+class BadPasswordError(BaseTplusException):
+    """
+    Raised when a keyfile cannot be decrypted with the supplied password.
+    """
+
+
 class MissingClientUserError(BaseTplusException):
     """
     Raised when a user is not specified in a client when required.

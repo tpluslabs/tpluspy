@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.serialization import (  # type: ignore
     PrivateFormat,
 )
 
+from tplus.exceptions import BadPasswordError
 from tplus.utils.user.ed_keyfile import decrypt_keyfile, encrypt_keyfile
 from tplus.utils.user.model import LocalUser, User
 from tplus.utils.user.validate import privkey_to_bytes
@@ -119,12 +120,12 @@ class UserManager:
         path = self._get_existing_path(name)
         pubkey_path = self._pubkey_path(name)
 
-        def _unlock() -> bytes | None:
+        def _unlock() -> bytes:
             pw = _resolve_password(password, f"Enter password for '{name}': ")
             try:
                 return decrypt_keyfile(pw, f"{path}")
             except ValueError as e:
-                print(f"bad password: {e}")
+                raise BadPasswordError(f"bad password: {e}") from e
 
         if pubkey_path.is_file():
             return LocalUser(public_key=pubkey_path.read_text().strip(), unlock=_unlock)
