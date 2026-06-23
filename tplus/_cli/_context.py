@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 _AUTH_CACHE_DIR = Path.home() / ".tplus" / "auth"
 
+DEFAULT_TRANSPORT = "https"
+
 
 # ``dict`` base mirrors ``ape.cli.options.ApeCliContextObject`` so ape's
 # ``network_option`` callback can do ``ctx.obj["network"] = value`` without
@@ -57,6 +59,12 @@ class CLIContext(dict):
                 "No orderbook base URL specified. "
                 "Pass --orderbook-base-url or set TPLUS_ORDERBOOK_BASE_URL."
             )
+
+        url = self.orderbook_base_url
+
+        # cut the user some slack if they forget to specify an explicit transport
+        if not (url.startswith("http") or url.startswith("https")):
+            url = f"{DEFAULT_TRANSPORT}://{url}"
 
         from tplus.client.auth import Auth
         from tplus.client.orderbook import OrderBookClient
