@@ -1,11 +1,15 @@
-"""Read-only client for the `market-data-service` (public market data; no auth)."""
+"""Client for the `market-data-service` (public market data + per-user endpoints)."""
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tplus.client.base import BaseClient
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.klines import KlineUpdate, parse_kline_update
+
+if TYPE_CHECKING:
+    from tplus.client.auth import AuthenticatedClient
+    from tplus.types import UserType
+from tplus.model.klines import KlinesPage, KlineUpdate, parse_kline_update, parse_klines_page
 from tplus.model.orderbook import OrderBook, OrderBookDiff
 from tplus.model.trades import (
     Trade,
@@ -14,6 +18,8 @@ from tplus.model.trades import (
     parse_trade_event,
     parse_trades,
 )
+
+DEFAULT_BASE_URL = "http://localhost:8011"
 
 
 def _pagination(page: int | None, limit: int | None) -> dict[str, Any]:
@@ -30,8 +36,33 @@ def _pagination(page: int | None, limit: int | None) -> dict[str, Any]:
 class MarketDataClient(BaseClient):
     """Klines, order-book depth, public trades and 24h tickers (REST + WS streams)."""
 
-    def __init__(self, base_url: str = "http://localhost:8011", **kwargs: Any) -> None:
+    def __init__(
+        self,
+        base_url: str = DEFAULT_BASE_URL,
+        *,
+        auth_client: "AuthenticatedClient | None" = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(base_url, **kwargs)
+        # Per-user endpoints borrow the OMS bearer token from this client.
+        self._auth_client = auth_client
+
+    async def _authed_get(
+        self,
+        endpoint: str,
+        *,
+        user: "UserType | None" = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        """GET an MDS endpoint with the OMS bearer token attached."""
+        if self._auth_client is None:
+            raise ValueError("per-user market-data endpoints require an `auth_client`")
+
+        signer = user if not isinstance(user, str) else None
+        await self._auth_client._ensure_auth(user=signer)
+        headers = self._auth_client._get_auth_headers(user=user)
+        response = await self._send("GET", endpoint, params=params, headers=headers)
+        return self._handle_response(response)
 
     async def get_orderbook_snapshot(self, asset_id: AssetIdentifier) -> OrderBook:
         """Current order-book snapshot for `asset_id`."""
@@ -50,8 +81,8 @@ class MarketDataClient(BaseClient):
         page: int | None = None,
         limit: int | None = None,
         end_timestamp_ns: int | None = None,
-    ) -> list[KlineUpdate]:
-        """K-line (candlestick) data for `asset_id`."""
+    ) -> KlinesPage:
+        """A page of k-line (candlestick) data for `asset_id`, with pagination metadata."""
         params = _pagination(page, limit)
         if end_timestamp_ns:
             params["end_timestamp_ns"] = end_timestamp_ns
@@ -59,10 +90,10 @@ class MarketDataClient(BaseClient):
         response = await self._request(
             "GET", f"/klines/{asset_id}", params=params, requires_auth=False
         )
-        if not isinstance(response, list):
+        if not isinstance(response, dict | list):
             raise ValueError(f"Invalid response from get_klines: {response}")
 
-        return parse_kline_update(response)
+        return parse_klines_page(response)
 
     async def get_ticker(self, asset_id: AssetIdentifier) -> dict[str, Any]:
         """24h ticker for `asset_id`."""

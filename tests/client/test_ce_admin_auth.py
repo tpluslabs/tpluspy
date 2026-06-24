@@ -20,8 +20,15 @@ class TestCeAdminAuth:
         """Sign a ModifyUserStatusRequest and POST to /admin/status/modify."""
         sk = AdminClient._load_operator_sk(operator_secret=OPERATOR_SECRET)
         ts = time.time_ns()
+        nonce = time.time_ns()
         user_pubkey = bytes(range(32))
-        payload = ts.to_bytes(8, "big") + user_pubkey + b"\x01"
+        payload = (
+            b"ce.admin.status.modify.v1"
+            + nonce.to_bytes(8, "big")
+            + ts.to_bytes(8, "big")
+            + user_pubkey
+            + b"\x01"
+        )
         sig = AdminClient._sign(payload, sk)
 
         resp = httpx.post(
@@ -31,6 +38,7 @@ class TestCeAdminAuth:
                     "user": user_pubkey.hex(),
                     "is_mm": True,
                     "timestamp_ns": ts,
+                    "nonce": nonce,
                 },
                 "signature": sig,
             },

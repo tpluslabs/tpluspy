@@ -5,6 +5,7 @@ from tplus.model.settlement import (
     InnerMakerOrderAttachment,
     InnerSettlementRequest,
     MakerOrderAttachment,
+    SettlementMode,
     TxSettlementRequest,
 )
 from tplus.utils.user import User
@@ -26,6 +27,7 @@ class TestInnerSettlementRequest:
             user.public_key,
             CHAIN_ID,
             0,
+            mode=SettlementMode.MARGIN,
         )
         assert (
             request.asset_in == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000"
@@ -129,6 +131,7 @@ class TestDelegatedSettlement:
             user.public_key,
             CHAIN_ID,
             0,
+            mode=SettlementMode.MARGIN,
             expires_at=1_700_000_000_000_000_000,
         )
         assert request.expires_at == 1_700_000_000_000_000_000
@@ -201,6 +204,7 @@ class TestDelegatedSettlement:
             user.public_key,
             CHAIN_ID,
             0,
+            mode=SettlementMode.MARGIN,
             expires_at=1_700_000_000_000_000_000,
         )
         with pytest.raises(ValueError, match="mm_pubkey to be set"):

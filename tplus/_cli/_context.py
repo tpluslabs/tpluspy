@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import click
 
 if TYPE_CHECKING:
+    from tplus.client.blockchain import BlockchainClient
     from tplus.client.clearingengine import ClearingEngineClient
     from tplus.client.market_data import MarketDataClient
     from tplus.client.orderbook import OrderBookClient
@@ -26,6 +27,7 @@ class CLIContext(dict):
         self.orderbook_base_url: str | None = None
         self.clearing_base_url: str | None = None
         self.market_data_base_url: str | None = None
+        self.blockchain_base_url: str | None = None
         self.account: str | None = None
         self.ignore_ssl: bool = False
 
@@ -106,6 +108,17 @@ class CLIContext(dict):
             insecure_ssl=self.ignore_ssl,
         )
 
+    def blockchain_client(self) -> "BlockchainClient":
+        if not self.blockchain_base_url:
+            raise click.UsageError(
+                "No blockchain client base URL specified. "
+                "Pass --blockchain-base-url or set TPLUS_BLOCKCHAIN_BASE_URL."
+            )
+
+        from tplus.client.blockchain import BlockchainClient
+
+        return BlockchainClient(base_url=self.blockchain_base_url, insecure_ssl=self.ignore_ssl)
+
     def market_data_client(self) -> "MarketDataClient":
         if not self.market_data_base_url:
             raise click.UsageError(
@@ -160,6 +173,16 @@ def market_data_url_option() -> Callable:
         envvar="TPLUS_MARKET_DATA_BASE_URL",
         help="T+ market-data service base URL.",
         callback=_set_on_ctx("market_data_base_url"),
+        expose_value=False,
+    )
+
+
+def blockchain_url_option() -> Callable:
+    return click.option(
+        "--blockchain-base-url",
+        envvar="TPLUS_BLOCKCHAIN_BASE_URL",
+        help="T+ blockchain client base URL.",
+        callback=_set_on_ctx("blockchain_base_url"),
         expose_value=False,
     )
 

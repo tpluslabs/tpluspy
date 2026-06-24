@@ -178,10 +178,9 @@ class BaseClient:
         user: "UserType | None" = None,
         request_timeout: float | None = None,
     ) -> dict[str, Any]:
-        relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
         response = await self._send(
             method,
-            relative_url,
+            endpoint,
             json_data=json_data,
             params=params,
             request_timeout=request_timeout,
@@ -201,6 +200,7 @@ class BaseClient:
         headers: dict[str, str] | None = None,
         request_timeout: float | None = None,
     ) -> httpx.Response:
+        relative_url = relative_url if relative_url.startswith("/") else f"/{relative_url}"
         if json_data or params:
             self.logger.debug(
                 f"Request to {method} {relative_url} with payload: {json_data} params: {params}"

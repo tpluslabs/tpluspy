@@ -31,6 +31,7 @@ class UserTrade(BaseModel):
     status: Literal["Pending", "Confirmed", "Rollbacked"]
     rollback_reason: str | None = None
     is_liquidation: bool = False
+    is_auto_deleverage: bool = False
     sub_account: int = Field(
         default=0, description="Sub-account index (0=main/spot, 1=default margin)"
     )
@@ -144,6 +145,7 @@ def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
             status=item["status"],
             rollback_reason=item.get("rollback_reason"),
             is_liquidation=bool(item.get("is_liquidation", False)),
+            is_auto_deleverage=bool(item.get("is_auto_deleverage", False)),
             sub_account=int(item.get("sub_account", 0)),
             trading_fee=Decimal(str(item.get("trading_fee", 0))),
         )

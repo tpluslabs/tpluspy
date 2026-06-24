@@ -2,7 +2,12 @@ import asyncio
 
 import click
 
-from tplus._cli._context import CLIContext, clearing_url_option, pass_cli_context
+from tplus._cli._context import (
+    CLIContext,
+    blockchain_url_option,
+    clearing_url_option,
+    pass_cli_context,
+)
 from tplus.cli_tools import ignore_ssl_option
 
 
@@ -88,6 +93,48 @@ def _set_withdrawal_delay(
         )
     )
     click.echo("Withdrawal delay parameters updated.")
+
+
+@debug.command("sync-vault-events")
+@click.option("--from-block", "from_block", type=int, required=True)
+@click.option("--to-block", "to_block", type=int, required=True)
+@click.option("--address", "address", default=None, help="Contract address to filter on.")
+@click.option(
+    "--event",
+    "events",
+    multiple=True,
+    help="Event topic-0 signature to filter on (repeatable).",
+)
+@click.option(
+    "--operator-secret",
+    "operator_secret",
+    envvar="TPLUS_OPERATOR_SECRET",
+    default=None,
+    help="Hex operator secret. Required by authenticated (threshold) clients.",
+)
+@blockchain_url_option()
+@ignore_ssl_option()
+@pass_cli_context
+def _sync_vault_events(
+    cli_ctx: CLIContext,
+    from_block: int,
+    to_block: int,
+    address: str | None,
+    events: tuple[str, ...],
+    operator_secret: str | None,
+):
+    """Re-ingest a blockchain client's on-chain events in a block range."""
+    client = cli_ctx.blockchain_client()
+    asyncio.run(
+        client.sync_vault_events(
+            from_block,
+            to_block,
+            address=address,
+            events=list(events) or None,
+            operator_secret=operator_secret,
+        )
+    )
+    click.echo(f"Requested re-ingestion of blocks {from_block}-{to_block}.")
 
 
 @debug.command("reset-users")
