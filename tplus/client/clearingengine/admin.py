@@ -1,35 +1,25 @@
-import hashlib
 import time
 from typing import Any
 
-from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.utils import Prehashed, decode_dss_signature
 
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.interest_rates import InterestRates
 from tplus.model.types import UserPublicKey
+from tplus.utils.operator import load_operator_sk, sign_operator_payload
 from tplus.utils.user import User
 
 
 class AdminClient(BaseClearingEngineClient):
     @staticmethod
     def _load_operator_sk(operator_secret) -> ec.EllipticCurvePrivateKey:
-        secret_bytes = bytes.fromhex(operator_secret)
-        return ec.derive_private_key(int.from_bytes(secret_bytes, "big"), ec.SECP256K1())
+        return load_operator_sk(operator_secret)
 
     @staticmethod
     def _sign(payload: bytes, sk: ec.EllipticCurvePrivateKey) -> str:
         """SHA256 -> ECDSA sign -> low-S normalize -> compact r||s -> hex."""
-        SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-        SECP256K1_HALF_ORDER = SECP256K1_ORDER // 2
-        digest = hashlib.sha256(payload).digest()
-        sig_der = sk.sign(digest, ec.ECDSA(Prehashed(hashes.SHA256())))
-        r, s = decode_dss_signature(sig_der)
-        if s > SECP256K1_HALF_ORDER:
-            s = SECP256K1_ORDER - s
-        return (r.to_bytes(32, "big") + s.to_bytes(32, "big")).hex()
+        return sign_operator_payload(payload, sk)
 
     async def get_verifying_key(self):
         """
@@ -269,12 +259,20 @@ class AdminClient(BaseClearingEngineClient):
         is_mm: bool,
         operator_secret: str,
         timestamp_ns: int | None = None,
+        nonce: int | None = None,
     ):
         ts = time.time_ns() if timestamp_ns is None else timestamp_ns
+        request_nonce = time.time_ns() if nonce is None else nonce
 
         sk = AdminClient._load_operator_sk(operator_secret=operator_secret)
         user_pubkey = bytes(user.public_key_vec)
-        payload = ts.to_bytes(8, "big") + user_pubkey + b"\x01"
+        payload = (
+            b"ce.admin.status.modify.v1"
+            + request_nonce.to_bytes(8, "big")
+            + ts.to_bytes(8, "big")
+            + user_pubkey
+            + (b"\x01" if is_mm else b"\x00")
+        )
         sig = AdminClient._sign(payload, sk)
 
         await self._post(
@@ -284,6 +282,7 @@ class AdminClient(BaseClearingEngineClient):
                     "user": user.public_key,
                     "is_mm": is_mm,
                     "timestamp_ns": ts,
+                    "nonce": request_nonce,
                 },
                 "signature": sig,
             },
@@ -323,6 +322,19 @@ class AdminClient(BaseClearingEngineClient):
     async def reset_max_one_hr_deposit(self):
         await self._post(
             "admin/deposits/reset-1hr",
+            json_data={},
+        )
+
+    async def expire_xm_venue_locks(self):
+        """Force-expire every cross-venue (Hyperliquid) state-lock now (debug only).
+
+        Simulates the inaccessible-/downtime-timeout cliff: each locked venue
+        balance is zeroed and the (now smaller) credit line is gossiped to the
+        OMS. Lets e2e tests observe the post-timeout solvency drop without
+        waiting the real 7-day ``VENUE_INACCESSIBLE_TIMEOUT_NS``.
+        """
+        await self._post(
+            "admin/xm/expire-locks",
             json_data={},
         )
 

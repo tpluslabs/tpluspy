@@ -3,6 +3,7 @@ import asyncio
 import base64
 import contextlib
 import json
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from functools import cached_property
@@ -14,7 +15,12 @@ from tplus.client.auth import AuthenticatedClient
 from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.batch_order import BatchCreateOrderRequest, parse_batch_order_response
+from tplus.model.batch_order import (
+    BatchCreateOrderRequest,
+    BatchCreateOrderRequestResponse,
+    SingleOrderStatusFromBatch,
+    parse_batch_order_response,
+)
 from tplus.model.close_all_positions_preview import (
     CloseAllPreviewResponse,
     parse_close_all_preview,
@@ -52,6 +58,10 @@ from tplus.model.user_event import UserActivityEvent, parse_user_event
 from tplus.model.user_margin import (
     UserMarginInfo,
     parse_user_margin_info,
+)
+from tplus.model.user_simulated_margin import (
+    UserSimulatedMargin,
+    parse_user_simulated_margin,
 )
 from tplus.model.user_solvency import (
     UserSolvency,
@@ -123,6 +133,7 @@ class OrderBookClient(AuthenticatedClient):
         self._pending_control: dict[str, asyncio.Future] = {}
         # Optional user callback for control channel state updates
         self._on_control_state: Callable[[str], None] | None = None
+        self._last_user_action_nonce_ms: int = 0
 
     @cached_property
     def assets(self) -> AssetRegistryClient:
@@ -367,11 +378,12 @@ class OrderBookClient(AuthenticatedClient):
 
     async def send_multiple_orders(self, create_order_requests: list[CreateOrderRequest]):
         request = BatchCreateOrderRequest(orders=create_order_requests)
+        if self._use_ws_control:
+            return await self._control_ws_send_batch(request)
         batch_order_response_data = await self._request(
             "POST", "/orders/batch-create", json_data=request.model_dump()
         )
-        parsed_batch_order_response = parse_batch_order_response(batch_order_response_data)
-        return parsed_batch_order_response
+        return parse_batch_order_response(batch_order_response_data)
 
     async def cancel_order(
         self, order_id: str, asset_id: AssetIdentifier, user: "User | None" = None
@@ -809,6 +821,54 @@ class OrderBookClient(AuthenticatedClient):
             # Ensure cleanup if timed out
             self._pending_control.pop(key, None)
 
+    async def _control_ws_send_batch(
+        self, request: BatchCreateOrderRequest, *, timeout: float = 15.0
+    ) -> BatchCreateOrderRequestResponse:
+        """Send a batch-create over the ``/control`` WebSocket.
+
+        The server acks once with ``submitted`` and then streams one
+        ``CreateOrderResponse`` event per order. We register a future per order id
+        (keyed exactly like a single create) and gather all per-order outcomes into
+        the same :class:`BatchCreateOrderRequestResponse` shape the REST path returns.
+        """
+        await self._ensure_control_ws()
+        if not self._control_ws:
+            raise RuntimeError("WS control not connected")
+
+        loop = asyncio.get_running_loop()
+        dumped = request.model_dump()
+        pending: list[tuple[str, asyncio.Future]] = []
+        for order_request in dumped["orders"]:
+            order = order_request["order"]
+            asset_id = order["base_asset"]
+            order_id = order["order_id"]
+            key = f"CreateOrderResponse:{asset_id}:{order_id}"
+            fut: asyncio.Future = loop.create_future()
+            self._pending_control[key] = fut
+            pending.append((key, fut))
+
+        await self._control_ws.send(json.dumps({"BatchCreateRequest": dumped}))
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*(fut for _, fut in pending)), timeout=timeout
+            )
+        finally:
+            for key, _ in pending:
+                self._pending_control.pop(key, None)
+
+        statuses: list[SingleOrderStatusFromBatch] = []
+        for data in results:
+            _, content = next(iter(data.items()))
+            response = content["response"]
+            statuses.append(
+                SingleOrderStatusFromBatch(
+                    order_id=response["order_id"],
+                    status=response["status"],
+                    reason=response.get("reason"),
+                )
+            )
+        return BatchCreateOrderRequestResponse(batch_order_status=statuses)
+
     def _extract_operation_response(self, data: dict[str, Any]) -> OrderOperationResponse:
         if not isinstance(data, dict) or len(data) != 1:
             raise ValueError(f"Unexpected WS control response shape: {data}")
@@ -1043,6 +1103,61 @@ class OrderBookClient(AuthenticatedClient):
         parsed_data: UserMarginInfo = parse_user_margin_info(response_data)
         return parsed_data
 
+    async def init_margin_simulate(
+        self,
+        sub_account: int,
+        asset_id: AssetIdentifier | str,
+        is_buy: bool,
+        size: int | str,
+        limit_price: int | str,
+        pending_transfers: list[dict[str, Any]] | None = None,
+        trade_type: str = "margin",
+        user: UserType | None = None,
+    ) -> UserSimulatedMargin:
+        """Simulate a trade and return projected margin state without executing it.
+
+        POST /account/simulate/{user_id}
+
+        Args:
+            sub_account: Sub-account index to simulate against.
+            asset_id: Asset to trade.
+            is_buy: True for buy, False for sell.
+            size: Trade size as an integer or decimal string.
+            limit_price: Limit price as an integer or decimal string.
+            pending_transfers: Optional pending deposits to apply before the trade.
+            trade_type: ``"margin"`` (default) or ``"spot"``.
+            user: Optional User or public key. Falls back to the default user.
+
+        Returns:
+            UserSimulatedMargin with projected equity, available margin,
+            leverage, and per-position details.
+        """
+        if trade_type not in ("margin", "spot"):
+            raise ValueError('trade_type must be "margin" or "spot"')
+        public_key = self._validate_user_public_key(user=user)
+        asset = str(asset_id) if isinstance(asset_id, AssetIdentifier) else asset_id
+        payload = {
+            "sub_account": sub_account,
+            "trade": {
+                "asset": asset,
+                "is_buy": is_buy,
+                "size": str(size),
+                "limit_price": str(limit_price),
+                "trade_type": trade_type,
+            },
+            "pending_transfers": pending_transfers or [],
+        }
+
+        self.logger.debug(
+            f"Simulating margin trade for user {public_key}, sub_account={sub_account}"
+        )
+        response_data = await self._request(
+            "POST", f"/account/simulate/{public_key}", json_data=payload
+        )
+        if not isinstance(response_data, dict):
+            raise Exception("Invalid response from init_margin_simulate.")
+        return parse_user_simulated_margin(response_data)
+
     async def request_transfer_to_subaccount(
         self,
         source_index: int,
@@ -1050,6 +1165,7 @@ class OrderBookClient(AuthenticatedClient):
         transfer_asset: AssetIdentifier,
         transfer_amount: int,
         target_account_type: None = None,
+        nonce: int | None = None,
         user: "User | None" = None,
     ) -> dict[str, Any]:
         user = self._resolve_user(user=user)
@@ -1059,6 +1175,7 @@ class OrderBookClient(AuthenticatedClient):
             transfer_asset,
             transfer_amount,
             target_account_type,
+            nonce=nonce,
             user=user,
         )
 
@@ -1079,6 +1196,7 @@ class OrderBookClient(AuthenticatedClient):
         transfer_asset,
         transfer_amount,
         target_account_type=None,
+        nonce: int | None = None,
         user: "User | None" = None,
     ):
         user = self._resolve_user(user=user)
@@ -1089,6 +1207,7 @@ class OrderBookClient(AuthenticatedClient):
             "transfer_asset": str(transfer_asset),
             "transfer_amount": str(transfer_amount),
             "target_account_type": target_account_type,
+            "nonce": self._next_user_action_nonce() if nonce is None else nonce,
         }
         self.logger.debug(f"Transfer request: {inner}")
         signing_payload = json.dumps(inner, separators=(",", ":"))
@@ -1101,16 +1220,26 @@ class OrderBookClient(AuthenticatedClient):
         return payload
 
     async def request_close_position(
-        self, account: int, transfer_asset: str, user: "User | None" = None
+        self,
+        account: int,
+        transfer_asset: str,
+        nonce: int | None = None,
+        user: "User | None" = None,
     ) -> dict[str, Any]:
         user = self._resolve_user(user=user)
-        payload = self._build_close_position_request(account, transfer_asset, user=user)
+        payload = self._build_close_position_request(
+            account, transfer_asset, nonce=nonce, user=user
+        )
 
         response_data = await self._send_close_position_request(payload)
         return response_data
 
     def _build_close_position_request(
-        self, account: int, transfer_asset: str, user: "User | None" = None
+        self,
+        account: int,
+        transfer_asset: str,
+        nonce: int | None = None,
+        user: "User | None" = None,
     ) -> dict:
         """Same signing rules as CE: compact JSON of inner, ed25519 over UTF-8 bytes."""
         user = self._resolve_user(user=user)
@@ -1118,6 +1247,7 @@ class OrderBookClient(AuthenticatedClient):
             "user": user.public_key,
             "account": account,
             "asset_identifier": transfer_asset,
+            "nonce": self._next_user_action_nonce() if nonce is None else nonce,
         }
 
         self.logger.debug(f"Preparing close position request: {inner}")
@@ -1129,6 +1259,14 @@ class OrderBookClient(AuthenticatedClient):
             "additional_signers": [],
         }
         return payload
+
+    def _next_user_action_nonce(self) -> int:
+        now_ms = time.time_ns() // 1_000_000
+        self._last_user_action_nonce_ms = max(
+            self._last_user_action_nonce_ms + 1,
+            now_ms,
+        )
+        return self._last_user_action_nonce_ms
 
     async def _send_close_position_request(self, payload):
         self.logger.debug(f"Sending close position request. Payload is: {payload}")

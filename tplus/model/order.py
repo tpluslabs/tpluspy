@@ -115,6 +115,7 @@ class OrderResponse(BaseModel):
     is_immediate_or_cancel: bool | None = None
     is_fill_or_kill: bool | None = None
     is_liquidation: bool | None = None
+    is_auto_deleverage: bool | None = None
     is_reduce_only: bool | None = None
     trigger_enabled_quantity: Decimal | None = None
 

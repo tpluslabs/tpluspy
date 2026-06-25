@@ -44,6 +44,22 @@ class TestFromErrorBody:
         assert isinstance(exc, AuthError)
         assert exc.status_code == 401
 
+    def test_market_not_found_is_not_found(self):
+        # MDS emits this for unknown markets via the shared error envelope.
+        exc = from_error_body({"code": "MARKET_NOT_FOUND", "message": "Market not found"}, 404)
+        assert isinstance(exc, NotFoundError)
+        assert exc.code == "MARKET_NOT_FOUND"
+
+    def test_rate_limited_is_rate_limit_error(self):
+        exc = from_error_body({"code": "RATE_LIMITED", "message": "slow down"}, 429)
+        assert isinstance(exc, RateLimitError)
+
+    def test_envelope_tolerates_trace_and_span_ids(self):
+        body = {"code": "USER_NOT_FOUND", "message": "no user", "trace_id": "a", "span_id": "b"}
+        exc = from_error_body(body, 404)
+        assert isinstance(exc, NotFoundError)
+        assert exc.code == "USER_NOT_FOUND"
+
     def test_invalid_signature(self):
         exc = from_error_body({"code": "INVALID_SIGNATURE", "message": "bad sig"}, 401)
         assert isinstance(exc, AuthError)

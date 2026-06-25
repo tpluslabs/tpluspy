@@ -44,6 +44,17 @@ def runner():
 
 
 @pytest.fixture
+def mock_blockchain_client(mocker):
+    """Patch ``CLIContext.blockchain_client`` and return the mocked client."""
+    client = mocker.AsyncMock()
+    mocker.patch(
+        "tplus._cli._context.CLIContext.blockchain_client",
+        return_value=client,
+    )
+    return client
+
+
+@pytest.fixture
 def cli_env(monkeypatch, user_dir):
     monkeypatch.setenv("TPLUS_ACCOUNT", "settler")
     monkeypatch.setenv("TPLUS_CLEARING_BASE_URL", CE_URL)

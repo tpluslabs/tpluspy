@@ -136,9 +136,9 @@ def _klines(
     )
     if output_format == "raw":
         echo_with_pager(
-            [kline.model_dump_json() for kline in klines],
+            [kline.model_dump_json() for kline in klines.items],
             no_pager=no_pager,
         )
         return
 
-    render([kline.model_dump() for kline in klines], output_format, no_pager=no_pager)
+    render([kline.model_dump() for kline in klines.items], output_format, no_pager=no_pager)

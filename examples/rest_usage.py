@@ -95,7 +95,12 @@ async def main() -> None:
         logger.info("Inventory keys: %s", list(inventory.keys()) if inventory else "<empty>")
 
         klines = await md_client.get_klines(EXAMPLE_ASSET, limit=20)
-        logger.info("Got %d klines", len(klines))
+        logger.info(
+            "Got %d klines (page %d of %d)",
+            len(klines.items),
+            klines.page,
+            klines.total_pages,
+        )
 
         # ---------------- cancel the resting limit order ----------------
         if limit_order.order_id:

@@ -12,10 +12,14 @@ from tplus.evm.contracts import DepositVault
 from tplus.evm.dev.contracts import SettlerExecutor
 from tplus.evm.dev.token import Token
 from tplus.evm.exceptions import SettlementError
-from tplus.evm.managers.settle import SettlementManager
+from tplus.evm.managers.settle import SettlementApprovalHandler, SettlementManager
 from tplus.evm.managers.withdraw import WithdrawalInfo, WithdrawalManager
 from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
-from tplus.model.settlement import InnerMakerOrderAttachment, MakerOrderAttachment
+from tplus.model.settlement import (
+    InnerMakerOrderAttachment,
+    MakerOrderAttachment,
+    SettlementMode,
+)
 from tplus.model.types import ChainID
 from tplus.utils.address import to_evm_address
 from tplus.utils.amount import Amount
@@ -46,6 +50,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
         self.default_user = default_user
         self.ce_client: ClearingEngineClient = ce
         self._deposit_vault = deposit_vault
+        self.setup_snapshot = None
 
         self._pending_settlements = {}
         self._pending_settlement_errors = {}
@@ -96,6 +101,17 @@ class DeveloperEnvironment(ManagerAccessMixin):
         await self.ce_client.vaults.update_balance(self.usdc.asset_address)
         await self.ce_client.vaults.update_balance(self.weth.asset_address)
 
+    async def disable_withdrawal_delay(self):
+        await self.ce_client.admin.set_withdrawal_delay_params(
+            min_delay=0,
+            max_delay=0,
+            delay_clamps=[0, 1_000_000],
+            delay_values=[0, 0],
+        )
+
+    def snapshot_chain_state(self):
+        self.setup_snapshot = self.chain_manager.snapshot()
+
     @cached_property
     def settlement_manager(self) -> SettlementManager:
         return self.create_settlement_manager()
@@ -109,6 +125,10 @@ class DeveloperEnvironment(ManagerAccessMixin):
             chain_id=self.chain_id,
             vault=self.deposit_vault,
         )
+
+    @cached_property
+    def settlement_approval_handler(self):
+        return SettlementApprovalHandler(self.settlement_manager)
 
     @cached_property
     def withdrawal_manager(self) -> WithdrawalManager:
@@ -154,8 +174,9 @@ class DeveloperEnvironment(ManagerAccessMixin):
         amount_out: Amount,
         user: "User | None" = None,
         settler: "UserPublicKey | None" = None,
-        maker_order=None,
+        maker_order: MakerOrderAttachment | None = None,
         sub_account: int | None = None,
+        mode: SettlementMode = SettlementMode.MARGIN,
     ):
         user = user or self.default_user
         key = f"{user.public_key}"
@@ -174,6 +195,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
                 settler=settler,
                 maker_order=maker_order,
                 account_index=sub_account,
+                mode=mode,
             )
         except SettlementError as err:
             self._pending_settlement_errors[key] = err

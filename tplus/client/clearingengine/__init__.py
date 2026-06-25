@@ -5,6 +5,7 @@ from tplus.client.clearingengine.admin import AdminClient
 from tplus.client.clearingengine.admin_settlement import AdminSettlementClient
 from tplus.client.clearingengine.assetregistry import AdminAssetRegistryClient
 from tplus.client.clearingengine.base import BaseClearingEngineClient
+from tplus.client.clearingengine.cross_venue import CrossVenueClient
 from tplus.client.clearingengine.decimal import DecimalClient
 from tplus.client.clearingengine.vault import VaultClient
 
@@ -49,6 +50,13 @@ class ClearingEngineClient(BaseClearingEngineClient):
         APIs related to vaults.
         """
         return VaultClient.from_client(self)
+
+    @cached_property
+    def cross_venue(self) -> CrossVenueClient:
+        """
+        User-facing cross-venue (Hyperliquid) margin APIs.
+        """
+        return CrossVenueClient.from_client(self)
 
     @cached_property
     def admin(self) -> AdminClient:
