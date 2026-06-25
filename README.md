@@ -10,6 +10,28 @@ To install, use either `pip` or `uv pip`:
 uv pip install -e .
 ```
 
+## Onboarding with Codex CLI
+
+This repo includes a Codex-discoverable onboarding skill at
+`.agents/skills/onboard` for connecting an EVM wallet key to T+, checking whether
+it already controls a T+ account, and guiding account creation when needed.
+
+From the repo root:
+
+```text
+codex
+/skills
+```
+
+Choose `onboard`, or invoke it directly with:
+
+```text
+$onboard onboard me to T+
+```
+
+The flow reads `TPLUS_PRIVATE_KEY` and `TPLUS_API_BASE_URL` from `.env`. Do not
+paste private keys into chat.
+
 ## CLI
 
 `tpluspy` installs a `tplus` command for interacting with T+ services from the

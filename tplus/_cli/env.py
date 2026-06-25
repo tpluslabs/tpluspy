@@ -20,7 +20,17 @@ def env(output_format: str):
     """Show CLI-relevant environment variables and their current values."""
     entries: list[tuple[str, str, str]] = [
         ("TPLUS_ACCOUNT", _default_account(), "Default local account alias."),
-        ("TPLUS_ORDERBOOK_BASE_URL", "", "Orderbook service base URL."),
+        (
+            "TPLUS_API_BASE_URL",
+            "",
+            "Single T+ base URL (OMS); orderbook + market-data derive from it.",
+        ),
+        ("TPLUS_ORDERBOOK_BASE_URL", "", "Override: orderbook service base URL."),
+        (
+            "TPLUS_MARKET_DATA_BASE_URL",
+            "",
+            "Override: market-data URL (else derived from API URL, oms->mds).",
+        ),
         ("TPLUS_CLEARING_BASE_URL", "", "Clearing engine base URL."),
         ("TPLUS_IGNORE_SSL", "false", "Skip TLS certificate verification."),
         ("TPLUS_OUTPUT_FORMAT", "table", "Default output format (table | json)."),

@@ -26,6 +26,34 @@ ______________________________________________________________________
 
 This section is what Claude should reach for when a user is **using** `tpluspy` to build something.
 
+## First time here? Run the onboarding skill
+
+If a user has just cloned this repo and wants to get started — connect their
+wallet/EVM key to T+, find out whether they already have a T+ account and see
+what's in it, or create a new frontend-compatible account — use the onboarding
+skill: [`.claude/skills/onboard/SKILL.md`](.claude/skills/onboard/SKILL.md).
+Codex CLI discovers the same skill through
+[`.agents/skills/onboard`](.agents/skills/onboard); run `/skills` and choose
+`onboard`, or type `$onboard onboard me to T+`.
+
+It derives the user's T+ identity from the EVM key in `TPLUS_PRIVATE_KEY` (the
+same derivation the T+ frontend does on wallet login), looks it up via
+`POST /multisig/signers`, dumps the account state if it exists, and otherwise
+generates account-creation scripts.
+
+The flow reads two values from `.env`: `TPLUS_PRIVATE_KEY` (your EVM key) and
+`TPLUS_API_BASE_URL` — the T+ OMS base URL. **Production is
+`https://oms.tplus.cx`.** This is the *sole* T+ URL; every other T+ service URL
+derives from it by host substitution (e.g. market data at `https://mds.tplus.cx`),
+so don't introduce per-service base-URL vars.
+
+After onboarding, the agent-facing primer at
+[`.claude/skills/onboard/reference/tpluspy-primer.md`](.claude/skills/onboard/reference/tpluspy-primer.md)
+is the jumping-off point for building scripts against the account. (The onboarding
+key derivation uses `eth_account` personal-sign **only** to reproduce the
+frontend's login signature — it is not a T+ request-signing path; see "Signing
+model" below.)
+
 ## Where the canonical docs live
 
 Before answering anything non-trivial, prefer the user guides in `docs/userguides/` over reconstructing behaviour from memory. They are the source of truth and stay current with the code. Always cite or link the relevant page so users can read more.
@@ -62,14 +90,14 @@ from tplus.client import OrderBookClient, ClearingEngineClient, MarketDataClient
 ```
 
 - `User` — the signing identity. `User()` mints an ephemeral keypair; `load_user("name")` loads a stored, password-encrypted keyfile; `UserManager` enumerates / saves / sets defaults.
-- `OrderBookClient(user=..., base_url=...)` — talks to the OMS/orderbook (orders, user trades/inventory/positions/margin, `/market` + `/markets`, order/user-trade streams).
+- `OrderBookClient(base_url=..., default_user=...)` — talks to the OMS/orderbook (orders, user trades/inventory/positions/margin, `/market` + `/markets`, order/user-trade streams). The signing identity is `default_user=` (keyword); per-call `user=` overrides it.
 - `MarketDataClient(base_url=...)` — read-only client for the `market-data-service` (public market data: klines, order-book depth, public trades, 24h tickers, and their WS streams). No auth. Default base URL `http://localhost:8011`.
-- `ClearingEngineClient(user=..., base_url=...)` — talks to the CE directly (deposits, withdrawals, settlements, vaults, asset registry, decimals, admin). Sub-APIs are exposed as cached properties: `client.deposits`, `client.withdrawals`, `client.settlements`, `client.vaults`, `client.assets`, `client.decimals`, `client.admin`. There's also `ClearingEngineClient.from_local(user)` for `127.0.0.1:3032`.
+- `ClearingEngineClient(base_url=..., default_user=...)` — talks to the CE directly (deposits, withdrawals, settlements, vaults, asset registry, decimals, admin). Sub-APIs are exposed as cached properties: `client.deposits`, `client.withdrawals`, `client.settlements`, `client.vaults`, `client.assets`, `client.decimals`, `client.admin`. There's also `ClearingEngineClient.from_local(user)` for `127.0.0.1:3032`.
 
 Both clients are async; use `async with` to get automatic cleanup:
 
 ```python
-async with OrderBookClient(user=user, base_url="http://127.0.0.1:8000") as client:
+async with OrderBookClient(base_url="http://127.0.0.1:8000", default_user=user) as client:
     ...
 ```
 

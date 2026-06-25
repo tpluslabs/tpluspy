@@ -7,8 +7,6 @@ from pathlib import Path
 
 import click
 
-from tplus.exceptions import BadPasswordError
-
 LOG_DIR = Path.home() / ".tplus" / "cli" / "logs"
 LOG_FILE = "tplus.log"
 LOG_MAX_BYTES = 1_000_000
@@ -75,12 +73,6 @@ class LazyGroup(click.Group):
 
     def list_commands(self, ctx):
         return sorted({*super().list_commands(ctx), *self.lazy_subcommands.keys()})
-
-    def invoke(self, ctx):
-        try:
-            return super().invoke(ctx)
-        except BadPasswordError as e:
-            raise click.ClickException(str(e)) from e
 
     def get_command(self, ctx, cmd_name):
         if cmd_name in self.lazy_subcommands:

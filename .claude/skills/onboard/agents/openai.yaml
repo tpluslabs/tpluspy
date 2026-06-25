@@ -1,0 +1,4 @@
+interface:
+  display_name: "T+ Onboarding"
+  short_description: "Set up or inspect a T+ account"
+  default_prompt: "Use $onboard to onboard me to T+."

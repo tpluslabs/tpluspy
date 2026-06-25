@@ -1,7 +1,9 @@
+import os
 from collections.abc import Callable
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit, urlunsplit
 
 import click
 
@@ -17,13 +19,30 @@ if TYPE_CHECKING:
 
 _AUTH_CACHE_DIR = Path.home() / ".tplus" / "auth"
 
-DEFAULT_TRANSPORT = "https"
 
-
-def _with_default_transport(url: str) -> str:
-    if url.startswith(("http://", "https://")):
-        return url
-    return f"{DEFAULT_TRANSPORT}://{url}"
+def _derive_market_data_base_url(oms_base_url: str) -> str:
+    """Derive the market-data-service URL from the OMS URL (swap the host label
+    ``oms``->``mds``). Returns the input unchanged for non-oms hosts (e.g. localhost)."""
+    parsed = urlsplit(oms_base_url)
+    host = parsed.hostname
+    if host is None:
+        return oms_base_url
+    if host.startswith("oms."):
+        mds_host = f"mds.{host.removeprefix('oms.')}"
+    elif host.startswith("oms-"):
+        mds_host = f"mds-{host.removeprefix('oms-')}"
+    else:
+        return oms_base_url
+    userinfo = ""
+    if parsed.username is not None:
+        userinfo = parsed.username
+        if parsed.password is not None:
+            userinfo = f"{userinfo}:{parsed.password}"
+        userinfo = f"{userinfo}@"
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    return urlunsplit(
+        (parsed.scheme, f"{userinfo}{mds_host}{port}", parsed.path, parsed.query, parsed.fragment)
+    )
 
 
 # ``dict`` base mirrors ``ape.cli.options.ApeCliContextObject`` so ape's
@@ -32,6 +51,7 @@ def _with_default_transport(url: str) -> str:
 class CLIContext(dict):
     def __init__(self):
         super().__init__()
+        self.api_base_url: str | None = None
         self.orderbook_base_url: str | None = None
         self.clearing_base_url: str | None = None
         self.market_data_base_url: str | None = None
@@ -59,22 +79,44 @@ class CLIContext(dict):
         manager = self.user_manager
         return manager._default_user or next(iter(manager.usernames), None)
 
+    def _api_base_url(self) -> str | None:
+        """The single T+ base URL (the OMS). Per-service URLs derive from it; an
+        explicit per-service flag / env var overrides it."""
+        return self.api_base_url or os.environ.get("TPLUS_API_BASE_URL")
+
+    def _resolved_orderbook_url(self) -> str:
+        # The OMS host *is* the orderbook service, so TPLUS_API_BASE_URL is used directly.
+        url = self.orderbook_base_url or self._api_base_url()
+        if not url:
+            raise click.UsageError(
+                "No T+ base URL. Set TPLUS_API_BASE_URL (the OMS URL — the single T+ URL "
+                "everything derives from), or pass --orderbook-base-url / set "
+                "TPLUS_ORDERBOOK_BASE_URL to override."
+            )
+        return url
+
+    def _resolved_market_data_url(self) -> str:
+        if self.market_data_base_url:
+            return self.market_data_base_url
+        api = self._api_base_url()
+        if not api:
+            raise click.UsageError(
+                "No T+ base URL. Set TPLUS_API_BASE_URL (the market-data URL is derived "
+                "by swapping the host label oms->mds), or pass --market-data-base-url / "
+                "set TPLUS_MARKET_DATA_BASE_URL to override."
+            )
+        return _derive_market_data_base_url(api)
+
     def orderbook_client(
         self, alias: str | None = None, *, anonymous: bool = False
     ) -> "OrderBookClient":
-        if not self.orderbook_base_url:
-            raise click.UsageError(
-                "No orderbook base URL specified. "
-                "Pass --orderbook-base-url or set TPLUS_ORDERBOOK_BASE_URL."
-            )
-
         from tplus.client.auth import Auth
         from tplus.client.orderbook import OrderBookClient
         from tplus.utils.user.model import User
 
         user = User() if anonymous else self.load_user(alias)
         return OrderBookClient(
-            base_url=_with_default_transport(self.orderbook_base_url),
+            base_url=self._resolved_orderbook_url(),
             default_user=user,
             auth=Auth(cache_dir=_AUTH_CACHE_DIR),
             insecure_ssl=self.ignore_ssl,
@@ -100,12 +142,7 @@ class CLIContext(dict):
         )
 
     def _oms_base_url(self) -> str:
-        if not self.orderbook_base_url:
-            raise click.UsageError(
-                "No orderbook base URL specified. "
-                "Pass --orderbook-base-url or set TPLUS_ORDERBOOK_BASE_URL."
-            )
-        return _with_default_transport(self.orderbook_base_url)
+        return self._resolved_orderbook_url()
 
     def withdrawal_client(self, alias: str | None = None) -> "WithdrawalClient":
         from tplus.client.withdrawal import WithdrawalClient
@@ -128,16 +165,10 @@ class CLIContext(dict):
         return BlockchainClient(base_url=self.blockchain_base_url, insecure_ssl=self.ignore_ssl)
 
     def market_data_client(self) -> "MarketDataClient":
-        if not self.market_data_base_url:
-            raise click.UsageError(
-                "No market-data base URL specified. "
-                "Pass --market-data-base-url or set TPLUS_MARKET_DATA_BASE_URL."
-            )
-
         from tplus.client.market_data import MarketDataClient
 
         return MarketDataClient(
-            base_url=self.market_data_base_url,
+            base_url=self._resolved_market_data_url(),
             insecure_ssl=self.ignore_ssl,
         )
 

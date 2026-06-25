@@ -11,6 +11,7 @@ from tplus._cli._context import (
     pass_cli_context,
     tplus_account_option,
 )
+from tplus.asset_metadata import asset_metadata_dict
 from tplus.cli_tools import (
     echo_with_pager,
     ignore_ssl_option,
@@ -71,9 +72,13 @@ def _list(cli_ctx: CLIContext, output_format: str, no_pager: bool):
     records = []
     for market in response or []:
         fee_schedule = market.get("fee_schedule") or {}
+        asset_metadata = asset_metadata_dict(market.get("asset_id")) or {}
         records.append(
             {
                 "asset_id": market.get("asset_id"),
+                "symbol": asset_metadata.get("symbol"),
+                "asset_class": asset_metadata.get("asset_class"),
+                "representations": asset_metadata.get("representations"),
                 "price_decimals": market.get("book_price_decimals"),
                 "quantity_decimals": market.get("book_quantity_decimals"),
                 "max_leverage": market.get("max_leverage"),
