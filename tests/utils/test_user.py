@@ -2,7 +2,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # type: ignore
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # type: ignore
 
-from tplus.utils.user import LocalUser, User
+from tplus.utils.user import DelegatedUser, LocalUser, User
 
 
 class TestUser:
@@ -61,3 +61,21 @@ class TestUser:
 
         with pytest.raises(ValueError, match="does not match stored public key"):
             user.sign("testmessage")
+
+    def test_delegated_user_targets_account_and_emits_additional_signature(self):
+        account = User()
+        signer = User()
+        user = DelegatedUser(account.public_key, signer)
+
+        master_signature, additional = user.signing_parts("payload")
+
+        assert user.public_key == account.public_key
+        assert master_signature == []
+        assert len(additional) == 1
+        assert additional[0].signer.model_dump() == {"Ed25519": signer.public_key_vec}
+        signer.vk.verify(bytes(additional[0].signature), b"payload")
+
+    @pytest.mark.parametrize("account", ["short", "zz" * 32])
+    def test_delegated_user_rejects_invalid_account_public_key(self, account):
+        with pytest.raises(ValueError, match="account_public_key"):
+            DelegatedUser(account, User())

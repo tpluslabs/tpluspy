@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Callable
@@ -10,7 +11,7 @@ from tplus.client.auth import Auth, AuthenticatedClient
 from tplus.client.base import BaseClient, ClientSettings
 from tplus.exceptions import MissingClientUserError
 from tplus.model.types import UserPublicKey
-from tplus.utils.user import User
+from tplus.utils.user import DelegatedUser, User
 
 
 class FakeAuthBackend:
@@ -124,6 +125,39 @@ class TestAuth:
     def test_auth_has_lock(self):
         auth = Auth()
         assert isinstance(auth.lock, asyncio.Lock)
+
+    @pytest.mark.anyio
+    async def test_delegated_user_authenticates_target_with_additional_signer(self):
+        account = User()
+        signer = User()
+        delegated = DelegatedUser(account.public_key, signer)
+        auth_payloads: list[dict] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == f"/nonce/{account.public_key}":
+                return httpx.Response(200, json={"value": "nonce"})
+            if request.url.path == "/auth":
+                auth_payloads.append(json.loads(request.content))
+                return httpx.Response(
+                    200,
+                    json={"token": "tok", "expiry_ns": time.time_ns() + 3_600_000_000_000},
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+        httpx_client = httpx.AsyncClient(base_url="http://test", transport=transport)
+        client = AuthenticatedClient(
+            base_url="http://test", default_user=delegated, client=httpx_client
+        )
+
+        await client._authenticate()
+
+        payload = auth_payloads[0]
+        assert payload["user_id"] == account.public_key
+        assert payload["signature"] == []
+        assert payload["additional_signers"][0]["signer"] == {"Ed25519": signer.public_key_vec}
+        signer.vk.verify(bytes(payload["additional_signers"][0]["signature"]), b"nonce")
+        await client.close()
 
 
 class TestBaseClient:

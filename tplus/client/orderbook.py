@@ -925,6 +925,56 @@ class OrderBookClient(AuthenticatedClient):
                 "thresholds": {"low": 1, "medium": 1, "high": 1},
             }
 
+    async def add_multisig_signer(
+        self,
+        signer: "User",
+        *,
+        weight: int = 1,
+        session_duration_ns: int = (2**64) - 1,
+        user: "User | None" = None,
+    ) -> dict[str, Any]:
+        """Register an Ed25519 additional signer on an account.
+
+        The resolved ``user`` authorizes the high-tier config mutation.
+        ``signer`` is the key that will subsequently co-sign requests for that
+        account.
+        """
+        user = self._resolve_user(user=user)
+        if weight <= 0:
+            raise ValueError("weight must be greater than zero")
+        if not 0 <= session_duration_ns <= (2**64) - 1:
+            raise ValueError("session_duration_ns must fit in a u64")
+
+        nonce_data = await self._request(
+            "GET",
+            f"/nonce/{user.public_key}",
+            requires_auth=False,
+            user=user,
+        )
+        inner = {
+            "user": user.public_key,
+            "oms_nonce": str(nonce_data["value"]),
+            "ce_nonce": int(nonce_data["ce_nonce"]),
+            "signer": {"Ed25519": signer.public_key_vec},
+            "weight": weight,
+            "session_duration_ns": session_duration_ns,
+        }
+        signing_payload = json.dumps(inner, separators=(",", ":"))
+        signature, additional_signers = user.signing_parts(signing_payload)
+        payload = {
+            "inner": inner,
+            "signature": signature,
+            "additional_signers": [
+                additional.model_dump(mode="json") for additional in additional_signers
+            ],
+        }
+        return await self._request(
+            "POST",
+            "/multisig/add-signer",
+            json_data=payload,
+            user=user,
+        )
+
     async def stream_orders(self, user: UserType | None = None) -> AsyncIterator[OrderEvent]:
         """Stream order events for the authenticated user.
 
@@ -1211,11 +1261,11 @@ class OrderBookClient(AuthenticatedClient):
         }
         self.logger.debug(f"Transfer request: {inner}")
         signing_payload = json.dumps(inner, separators=(",", ":"))
-        signature = list(user.sign(signing_payload))
+        signature, additional_signers = user.signing_parts(signing_payload)
         payload = {
             "inner": inner,
             "signature": signature,
-            "additional_signers": [],
+            "additional_signers": [signer.model_dump(mode="json") for signer in additional_signers],
         }
         return payload
 
@@ -1252,11 +1302,11 @@ class OrderBookClient(AuthenticatedClient):
 
         self.logger.debug(f"Preparing close position request: {inner}")
         signing_payload = json.dumps(inner, separators=(",", ":"))
-        signature = list(user.sign(signing_payload))
+        signature, additional_signers = user.signing_parts(signing_payload)
         payload = {
             "inner": inner,
             "signature": signature,
-            "additional_signers": [],
+            "additional_signers": [signer.model_dump(mode="json") for signer in additional_signers],
         }
         return payload
 

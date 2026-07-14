@@ -50,8 +50,11 @@ def create_market_order_ob_request_payload(
     )
 
     sign_payload_json = order.signable_part()
-    signature_bytes = signer.sign(sign_payload_json)
+    signature, additional_signers = signer.signing_parts(sign_payload_json)
 
     return CreateOrderRequest(
-        order=order, signature=list(signature_bytes), post_sign_timestamp=time.time_ns()
+        order=order,
+        signature=signature,
+        post_sign_timestamp=time.time_ns(),
+        additional_signers=additional_signers,
     )

@@ -22,7 +22,7 @@ def create_cancel_order_ob_request_payload(
     compact_sign_payload_json = (
         sign_payload_json.replace(" ", "").replace("\r", "").replace("\n", "")
     )
-    signature_bytes = signer.sign(compact_sign_payload_json)
+    signature, _ = signer.signing_parts(compact_sign_payload_json)
     return CancelOrderRequest(
-        cancel=cancel, signature=list(signature_bytes), post_sign_timestamp=time.time_ns()
+        cancel=cancel, signature=signature, post_sign_timestamp=time.time_ns()
     )

@@ -47,12 +47,12 @@ def create_replace_order_ob_request_payload(
     compact_sign_payload_json = (
         sign_payload_json.replace(" ", "").replace("\r", "").replace("\n", "")
     )
-    signature_bytes = signer.sign(compact_sign_payload_json)
+    signature, _ = signer.signing_parts(compact_sign_payload_json)
 
     return ReplaceOrderRequestPayload(
         request=replace_details,
         user_id=signer.public_key,
         asset_id=asset_identifier,
-        signature=list(signature_bytes),
+        signature=signature,
         post_sign_timestamp=time.time_ns(),
     )

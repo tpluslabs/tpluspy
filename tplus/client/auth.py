@@ -219,8 +219,7 @@ class AuthenticatedClient(BaseClient):
         # NOTE: nonce_value **must** be a `str` here.
         nonce_value = f"{nonce_data['value']}" if isinstance(nonce_data, dict) else f"{nonce_data}"
 
-        signature_bytes = user.sign(nonce_value)
-        signature_array = list(signature_bytes)
+        signature_array, additional_signers = user.signing_parts(nonce_value)
         nonce_value_len = len(nonce_value)
 
         self.logger.debug(f"AUTH DEBUG: nonce={nonce_value} (len={nonce_value_len})")
@@ -232,6 +231,7 @@ class AuthenticatedClient(BaseClient):
             "user_id": user.public_key,
             "nonce": nonce_value,
             "signature": signature_array,
+            "additional_signers": [signer.model_dump(mode="json") for signer in additional_signers],
         }
 
         token_resp = await self._client.post("/auth", json=auth_payload)

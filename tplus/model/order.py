@@ -3,11 +3,12 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ValidationError, field_serializer
+from pydantic import BaseModel, Field, ValidationError, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
 from tplus.model.market_order import MarketOrderDetails
+from tplus.model.multisig import AdditionalSigner
 from tplus.model.order_trigger import OrderTrigger
 from tplus.model.types import UserPublicKey
 
@@ -85,6 +86,7 @@ class CreateOrderRequest(BaseModel):
     order: Order
     signature: list[int]
     post_sign_timestamp: int
+    additional_signers: list[AdditionalSigner] = Field(default_factory=list)
 
 
 class OrderResponse(BaseModel):
