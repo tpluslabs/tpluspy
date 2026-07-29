@@ -770,6 +770,10 @@ class OrderBookClient(AuthenticatedClient):
                 content["order"].get("base_asset"), str
             ):
                 asset_id = content["order"]["base_asset"]
+            elif isinstance(content.get("request"), dict) and isinstance(
+                content["request"].get("base_asset"), str
+            ):
+                asset_id = content["request"]["base_asset"]
         if asset_id is None:
             raise ValueError("WS control payload missing asset_id")
         key = f"{response_variant}:{asset_id}:{expected_order_id}"
