@@ -1,3 +1,4 @@
+from tplus.client import TplusApiClient
 from tplus.exceptions import (
     AuthError,
     NotFoundError,
@@ -5,6 +6,7 @@ from tplus.exceptions import (
     OrderRejected,
     RateLimitError,
     ServerError,
+    SignerRegistryUnavailable,
 )
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     "OrderRejected",
     "RateLimitError",
     "ServerError",
+    "SignerRegistryUnavailable",
+    "TplusApiClient",
 ]

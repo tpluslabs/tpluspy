@@ -1,13 +1,14 @@
 from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.order_id import UserOrderId
 from tplus.model.types import UserPublicKey
 
 
 class CancelOrder(BaseModel):
     """Data that will be serialized and signed for a cancel order operation."""
 
-    order_id: str
+    order_id: UserOrderId
     asset_id: AssetIdentifier  # Or str if only string form is signed
     signer: UserPublicKey  # Public key of the signer, included in the signed payload
     protocol_version: int = 1

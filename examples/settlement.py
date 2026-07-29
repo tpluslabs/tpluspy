@@ -41,6 +41,7 @@ async def main() -> None:
             "asset_out": ASSET_OUT,
             "amount_out": 2_500_000_000_000_000,
             "chain_id": CHAIN_ID,
+            "nonce": 0,
         }
     )
     request = TxSettlementRequest.create_signed(inner, tplus_user)

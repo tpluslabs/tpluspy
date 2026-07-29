@@ -3,10 +3,13 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from hexbytes import HexBytes
 
 from tplus.client.clearingengine import ClearingEngineClient
+from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.client.withdrawal import WithdrawalClient
+from tplus.evm.abi import get_erc20_type
 from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.exceptions import OmsError
@@ -15,6 +18,8 @@ from tplus.model.asset_identifier import Address32, AssetAddress, AssetIdentifie
 from tplus.model.types import ChainID
 from tplus.model.withdrawal import WithdrawalRequest
 from tplus.utils.address import to_evm_address
+from tplus.utils.amount import Amount
+from tplus.utils.decimals import to_chain_decimals
 
 if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
@@ -23,6 +28,33 @@ if TYPE_CHECKING:
 
     from tplus.utils.user import User
 
+EVM_ROUTING_ID = 0
+
+# Decimals for tokens that will never re-deploy with a different value, seeded into each
+# manager's cache to skip the registry round-trip. Chain ID -> token address -> decimals.
+KNOWN_DECIMALS: dict[int, dict[str, int]] = {
+    1: {
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": 6,  # USDC
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": 18,  # WETH
+    },
+    42161: {
+        "0xaf88d065e77c8cc2239327c5edb3a432268e5831": 6,  # USDC
+        "0x82af49447d8a07e3bd95bd0d56f35241523fbab1": 18,  # WETH
+    },
+}
+
+
+def build_seeded_decimals_cache() -> dict[str, int]:
+    """``KNOWN_DECIMALS`` keyed the way :meth:`WithdrawalManager.get_asset_decimals` looks up."""
+    return {
+        str(AssetAddress.from_evm_address(address, chain_id)): decimals
+        for chain_id, tokens in KNOWN_DECIMALS.items()
+        for address, decimals in tokens.items()
+    }
+
+
+SEEDED_DECIMALS_CACHE = build_seeded_decimals_cache()
+
 
 @dataclass
 class WithdrawalInfo:
@@ -30,6 +62,14 @@ class WithdrawalInfo:
 
     asset: AssetAddress
     amount: int
+    """The requested amount, in CE-internal 1e18 units."""
+
+    chain_amount: int
+    """
+    ``amount`` converted to the asset's native chain decimals. This is the amount the CE
+    covered with its approval signature, so it is the only one the vault digest matches.
+    """
+
     nonce: int
     target: Address32
     chain_id: ChainID
@@ -49,6 +89,7 @@ class WithdrawalManager(ChainConnectedManager):
         withdrawal_client: WithdrawalClient | None = None,
         chain_id: ChainID | None = None,
         vault: DepositVault | None = None,
+        registry_client: AssetRegistryClient | None = None,
     ):
         self.default_user = default_user
         self.ape_account = ape_account
@@ -65,14 +106,50 @@ class WithdrawalManager(ChainConnectedManager):
                 base_url=oms_base_url,
                 insecure_ssl=oms_insecure_ssl,
             )
+        self.registry_client = registry_client or AssetRegistryClient.from_client(self.withdrawals)
         self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
         self.vault = vault or DepositVault(chain_id=self.chain_id)
         self.logger = get_logger()
+        self._decimals_cache: dict[str, int] = dict(SEEDED_DECIMALS_CACHE)
+
+    async def get_asset_decimals(self, asset: AssetAddress) -> int:
+        """
+        The asset's native chain decimals, read from the registry snapshot the CE
+        publishes. This is the same source the CE uses when signing withdrawal approvals.
+
+        Falls back to the token's own ``decimals()`` when the registry is unreachable or
+        holds no entry for the asset.
+        """
+        key = str(asset)
+        if key in self._decimals_cache:
+            return self._decimals_cache[key]
+
+        try:
+            decimals = (await self.registry_client.get_asset_decimals([asset])).get(key)
+        except httpx.HTTPError as err:
+            self.logger.warning(f"Registry decimals lookup failed for '{key}': {err}")
+            decimals = None
+
+        if decimals is None:
+            decimals = self.get_erc20_decimals(asset)
+
+        self._decimals_cache[key] = int(decimals)
+        return self._decimals_cache[key]
+
+    def get_erc20_decimals(self, asset: AssetAddress) -> int:
+        """Read ``decimals()`` off the token contract itself."""
+        if asset.chain_id.routing_id != EVM_ROUTING_ID:
+            raise ValueError(f"Cannot read decimals on-chain for non-EVM asset '{asset}'.")
+
+        token = self.chain_manager.contracts.instance_at(
+            asset.evm_address, contract_type=get_erc20_type()
+        )
+        return token.decimals()
 
     async def init_withdrawal(
         self,
         asset: AssetAddress,
-        amount: int,
+        amount: int | Amount,
         target: Address32 | str | None = None,
         user: "User | None" = None,
         nonce: int | None = None,
@@ -85,6 +162,12 @@ class WithdrawalManager(ChainConnectedManager):
 
         If ``then_execute`` is True, poll the CE for an approval signature and
         submit the on-chain ``withdraw`` transaction once it arrives.
+
+        Args:
+            asset: The asset to withdraw.
+            amount: An ``int`` is a CE-internal 1e18-normalized amount and the asset's
+                decimals are looked up from the registry. An :class:`~tplus.utils.amount.Amount`
+                is a native-decimals amount and is normalized here instead.
         """
         user = user or self.default_user
 
@@ -94,23 +177,38 @@ class WithdrawalManager(ChainConnectedManager):
         if target is None:
             target = Address32(self.ape_account.address)
 
+        if isinstance(amount, Amount):
+            decimals: int | None = amount.decimals
+            request_amount = amount.to_inventory_amount("down")
+        else:
+            decimals = None
+            request_amount = amount
+
         request = WithdrawalRequest.create_signed(
             signer=user,
             asset=asset,
-            amount=amount,
+            amount=request_amount,
             nonce=nonce,
             target=target,
         )
 
+        if decimals is None:
+            decimals = await self.get_asset_decimals(request.inner.asset)
+
+        # The CE signs the chain-decimals amount, rounding down; the vault digest only
+        # matches if the on-chain call uses that exact value.
+        chain_amount = to_chain_decimals(request_amount, decimals, "down")
+
         await self.withdrawals.init_withdrawal(request)
         self.logger.info(
             f"Initialized withdrawal - Asset: {request.inner.asset}, "
-            f"Amount: {amount}, Nonce: {nonce}"
+            f"Amount: {request_amount}, Chain amount: {chain_amount}, Nonce: {nonce}"
         )
 
         info = WithdrawalInfo(
             asset=request.inner.asset,
-            amount=amount,
+            amount=request_amount,
+            chain_amount=chain_amount,
             nonce=nonce,
             target=request.inner.target,
             chain_id=self.chain_id,
@@ -170,6 +268,9 @@ class WithdrawalManager(ChainConnectedManager):
     ) -> "ReceiptAPI":
         """Execute an approved withdrawal on-chain.
 
+        The vault call uses ``info.chain_amount`` (native token decimals), not the
+        1e18-normalized ``info.amount`` the CE request carried.
+
         Args:
             info: The :class:`WithdrawalInfo` returned by :meth:`init_withdrawal`.
             approvals: All :class:`OneTimeSignature` dicts whose inner nonce
@@ -201,7 +302,7 @@ class WithdrawalManager(ChainConnectedManager):
 
         withdrawal = {
             "tokenAddress": asset_address,
-            "amount": info.amount,
+            "amount": info.chain_amount,
             "nonce": info.nonce,
         }
 

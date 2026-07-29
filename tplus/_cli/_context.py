@@ -164,8 +164,19 @@ class CLIContext(dict):
 
         return BlockchainClient(base_url=self.blockchain_base_url, insecure_ssl=self.ignore_ssl)
 
-    def market_data_client(self) -> "MarketDataClient":
+    def market_data_client(
+        self, alias: str | None = None, *, authed: bool = False
+    ) -> "MarketDataClient":
+        from tplus.client.auth import Auth
         from tplus.client.market_data import MarketDataClient
+
+        if authed:
+            return MarketDataClient(
+                base_url=self._resolved_market_data_url(),
+                default_user=self.load_user(alias),
+                auth=Auth(cache_dir=_AUTH_CACHE_DIR),
+                insecure_ssl=self.ignore_ssl,
+            )
 
         return MarketDataClient(
             base_url=self._resolved_market_data_url(),

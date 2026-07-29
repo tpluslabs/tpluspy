@@ -1,23 +1,26 @@
 """Client for the `market-data-service` (public market data + per-user endpoints)."""
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from tplus.client.base import BaseClient
+from tplus.client.auth import AuthenticatedClient
+from tplus.client.base import page_params
+from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
-
-if TYPE_CHECKING:
-    from tplus.client.auth import AuthenticatedClient
-    from tplus.types import UserType
 from tplus.model.klines import KlinesPage, KlineUpdate, parse_kline_update, parse_klines_page
+from tplus.model.order import OrderResponse, parse_orders
 from tplus.model.orderbook import OrderBook, OrderBookDiff
 from tplus.model.trades import (
     Trade,
     TradeEvent,
+    UserTrade,
+    UserTradesPage,
     parse_single_trade,
     parse_trade_event,
     parse_trades,
+    parse_user_trades_page,
 )
+from tplus.types import UserType
 
 DEFAULT_BASE_URL = "http://localhost:8011"
 
@@ -33,40 +36,19 @@ def _pagination(page: int | None, limit: int | None) -> dict[str, Any]:
     return params
 
 
-class MarketDataClient(BaseClient):
-    """Klines, order-book depth, public trades and 24h tickers (REST + WS streams)."""
+class MarketDataClient(AuthenticatedClient):
+    """Klines, order-book depth, public trades and 24h tickers (REST + WS streams).
 
-    def __init__(
-        self,
-        base_url: str = DEFAULT_BASE_URL,
-        *,
-        auth_client: "AuthenticatedClient | None" = None,
-        **kwargs: Any,
-    ) -> None:
+    Public endpoints are anonymous; per-user trade history authenticates against
+    MDS itself (its own nonce/token handshake, separate from the OMS token).
+    """
+
+    def __init__(self, base_url: str = DEFAULT_BASE_URL, **kwargs: Any) -> None:
         super().__init__(base_url, **kwargs)
-        # Per-user endpoints borrow the OMS bearer token from this client.
-        self._auth_client = auth_client
-
-    async def _authed_get(
-        self,
-        endpoint: str,
-        *,
-        user: "UserType | None" = None,
-        params: dict[str, Any] | None = None,
-    ) -> Any:
-        """GET an MDS endpoint with the OMS bearer token attached."""
-        if self._auth_client is None:
-            raise ValueError("per-user market-data endpoints require an `auth_client`")
-
-        signer = user if not isinstance(user, str) else None
-        await self._auth_client._ensure_auth(user=signer)
-        headers = self._auth_client._get_auth_headers(user=user)
-        response = await self._send("GET", endpoint, params=params, headers=headers)
-        return self._handle_response(response)
 
     async def get_orderbook_snapshot(self, asset_id: AssetIdentifier) -> OrderBook:
         """Current order-book snapshot for `asset_id`."""
-        response = await self._request("GET", f"/marketdepth/{asset_id}", requires_auth=False)
+        response = await self._get(f"/marketdepth/{asset_id}", requires_auth=False)
         if not isinstance(response, dict):
             raise ValueError(f"Invalid response for order book snapshot: {response}")
 
@@ -87,9 +69,7 @@ class MarketDataClient(BaseClient):
         if end_timestamp_ns:
             params["end_timestamp_ns"] = end_timestamp_ns
 
-        response = await self._request(
-            "GET", f"/klines/{asset_id}", params=params, requires_auth=False
-        )
+        response = await self._get(f"/klines/{asset_id}", params=params, requires_auth=False)
         if not isinstance(response, dict | list):
             raise ValueError(f"Invalid response from get_klines: {response}")
 
@@ -97,7 +77,7 @@ class MarketDataClient(BaseClient):
 
     async def get_ticker(self, asset_id: AssetIdentifier) -> dict[str, Any]:
         """24h ticker for `asset_id`."""
-        response = await self._request("GET", f"/ticker/{asset_id}", requires_auth=False)
+        response = await self._get(f"/ticker/{asset_id}", requires_auth=False)
         if not isinstance(response, dict):
             raise ValueError(f"Invalid response from get_ticker: {response}")
 
@@ -105,7 +85,7 @@ class MarketDataClient(BaseClient):
 
     async def get_tickers(self) -> list[dict[str, Any]]:
         """24h tickers for all markets."""
-        response = await self._request("GET", "/tickers", requires_auth=False)
+        response = await self._get("/tickers", requires_auth=False)
         if not isinstance(response, list):
             raise ValueError(f"Invalid response from get_tickers: {response}")
 
@@ -113,9 +93,7 @@ class MarketDataClient(BaseClient):
 
     async def get_trades(self, page: int | None = None, limit: int | None = None) -> list[Trade]:
         """Confirmed trades across all markets."""
-        response = await self._request(
-            "GET", "/trades", params=_pagination(page, limit), requires_auth=False
-        )
+        response = await self._get("/trades", params=_pagination(page, limit), requires_auth=False)
         if not isinstance(response, list):
             raise ValueError(f"Invalid response from get_trades: {response}")
 
@@ -125,13 +103,212 @@ class MarketDataClient(BaseClient):
         self, asset_id: AssetIdentifier, page: int | None = None, limit: int | None = None
     ) -> list[Trade]:
         """Confirmed trades for `asset_id`."""
-        response = await self._request(
-            "GET", f"/trades/{asset_id}", params=_pagination(page, limit), requires_auth=False
+        response = await self._get(
+            f"/trades/{asset_id}", params=_pagination(page, limit), requires_auth=False
         )
         if not isinstance(response, list):
             raise ValueError(f"Invalid response from get_trades_for_asset: {response}")
 
         return parse_trades(response)
+
+    async def get_user_trades(
+        self,
+        user: UserType | None = None,
+        *,
+        page: int | None = None,
+        limit: int | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        side: str | None = None,
+    ) -> list[UserTrade]:
+        """
+        Trades for `user`, newest first; empty unless the user's data is exported to MDS.
+
+        `start_time`/`end_time` are inclusive nanosecond Unix timestamps; `side` is
+        `"buy"` or `"sell"`, matching the caller's role in the fill.
+        """
+        page_result = await self.get_user_trades_page(
+            user=user,
+            page=page,
+            limit=limit,
+            start_time=start_time,
+            end_time=end_time,
+            side=side,
+        )
+        return page_result.trades
+
+    async def get_user_trades_for_asset(
+        self,
+        asset_id: AssetIdentifier,
+        user: UserType | None = None,
+        *,
+        page: int | None = None,
+        limit: int | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        side: str | None = None,
+    ) -> list[UserTrade]:
+        """
+        Trades for `user` on `asset_id`, newest first.
+
+        `start_time`/`end_time` are inclusive nanosecond Unix timestamps; `side` is
+        `"buy"` or `"sell"`, matching the caller's role in the fill.
+        """
+        page_result = await self.get_user_trades_page(
+            asset_id=asset_id,
+            user=user,
+            page=page,
+            limit=limit,
+            start_time=start_time,
+            end_time=end_time,
+            side=side,
+        )
+        return page_result.trades
+
+    async def get_user_trades_page(
+        self,
+        *,
+        asset_id: AssetIdentifier | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+        sub_account: int | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        side: str | None = None,
+        user: UserType | None = None,
+    ) -> UserTradesPage:
+        """
+        Fetch one page of user trades with pagination metadata (`has_next_page`, etc.).
+
+        `start_time` / `end_time` are inclusive nanosecond Unix timestamps; `side` is
+        `"buy"` or `"sell"`.
+        """
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/trades/user/{public_key}"
+        if asset_id is not None:
+            endpoint = f"{endpoint}/{asset_id}"
+
+        params = page_params(
+            page,
+            limit,
+            sub_account=sub_account,
+            start_time=start_time,
+            end_time=end_time,
+            side=side,
+        )
+        try:
+            data = await self._get(endpoint, params=params, requires_auth=True, user=user)
+        except NotFoundError:
+            return parse_user_trades_page([])
+
+        return parse_user_trades_page(data)
+
+    async def get_user_orders(
+        self,
+        user: UserType | None = None,
+        *,
+        page: int | None = None,
+        limit: int | None = None,
+        sub_account: int | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        side: str | None = None,
+        status: str | None = None,
+    ) -> list[OrderResponse]:
+        """
+        Orders for `user`, newest first; empty unless the user's data is exported to MDS.
+
+        `start_time`/`end_time` are inclusive nanosecond Unix timestamps; `side` is
+        `"buy"` or `"sell"`; `status` is one of `pending`, `open`, `partial`, `cancelled`, `closed`,
+        `completed`. All are case-insensitive.
+        """
+        return await self._get_user_orders(
+            user=user,
+            page=page,
+            limit=limit,
+            sub_account=sub_account,
+            start_time=start_time,
+            end_time=end_time,
+            side=side,
+            status=status,
+        )
+
+    async def get_user_orders_for_asset(
+        self,
+        asset_id: AssetIdentifier,
+        user: UserType | None = None,
+        *,
+        page: int | None = None,
+        limit: int | None = None,
+        sub_account: int | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        side: str | None = None,
+        status: str | None = None,
+    ) -> list[OrderResponse]:
+        """
+        Orders for `user` on `asset_id`, newest first.
+
+        `start_time`/`end_time` are inclusive nanosecond Unix timestamps; `side` is
+        `"buy"` or `"sell"`; `status` is one of `pending`, `open`, `partial`, `cancelled`, `closed`,
+        `completed`. All are case-insensitive.
+        """
+        return await self._get_user_orders(
+            asset_id=asset_id,
+            user=user,
+            page=page,
+            limit=limit,
+            sub_account=sub_account,
+            start_time=start_time,
+            end_time=end_time,
+            side=side,
+            status=status,
+        )
+
+    async def _get_user_orders(
+        self,
+        *,
+        asset_id: AssetIdentifier | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+        sub_account: int | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        side: str | None = None,
+        status: str | None = None,
+        user: UserType | None = None,
+    ) -> list[OrderResponse]:
+        public_key = self._validate_user_public_key(user=user)
+        endpoint = f"/orders/user/{public_key}"
+        if asset_id is not None:
+            endpoint = f"{endpoint}/{asset_id}"
+
+        params = page_params(
+            page,
+            limit,
+            sub_account=sub_account,
+            start_time=start_time,
+            end_time=end_time,
+            side=side,
+            status=status,
+        )
+        try:
+            data = await self._get(endpoint, params=params, requires_auth=True, user=user)
+        except NotFoundError:
+            return []
+
+        if isinstance(data, dict):
+            return parse_orders(data.get("orders", []))
+
+        if isinstance(data, list):
+            return parse_orders(data)
+
+        raise ValueError(f"Invalid response from get_user_orders: {data}")
+
+    async def clear_db(self) -> None:
+        """Wipe the persistence store. Test/debug only (`debug-admin-endpoint` feature);
+        raises `ServerError` (503) until the store has connected."""
+        await self._post("/debug/clear-db", requires_auth=False)
 
     async def stream_finalized_trades(self) -> AsyncIterator[Trade]:
         """Confirmed/finalized trades."""

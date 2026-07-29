@@ -25,6 +25,7 @@ keep working.
 | {py:class}`tplus.exceptions.OmsError`       | Base class. Carries `code`, `message`, `status_code`, `details`, `retryable`.                              |
 | {py:class}`tplus.exceptions.OrderRejected`  | Order create / replace / cancel rejected (insufficient margin, post-only violation, FOK/IOC failure, ...). |
 | {py:class}`tplus.exceptions.AuthError`      | Auth / signature / nonce errors.                                                                           |
+| {py:class}`tplus.exceptions.SignerRegistryUnavailable` | Subclass of `AuthError`. No signer registry for this user on that service.                                 |
 | {py:class}`tplus.exceptions.RateLimitError` | Rate limit exceeded (HTTP 429 or `RATE_LIMITED`).                                                          |
 | {py:class}`tplus.exceptions.NotFoundError`  | Resource not found (HTTP 404 or `*_NOT_FOUND`).                                                            |
 | {py:class}`tplus.exceptions.ServerError`    | 5xx / `INTERNAL_ERROR` / `CE_COMMUNICATION_ERROR` / `TIMEOUT`.                                             |
@@ -54,6 +55,7 @@ except RateLimitError as err:
 The classification rules live in {py:func}`tplus.exceptions._classify` and
 are summarised below:
 
+- `SIGNER_REGISTRY_UNAVAILABLE` → `SignerRegistryUnavailable`.
 - `UNAUTHORIZED`, `INVALID_SIGNATURE`, `SIGNER_*`, `NONCE_*` → `AuthError`.
 - `RATE_LIMITED` → `RateLimitError`.
 - `*_NOT_FOUND` → `NotFoundError`.

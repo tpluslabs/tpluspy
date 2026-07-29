@@ -96,9 +96,11 @@ class AuthenticatedClient(BaseClient):
         *,
         requires_auth: bool = True,
         user: "UserType | None" = None,
+        headers: dict[str, str] | None = None,
         request_timeout: float | None = None,
     ) -> dict[str, Any]:
         relative_url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        extra_headers = headers
 
         # Sign in opportunistically so authed callers get the higher-tier rate
         # limits even on endpoints flagged requires_auth=False.
@@ -120,7 +122,10 @@ class AuthenticatedClient(BaseClient):
                 )
                 use_auth = False
 
-        headers = self._build_headers(with_auth=use_auth, user=auth_user)
+        headers = self._build_headers(with_auth=use_auth, user=user)
+        if extra_headers:
+            headers.update(extra_headers)
+
         response = await self._send(
             method,
             relative_url,
@@ -150,7 +155,7 @@ class AuthenticatedClient(BaseClient):
                 )
                 use_auth = False
 
-            headers = self._build_headers(with_auth=use_auth, user=auth_user)
+            headers = self._build_headers(with_auth=use_auth, user=user)
             response = await self._send(
                 method,
                 relative_url,
@@ -219,8 +224,7 @@ class AuthenticatedClient(BaseClient):
         # NOTE: nonce_value **must** be a `str` here.
         nonce_value = f"{nonce_data['value']}" if isinstance(nonce_data, dict) else f"{nonce_data}"
 
-        signature_bytes = user.sign(nonce_value)
-        signature_array = list(signature_bytes)
+        signature_array, additional_signers = user.signing_parts(nonce_value)
         nonce_value_len = len(nonce_value)
 
         self.logger.debug(f"AUTH DEBUG: nonce={nonce_value} (len={nonce_value_len})")
@@ -232,6 +236,7 @@ class AuthenticatedClient(BaseClient):
             "user_id": user.public_key,
             "nonce": nonce_value,
             "signature": signature_array,
+            "additional_signers": [signer.model_dump(mode="json") for signer in additional_signers],
         }
 
         token_resp = await self._client.post("/auth", json=auth_payload)

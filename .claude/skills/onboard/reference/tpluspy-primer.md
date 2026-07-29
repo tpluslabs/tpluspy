@@ -23,6 +23,7 @@ MASTER_KEY_MESSAGE = (
     "This signature derives your wallet signer key and will never be broadcast to the blockchain."
 )
 
+
 def load_user() -> User:
     evm_pk = os.environ["TPLUS_PRIVATE_KEY"]
     if not evm_pk.startswith("0x"):
@@ -43,8 +44,12 @@ def load_user() -> User:
 ```python
 from tplus.client import OrderBookClient, MarketDataClient, ClearingEngineClient
 
-BASE_URL = os.environ["TPLUS_API_BASE_URL"]   # the sole T+ URL; others derive from it
-HEADERS = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+BASE_URL = os.environ["TPLUS_API_BASE_URL"]  # the sole T+ URL; others derive from it
+HEADERS = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0",
+}
 
 async with OrderBookClient(base_url=BASE_URL, default_user=load_user(), headers=HEADERS) as client:
     inv = await client.get_user_inventory()
@@ -143,9 +148,13 @@ from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC
 
 asset = AssetIdentifier("<id from `tplus markets list`>")
-await client.get_market(asset)          # inspect book_price_decimals / book_quantity_decimals
+await client.get_market(asset)  # inspect book_price_decimals / book_quantity_decimals
 resp = await client.create_limit_order(
-    quantity=1, price=1, side="Buy", time_in_force=GTC(post_only=True), asset_id=asset,
+    quantity=1,
+    price=1,
+    side="Buy",
+    time_in_force=GTC(post_only=True),
+    asset_id=asset,
 )
 await client.cancel_order(resp.order_id, asset)
 ```

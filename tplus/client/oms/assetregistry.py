@@ -1,5 +1,3 @@
-from typing import Any, cast
-
 from tplus.client.auth import AuthenticatedClient
 from tplus.model.asset_identifier import AssetAddress
 from tplus.model.chain_address import ChainAddress
@@ -57,11 +55,11 @@ class AssetRegistryClient(AuthenticatedClient):
             requires_auth=True,
         )
 
-    async def get_vaults(self) -> list[dict]:
+    async def get_vaults(self) -> list[ChainAddress]:
         """
         Get vault addresses (`GET /registry/vaults`).
         """
         response = await self._get("registry/vaults", requires_auth=False)
         if not isinstance(response, list):
             raise TypeError(f"Expected list response for registry vaults, got: {type(response)}")
-        return cast(list[dict[Any, Any]], response)
+        return [ChainAddress.model_validate(v) for v in response]

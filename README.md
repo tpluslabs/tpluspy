@@ -60,11 +60,13 @@ from tplus.utils.user import User
 API_BASE_URL = "http://127.0.0.1:8000"  # Replace with your API URL
 user = User()
 
+
 async def run_client():
     # Use async context manager for automatic cleanup
     async with OrderBookClient(API_BASE_URL, default_user=user) as client:
         print("Client initialized.")
         # ... use client methods ...
+
 
 asyncio.run(run_client())
 ```
@@ -89,14 +91,19 @@ print(f"Klines: {klines}")
 
 # Get Market Details for an asset
 market_details = await client.get_market(example_asset)
-print(f"Market Details: Price Decimals={market_details.book_price_decimals}, Quantity Decimals={market_details.book_quantity_decimals}")
+print(
+    f"Market Details: Price Decimals={market_details.book_price_decimals}, Quantity Decimals={market_details.book_quantity_decimals}"
+)
 
 # Get orders for the user
 user_orders, _ = await client.get_user_orders()
 print(f"User Orders: {user_orders}")
 
-# Get trades for the user and asset
-user_asset_trades = await client.get_user_trades_for_asset(example_asset)
+# Get trades for the user and asset (per-user trades live on the market-data-service)
+from tplus.client import MarketDataClient
+
+md_client = MarketDataClient("http://localhost:8011", default_user=user)
+user_asset_trades = await md_client.get_user_trades_for_asset(example_asset, user=user)
 print(f"User Asset Trades: {user_asset_trades}")
 
 # Get user inventory
@@ -109,6 +116,7 @@ print(f"Inventory: {inventory}")
 ```python
 # Ensure example_asset is defined (e.g., from "Fetching Data" section)
 from tplus.model.asset_identifier import AssetIdentifier
+
 example_asset = AssetIdentifier(200)
 
 # Create a Market for an asset (idempotent)
@@ -127,6 +135,7 @@ print(f"Market Order Response: {market_response}")
 # Create a Limit Order for a specific asset
 # Good-Till-Cancelled limit order
 from tplus.model.limit_order import GTC
+
 limit_response = await client.create_limit_order(
     asset_id=example_asset,
     quantity=5,
@@ -139,10 +148,7 @@ print(f"Limit Order Response: {limit_response}")
 # Cancel an Order
 # Order ID should be obtained from an order creation response.
 order_id_to_cancel = "actual-order-id-from-api"  # Replace with a real order ID
-cancel_response = await client.cancel_order(
-    order_id=order_id_to_cancel,
-    asset_id=example_asset
-)
+cancel_response = await client.cancel_order(order_id=order_id_to_cancel, asset_id=example_asset)
 print(f"Cancel Order Response: {cancel_response}")
 
 # Replace an Order
@@ -151,8 +157,8 @@ original_order_id_to_replace = "actual-original-order-id"  # Replace with a real
 replace_response = await client.replace_order(
     original_order_id=original_order_id_to_replace,
     asset_id=example_asset,
-    new_quantity=6, # Optional: New integer quantity
-    new_price=1050   # Optional: New integer price
+    new_quantity=6,  # Optional: New integer quantity
+    new_price=1050,  # Optional: New integer price
 )
 print(f"Replace Order Response: {replace_response}")
 ```
@@ -173,14 +179,16 @@ example_asset = AssetIdentifier(200)
 # Stream Order Book Diffs
 async for diff_update in client.stream_depth(example_asset):
     if isinstance(diff_update, OrderBookDiff):
-        print(f"[Depth] Seq={diff_update.sequence_number}, Asks={len(diff_update.asks)}, Bids={len(diff_update.bids)}")
+        print(
+            f"[Depth] Seq={diff_update.sequence_number}, Asks={len(diff_update.asks)}, Bids={len(diff_update.bids)}"
+        )
     # Add logic to handle the update, e.g., update a local order book
 
 # Stream Finalized Trades
 async for trade in client.stream_finalized_trades():
-     if isinstance(trade, Trade):
+    if isinstance(trade, Trade):
         print(f"[Trade] ID: {trade.trade_id}, Price: {trade.price}, Qty: {trade.quantity}")
-    # Add logic to handle the trade
+# Add logic to handle the trade
 
 # Other available streams:
 # client.stream_orders() -> OrderEvent
@@ -210,10 +218,16 @@ ape console --network ethereum:sepolia:alchemy
 Then, once in the console, you will already have access to contracts that you can call methods on:
 
 ```python
-In [1]: registry.getAssets()
-Out[1]: [getAssets_return(assetAddress=HexBytes('0x000000000000000000000000f08a50178dfcde18524640ea6618a1f965821715'), chainId=11155111, maxDeposits=100)]
-In [2]: registry.admin()
-Out[2]: '0x467a95fC5359edE5d5dDc4f10A1F4B680694858E'
+In[1]: registry.getAssets()
+Out[1]: [
+    getAssets_return(
+        assetAddress=HexBytes("0x000000000000000000000000f08a50178dfcde18524640ea6618a1f965821715"),
+        chainId=11155111,
+        maxDeposits=100,
+    )
+]
+In[2]: registry.admin()
+Out[2]: "0x467a95fC5359edE5d5dDc4f10A1F4B680694858E"
 ```
 
 #### Settlement signatures

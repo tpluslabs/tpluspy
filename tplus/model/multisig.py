@@ -21,15 +21,15 @@ class SignerKey(BaseModel):
         return {self.variant: self.key_bytes}
 
     @classmethod
-    def ed25519(cls, key_bytes: list[int]) -> SignerKey:
+    def ed25519(cls, key_bytes: list[int]) -> "SignerKey":
         return cls(variant="Ed25519", key_bytes=key_bytes)
 
     @classmethod
-    def secp256k1(cls, key_bytes: list[int]) -> SignerKey:
+    def secp256k1(cls, key_bytes: list[int]) -> "SignerKey":
         return cls(variant="Secp256k1", key_bytes=key_bytes)
 
     @classmethod
-    def p256(cls, key_bytes: list[int]) -> SignerKey:
+    def p256(cls, key_bytes: list[int]) -> "SignerKey":
         return cls(variant="P256", key_bytes=key_bytes)
 
 

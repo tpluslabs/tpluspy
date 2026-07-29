@@ -21,7 +21,7 @@ class _CapturingClient(OrderBookClient):
     async def get_market(self, asset_id: AssetIdentifier) -> Market:  # type: ignore[override]
         return Market(asset_id=asset_id, book_price_decimals=2, book_quantity_decimals=3)
 
-    async def _request(self, method, endpoint, json_data=None, params=None):  # type: ignore[override]
+    async def _request(self, method, endpoint, json_data=None, params=None, **kwargs):  # type: ignore[override]
         self.captured = json_data
         return {"order_id": "stub", "status": "Received"}
 
@@ -102,6 +102,28 @@ async def test_create_market_order_without_trigger_serialises_null():
     )
 
     assert client._require_captured()["order"]["trigger"] is None
+
+
+@pytest.mark.anyio
+async def test_create_orders_reject_oversized_order_ids():
+    client = _CapturingClient(user=User())
+
+    with pytest.raises(ValueError, match="maximum length of 24 bytes"):
+        await client.create_limit_order(
+            quantity=10,
+            price=100_00,
+            side="Buy",
+            asset_id=AssetIdentifier("200"),
+            order_id="a" * 25,
+        )
+
+    with pytest.raises(ValueError, match="maximum length of 24 bytes"):
+        await client.create_market_order(
+            side="Sell",
+            base_quantity=5,
+            asset_id=AssetIdentifier("200"),
+            order_id="é" * 13,
+        )
 
 
 @pytest.mark.anyio

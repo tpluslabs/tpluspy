@@ -10,7 +10,7 @@ import websockets
 from pydantic import BaseModel, Field
 from typing_extensions import Self
 
-from tplus.exceptions import MissingClientUserError, from_error_body
+from tplus.exceptions import MissingClientUserError, from_error_body, from_flat_error
 from tplus.logger import get_logger
 from tplus.utils.user import User
 
@@ -74,6 +74,16 @@ def create_httpx_client(settings: ClientSettings) -> httpx.AsyncClient:
     )
 
 
+def page_params(page: int | None, limit: int | None, **extra: Any) -> dict[str, Any] | None:
+    """Query params for a paginated GET; drops `None`s and returns `None` if empty."""
+    params: dict[str, Any] = {k: v for k, v in extra.items() if v is not None}
+    if page is not None:
+        params["page"] = int(page)
+    if limit is not None:
+        params["limit"] = int(limit)
+    return params or None
+
+
 class BaseClient:
     """
     Base client to use across T+ services.
@@ -135,37 +145,20 @@ class BaseClient:
             return user
         return self._resolve_user(user=user).public_key
 
-    async def _get(
-        self,
-        endpoint: str,
-        json_data: dict[str, Any] | None = None,
-        *,
-        requires_auth: bool = True,
-        request_timeout: float | None = None,
-    ) -> dict[str, Any]:
-        return await self._request(
-            "GET",
-            endpoint,
-            json_data=json_data,
-            requires_auth=requires_auth,
-            request_timeout=request_timeout,
-        )
+    async def _get(self, endpoint: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self._request("GET", endpoint, *args, **kwargs)
 
-    async def _post(
-        self,
-        endpoint: str,
-        json_data: dict[str, Any] | None = None,
-        *,
-        requires_auth: bool = True,
-        request_timeout: float | None = None,
-    ) -> dict[str, Any]:
-        return await self._request(
-            "POST",
-            endpoint,
-            json_data=json_data,
-            requires_auth=requires_auth,
-            request_timeout=request_timeout,
-        )
+    async def _post(self, endpoint: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self._request("POST", endpoint, *args, **kwargs)
+
+    async def _put(self, endpoint: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self._request("PUT", endpoint, *args, **kwargs)
+
+    async def _patch(self, endpoint: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self._request("PATCH", endpoint, *args, **kwargs)
+
+    async def _delete(self, endpoint: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return await self._request("DELETE", endpoint, *args, **kwargs)
 
     async def _request(
         self,
@@ -176,13 +169,19 @@ class BaseClient:
         *,
         requires_auth: bool = True,
         user: "UserType | None" = None,
+        headers: dict[str, str] | None = None,
         request_timeout: float | None = None,
     ) -> dict[str, Any]:
+        merged_headers = None
+        if headers is not None:
+            merged_headers = {**self._get_request_headers(), **headers}
+
         response = await self._send(
             method,
             endpoint,
             json_data=json_data,
             params=params,
+            headers=merged_headers,
             request_timeout=request_timeout,
         )
         return self._handle_response(response)
@@ -393,13 +392,19 @@ def raise_for_status_with_body(response: httpx.Response) -> None:
     if response.is_success:
         return
 
-    # Try to parse the standardised error envelope
+    # Try to parse the standardised error envelope, or a flat `{"error": "<reason>"}`.
+    flat_message = None
     try:
         data = response.json()
         if isinstance(data, dict) and isinstance(data.get("error"), dict):
             raise from_error_body(data["error"], response.status_code, response=response)
+        if isinstance(data, dict) and isinstance(data.get("error"), str):
+            flat_message = data["error"]
     except (json.JSONDecodeError, ValueError, KeyError):
         pass
+
+    if flat_message is not None:
+        raise from_flat_error(flat_message, response.status_code, response=response)
 
     # Fallback: plain httpx error with body context (pre-existing behaviour)
     try:

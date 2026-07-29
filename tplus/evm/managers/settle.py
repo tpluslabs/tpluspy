@@ -223,6 +223,7 @@ class SettlementManager(ChainConnectedManager):
             "asset_out": asset_out,
             "amount_out": amount_out_normalized,
             "sub_account_index": account_index,
+            "nonce": expected_nonce,
         }
         if settler is not None:
             request_data["settler"] = settler

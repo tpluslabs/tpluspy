@@ -94,20 +94,26 @@ def _cancel(cli_ctx: CLIContext, order_id: str, asset_id: str):
 @tplus_account_option()
 @click.argument("order_id")
 @click.option("--asset", "asset_id", required=True, help="Asset identifier.")
-@click.option("--quantity", type=int, help="New base quantity.")
-@click.option("--price", type=int, help="New price.")
+@click.option(
+    "--quantity",
+    type=int,
+    required=True,
+    help="Effective lifetime-total base quantity after the replace.",
+)
+@click.option("--price", type=int, required=True, help="Effective price after the replace.")
 @pass_cli_context
 def _replace(
     cli_ctx: CLIContext,
     order_id: str,
     asset_id: str,
-    quantity: int | None,
-    price: int | None,
+    quantity: int,
+    price: int,
 ):
-    """Replace ORDER_ID with new parameters."""
-    if quantity is None and price is None:
-        raise click.UsageError("Pass --quantity and/or --price.")
+    """Replace ORDER_ID with new parameters.
 
+    A replacement is signed over its complete effective terms, so both --quantity and
+    --price are required even when only one of them changes.
+    """
     from tplus.model.asset_identifier import AssetIdentifier
 
     client = cli_ctx.orderbook_client()

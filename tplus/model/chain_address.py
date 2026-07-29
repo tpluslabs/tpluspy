@@ -37,6 +37,13 @@ def _parse_chain_address_from_dict(data: dict) -> str:
     raise ValueError("Invalid Address")
 
 
+def _parse_vault_entry_from_dict(data: dict) -> str:
+    address = str(data["address"]).removeprefix("0x")
+    address = bytes.fromhex(address).ljust(32, b"\x00").hex()
+    chain = ChainID.from_parts(int(data.get("routingId", 0)), int(data["chainId"]))
+    return f"{address}@{chain}"
+
+
 def parse_chain_address(data: str) -> str:
     """
     Parse a chain-address str (e.g. AssetIdentifier or VaultAddress).
@@ -64,6 +71,9 @@ def validate_chain_address(chain_address: str) -> str:
 
     # Case 2: Input is a dictionary from the backend (e.g., from JSON deserialization)
     elif isinstance(chain_address, dict):
+        if "chainId" in chain_address and "address" in chain_address:
+            return _parse_vault_entry_from_dict(chain_address)
+
         return _parse_asset_from_dict(chain_address)
 
     # Case 3: Valid strings.

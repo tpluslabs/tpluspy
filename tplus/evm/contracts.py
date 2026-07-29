@@ -120,6 +120,9 @@ TPLUS_DEPLOYMENTS = TplusDeployments()
 _DEFAULT_CE_URL = "http://127.0.0.1:3032"
 _CE_TIMEOUT = 2.0
 
+# Governance veto window for dev deploys; must be non-zero and <= the contract's 365-day cap.
+VETO_WINDOW_SECONDS = 7 * 24 * 60 * 60
+
 
 def _ce_base_url() -> str:
     return os.environ.get("TPLUS_CLEARING_BASE_URL") or _DEFAULT_CE_URL
@@ -905,6 +908,13 @@ class CredentialManager(TPlusContract):
 
         measurements = kwargs.get("measurements") or []
         automata_verifier = kwargs.get("automata_verifier") or ZERO_ADDRESS
+        attestation_test_mode = kwargs.get("attestation_test_mode", True)
+        security_council = kwargs.get("security_council") or [owner.address]
+        # The contract requires a strict majority of the council.
+        council_threshold = kwargs.get("security_council_threshold") or len(security_council)
+        manage_profile_window = kwargs.get("manage_profile_window") or VETO_WINDOW_SECONDS
+        signer_rotation_window = kwargs.get("signer_rotation_window") or VETO_WINDOW_SECONDS
+        withdrawal_quorum = kwargs.get("withdrawal_quorum") or 1
 
         return cls.deploy(
             operators,
@@ -913,6 +923,12 @@ class CredentialManager(TPlusContract):
             registry_address,
             measurements,
             automata_verifier,
+            attestation_test_mode,
+            security_council,
+            council_threshold,
+            manage_profile_window,
+            signer_rotation_window,
+            withdrawal_quorum,
             sender=owner,
         )
 

@@ -44,6 +44,7 @@ class InnerSettlementRequest(BaseSettlement):
     sub_account_index: int
     settler: UserPublicKey | None = None
     chain_id: ChainID
+    nonce: int
     expires_at: int | None = None
     """
     Optional expiry timestamp (ns). Required when ``mm_pubkey`` is set — the CE
@@ -70,6 +71,7 @@ class InnerSettlementRequest(BaseSettlement):
         tplus_user: UserPublicKey,
         chain: ChainID | str,
         sub_account_index: int,
+        nonce: int,
         settler: UserPublicKey | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
         expires_at: int | None = None,
@@ -89,6 +91,7 @@ class InnerSettlementRequest(BaseSettlement):
                 "tplus_user": tplus_user,
                 "settler": settler or tplus_user,
                 "chain_id": chain,
+                "nonce": nonce,
                 "sub_account_index": sub_account_index,
                 "expires_at": expires_at,
             }
@@ -106,6 +109,7 @@ class InnerSettlementRequest(BaseSettlement):
         tplus_user: UserPublicKey,
         chain: ChainID | str,
         sub_account_index: int,
+        nonce: int,
         mm_pubkey: UserPublicKey,
         expires_at: int,
         mode: SettlementMode = SettlementMode.MARGIN,
@@ -128,6 +132,7 @@ class InnerSettlementRequest(BaseSettlement):
                 "tplus_user": tplus_user,
                 "settler": None,
                 "chain_id": chain,
+                "nonce": nonce,
                 "sub_account_index": sub_account_index,
                 "expires_at": expires_at,
                 "mm_pubkey": mm_pubkey,
@@ -140,6 +145,7 @@ class InnerSettlementRequest(BaseSettlement):
         user = base_data.pop("tplus_user")
         settler = base_data.pop("settler", None)
         chain_id = base_data.pop("chain_id", None)
+        nonce = base_data.pop("nonce")
         expires_at = base_data.pop("expires_at", None)
         mm_pubkey = base_data.pop("mm_pubkey", None)
 
@@ -154,6 +160,7 @@ class InnerSettlementRequest(BaseSettlement):
 
         payload.update(base_data)
         payload["chain_id"] = chain_id
+        payload["nonce"] = nonce
         payload["expires_at"] = expires_at
         payload["mm_pubkey"] = mm_pubkey
 
@@ -344,6 +351,11 @@ class InnerBatchSettlementRequest(BaseModel):
     chain_id: ChainID
     """
     The chain settling on.
+    """
+
+    nonce: int
+    """
+    First settlement nonce signed by this batch.
     """
 
     def signing_payload(self) -> str:

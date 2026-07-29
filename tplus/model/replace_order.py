@@ -3,24 +3,34 @@ from typing import Any
 from pydantic import BaseModel, model_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.order_id import UserOrderId
 from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 
 
 class ReplaceOrderDetails(BaseModel):
-    """Corresponds to Rust's ReplaceOrder struct."""
+    """Corresponds to Rust's ReplaceOrder struct.
 
-    order_id: str  # The ID of the order to be replaced
+    Carries the **complete effective terms** the order will have once the replacement is
+    installed — not a sparse patch. Every mutable term is mandatory so that the OMS,
+    orderbook and clearing engine all derive the same effective order from the same signed
+    bytes, and so chained replacements compose instead of silently reinstating superseded
+    terms from the originally signed order.
+
+    Field order must mirror the Rust struct exactly: the signature is over the
+    whitespace-stripped JSON, so declaration order is part of the wire contract.
+    """
+
+    order_id: UserOrderId  # The ID of the order to be replaced
+    base_asset: AssetIdentifier
     timestamp_ns: int  # Timestamp for this replace request
-    new_price_limit: int | None = None
-    new_quantity: int | None = None
+    new_price_limit: int  # Effective limit price after the replacement
+    new_quantity: int  # Effective LIFETIME-TOTAL quantity (not the remaining part)
+    # Effective trigger state. ``None`` means "no trigger", NOT "leave the trigger alone" —
+    # a replacement that keeps a trigger must restate it.
     new_trigger: TriggerAbove | TriggerBelow | None = None
-    book_quantity_decimals: int | None = None  # Assuming i8 maps to int
-    book_price_decimals: int | None = None  # Assuming i8 maps to int
+    book_quantity_decimals: int  # i8 in Rust
+    book_price_decimals: int  # i8 in Rust
     protocol_version: int = 1
-
-    # Pydantic serializes Optional[None] to null by default.
-    # If specific fields must be present even if null, they don't need exclude_none.
-    # If fields should be omitted if None, model_dump(exclude_none=True) is used by caller.
 
 
 class ReplaceOrderRequestPayload(BaseModel):
@@ -32,7 +42,6 @@ class ReplaceOrderRequestPayload(BaseModel):
 
     request: ReplaceOrderDetails  # The actual replacement parameters
     user_id: str  # Added user_id field
-    asset_id: AssetIdentifier  # Asset aidentifier for the order being replaced
     signature: list[int]  # Signature of the 'request' (ReplaceOrderDetails)
     post_sign_timestamp: int
 
@@ -44,7 +53,6 @@ class ReplaceOrderRequestPayload(BaseModel):
         return {
             "request": self.request.model_dump(exclude_none=False),
             "signer": self.user_id,  # Added user_id to serialization
-            "asset_id": self.asset_id.model_dump(exclude_none=True),
             "signature": self.signature,
             "post_sign_timestamp": self.post_sign_timestamp,
         }

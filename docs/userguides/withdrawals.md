@@ -4,6 +4,22 @@ Withdrawals route through the clearing engine: you queue an intent, the CE
 collects threshold signatures, and you (or any caller) replays those
 signatures to the on-chain deposit vault.
 
+## Amount units
+
+Two different units are in play. The CE request carries the amount in
+CE-internal 1e18 units, but the CE converts it to the asset's native chain
+decimals (rounding down) before signing the vault approval. The on-chain
+`vault.withdraw(...)` call must use that converted value or the digest will not
+match and the transaction reverts with `InvalidSignature()`.
+
+{py:class}`tplus.evm.managers.withdraw.WithdrawalManager` keeps both:
+`WithdrawalInfo.amount` is the 1e18 request amount and
+`WithdrawalInfo.chain_amount` is the native-decimals amount the approval covers.
+`execute_withdrawal()` uses `chain_amount`. Pass a
+{py:class}`tplus.utils.amount.Amount` to `init_withdrawal()` to give the amount
+in native decimals; a plain `int` is read as 1e18 units and the asset's decimals
+are looked up from the registry.
+
 ## 1. Initialize
 
 Build a {py:class}`tplus.model.withdrawal.WithdrawalRequest` and submit it

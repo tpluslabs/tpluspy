@@ -4,6 +4,7 @@ import click
 
 from tplus._cli._context import (
     CLIContext,
+    market_data_url_option,
     orderbook_url_option,
     pass_cli_context,
     tplus_account_option,
@@ -23,6 +24,7 @@ def trades():
 
 
 @trades.command("list")
+@market_data_url_option()
 @orderbook_url_option()
 @ignore_ssl_option()
 @tplus_account_option()
@@ -34,11 +36,12 @@ def _list(cli_ctx: CLIContext, output_format: str, no_pager: bool, asset_id: str
     """List user trades."""
     from tplus.model.asset_identifier import AssetIdentifier
 
-    client = cli_ctx.orderbook_client()
+    client = cli_ctx.market_data_client(authed=True)
+    user = cli_ctx.load_user()
     if asset_id:
-        result = asyncio.run(client.get_user_trades_for_asset(AssetIdentifier(asset_id)))
+        result = asyncio.run(client.get_user_trades_for_asset(AssetIdentifier(asset_id), user=user))
     else:
-        result = asyncio.run(client.get_user_trades())
+        result = asyncio.run(client.get_user_trades(user=user))
 
     if not result:
         click.echo("No trades.")

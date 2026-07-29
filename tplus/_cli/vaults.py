@@ -36,11 +36,8 @@ def vaults():
 
 
 def _list_via_oms(cli_ctx: CLIContext, output_format: str, no_pager: bool):
-    from tplus.model.chain_address import ChainAddress
-
     client = cli_ctx.orderbook_client(anonymous=True)
-    raw = asyncio.run(client.assets.get_vaults())
-    addresses = [ChainAddress.model_validate(a) for a in raw]
+    addresses = asyncio.run(client.assets.get_vaults())
 
     if output_format == "raw":
         echo_with_pager([str(a) for a in addresses], no_pager=no_pager)

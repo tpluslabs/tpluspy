@@ -8,7 +8,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tpluspy",
-    version="0.2.4",
+    version="0.3.0",
     description="""tpluspy: Client utilities for interacting with tplus""",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -43,7 +43,7 @@ setup(
             "trio>=0.24",
         ],
         "lint": [
-            "ruff>=0.11.7",
+            "ruff>=0.11.7,<0.16",
             "mypy>=1.18.2,<2",
         ],
         "release": [

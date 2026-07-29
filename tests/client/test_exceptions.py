@@ -12,6 +12,7 @@ from tplus.exceptions import (
     OrderRejected,
     RateLimitError,
     ServerError,
+    SignerRegistryUnavailable,
     from_error_body,
 )
 
@@ -70,6 +71,22 @@ class TestFromErrorBody:
 
     def test_nonce_prefix(self):
         exc = from_error_body({"code": "NONCE_EXPIRED", "message": "old"}, 401)
+        assert isinstance(exc, AuthError)
+
+    def test_signer_registry_unavailable(self):
+        exc = from_error_body(
+            {
+                "code": "SIGNER_REGISTRY_UNAVAILABLE",
+                "message": "no signer registry here",
+                "retryable": False,
+            },
+            503,
+        )
+        assert isinstance(exc, SignerRegistryUnavailable)
+        assert exc.retryable is False
+
+    def test_signer_registry_unavailable_is_catchable_as_auth_error(self):
+        exc = from_error_body({"code": "SIGNER_REGISTRY_UNAVAILABLE", "message": "no"}, 503)
         assert isinstance(exc, AuthError)
 
     def test_rate_limited(self):

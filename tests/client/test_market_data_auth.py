@@ -7,44 +7,82 @@ from tplus.client.auth import AuthenticatedClient
 from tplus.utils.user import User
 
 
+def test_market_data_client_is_authenticated():
+    # MDS is its own token authority; the client authenticates against MDS itself.
+    assert isinstance(MarketDataClient(base_url="http://127.0.0.1:8011"), AuthenticatedClient)
+
+
 @pytest.mark.anyio
-async def test_authed_get_requires_auth_client():
+async def test_user_trades_requires_mds_auth(monkeypatch: pytest.MonkeyPatch):
     client = MarketDataClient(base_url="http://127.0.0.1:8011")
-    with pytest.raises(ValueError, match="auth_client"):
-        await client._authed_get("/trades/user/abc")
-
-
-@pytest.mark.anyio
-async def test_authed_get_borrows_oms_bearer_headers(monkeypatch: pytest.MonkeyPatch):
-    auth_client = AuthenticatedClient(base_url="http://127.0.0.1:8000")
-
-    async def fake_ensure(user: Any = None) -> None:
-        return None
-
-    monkeypatch.setattr(auth_client, "_ensure_auth", fake_ensure)
-    monkeypatch.setattr(
-        auth_client,
-        "_get_auth_headers",
-        lambda user=None: {"Authorization": "Bearer tok-1", "User-Id": "abc"},
-    )
-
-    client = MarketDataClient(base_url="http://127.0.0.1:8011", auth_client=auth_client)
-
     captured: dict[str, Any] = {}
 
-    async def fake_send(method: str, relative_url: str, *, params=None, headers=None, **_: Any):
-        captured["method"] = method
-        captured["url"] = relative_url
-        captured["headers"] = headers
-        return object()
+    async def fake_get(endpoint: str, **kwargs: Any) -> Any:
+        captured["endpoint"] = endpoint
+        captured["requires_auth"] = kwargs.get("requires_auth")
+        captured["user"] = kwargs.get("user")
+        return []
 
-    monkeypatch.setattr(client, "_send", fake_send)
-    monkeypatch.setattr(client, "_handle_response", lambda _resp: [])
+    monkeypatch.setattr(client, "_get", fake_get)
+    user = User()
+    await client.get_user_trades_page(user=user)
 
-    result = await client._authed_get("/trades/user/abc", user=User(), params={"page": 0})
+    assert captured["endpoint"] == f"/trades/user/{user.public_key}"
+    assert captured["requires_auth"] is True
+    assert captured["user"] is user
 
-    assert result == []
-    assert captured["method"] == "GET"
-    assert captured["url"] == "/trades/user/abc"
-    assert captured["headers"]["Authorization"] == "Bearer tok-1"
-    assert captured["headers"]["User-Id"] == "abc"
+
+@pytest.mark.anyio
+async def test_get_user_trades_page_sends_history_filters(mocker):
+    client = MarketDataClient(base_url="http://127.0.0.1:8011")
+    get = mocker.patch.object(client, "_get", new=mocker.AsyncMock(return_value=[]))
+
+    await client.get_user_trades_page(
+        user=User(), start_time=100, end_time=200, side="sell", limit=5
+    )
+
+    assert get.call_args.kwargs["params"] == {
+        "start_time": 100,
+        "end_time": 200,
+        "side": "sell",
+        "limit": 5,
+    }
+
+
+@pytest.mark.anyio
+async def test_get_user_orders_sends_history_filters(mocker):
+    client = MarketDataClient(base_url="http://127.0.0.1:8011")
+    get = mocker.patch.object(client, "_get", new=mocker.AsyncMock(return_value={"orders": []}))
+
+    await client.get_user_orders(user=User(), start_time=100, side="buy", status="cancelled")
+
+    assert get.call_args.kwargs["params"] == {
+        "start_time": 100,
+        "side": "buy",
+        "status": "cancelled",
+    }
+
+
+@pytest.mark.anyio
+async def test_get_user_orders_omits_unset_filters(mocker):
+    client = MarketDataClient(base_url="http://127.0.0.1:8011")
+    get = mocker.patch.object(client, "_get", new=mocker.AsyncMock(return_value={"orders": []}))
+
+    await client.get_user_orders(user=User())
+
+    assert get.call_args.kwargs["params"] is None
+
+
+@pytest.mark.anyio
+async def test_public_endpoint_is_anonymous(monkeypatch: pytest.MonkeyPatch):
+    client = MarketDataClient(base_url="http://127.0.0.1:8011")
+    captured: dict[str, Any] = {}
+
+    async def fake_get(endpoint: str, **kwargs: Any) -> Any:
+        captured["requires_auth"] = kwargs.get("requires_auth")
+        return []
+
+    monkeypatch.setattr(client, "_get", fake_get)
+    await client.get_tickers()
+
+    assert captured["requires_auth"] is False

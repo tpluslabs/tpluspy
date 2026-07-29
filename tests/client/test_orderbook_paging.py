@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 
+from tplus.client.market_data import MarketDataClient
 from tplus.client.orderbook import OrderBookClient
 from tplus.model.asset_identifier import AssetIdentifier
 
@@ -45,11 +46,13 @@ def _position(sub_account_index: int, name: str, side: str = "long") -> dict[str
     }
 
 
-def _client_returning(payload: Any) -> tuple[OrderBookClient, list[dict[str, Any] | None]]:
+def _client_returning(
+    payload: Any, base: type = OrderBookClient
+) -> tuple[Any, list[dict[str, Any] | None]]:
     """A client whose `_request` echoes `payload` and records the params it was called with."""
     captured: list[dict[str, Any] | None] = []
 
-    class DummyClient(OrderBookClient):
+    class DummyClient(base):  # type: ignore[misc, valid-type]
         async def _request(self, method, endpoint, json_data=None, params=None, **kwargs):
             captured.append(params)
             return payload
@@ -69,7 +72,7 @@ async def test_get_user_trades_page_parses_envelope():
         "has_next_page": True,
         "next_page": 1,
     }
-    client, captured = _client_returning(envelope)
+    client, captured = _client_returning(envelope, MarketDataClient)
     page = await client.get_user_trades_page(page=0, limit=2)
     assert [t.timestamp_ns for t in page.trades] == [300, 100]
     assert page.total_trades == 5
@@ -90,14 +93,14 @@ async def test_get_user_trades_returns_list_from_envelope():
         "has_next_page": False,
         "next_page": None,
     }
-    client, _ = _client_returning(envelope)
+    client, _ = _client_returning(envelope, MarketDataClient)
     trades = await client.get_user_trades()
     assert [t.trade_id for t in trades] == [2, 1]
 
 
 @pytest.mark.anyio
 async def test_get_user_trades_page_tolerates_bare_list():
-    client, _ = _client_returning([_trade(1, 100)])
+    client, _ = _client_returning([_trade(1, 100)], MarketDataClient)
     page = await client.get_user_trades_page()
     assert page.total_trades == 1
     assert page.has_next_page is False
@@ -107,7 +110,7 @@ async def test_get_user_trades_page_tolerates_bare_list():
 async def test_get_user_trades_for_asset_passes_asset_in_path():
     captured_endpoints: list[str] = []
 
-    class DummyClient(OrderBookClient):
+    class DummyClient(MarketDataClient):
         async def _request(self, method, endpoint, json_data=None, params=None, **kwargs):
             captured_endpoints.append(endpoint)
             return []

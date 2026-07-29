@@ -305,7 +305,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
         try:
             info = await self.withdrawal_manager.init_withdrawal(
                 asset,
-                amount.amount,
+                amount,
                 target=target,
                 user=user,
                 nonce=nonce,

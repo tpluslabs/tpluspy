@@ -131,6 +131,7 @@ class AdminClient(BaseClearingEngineClient):
         premium_clamp: int,
         buffer_multiplier: int,
         min_sub_account_balance: str | int = 0,
+        max_adl: str | int = 0,
     ):
         asset_index = _asset_id_to_index(asset_id)
         risk_parameters = {
@@ -155,6 +156,8 @@ class AdminClient(BaseClearingEngineClient):
             "premium_clamp": premium_clamp,
             "buffer_multiplier": buffer_multiplier,
             "min_sub_account_balance": min_sub_account_balance,
+            # Zero disables auto-deleverage for the asset.
+            "max_adl_usd": max_adl,
         }
         await self._post(
             "admin/risk-parameters/modify",
@@ -240,10 +243,15 @@ class AdminClient(BaseClearingEngineClient):
 
     async def set_book_decimals(
         self,
-        asset_id: AssetIdentifier,
+        asset_id: int | AssetIdentifier | str,
         book_price_decimals: int,
         book_quantity_decimals: int,
     ):
+        if not isinstance(asset_id, AssetIdentifier):
+            asset_id = AssetIdentifier.model_validate(asset_id)
+
+        asset_id = asset_id.model_dump()
+
         await self._post(
             "admin/book-decimals/modify",
             json_data={

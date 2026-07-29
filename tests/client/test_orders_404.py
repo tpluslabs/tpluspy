@@ -20,6 +20,7 @@ async def test_get_user_orders_for_book_404_empty(monkeypatch):
             *,
             requires_auth: bool = True,
             user: Any = None,
+            headers: dict[str, str] | None = None,
             request_timeout: float | None = None,
         ) -> dict[str, Any]:
             req = httpx.Request(method, f"http://example.com{endpoint}")
@@ -52,6 +53,7 @@ async def test_get_user_orders_for_book_not_found_error(monkeypatch):
             *,
             requires_auth: bool = True,
             user: Any = None,
+            headers: dict[str, str] | None = None,
             request_timeout: float | None = None,
         ) -> dict[str, Any]:
             raise NotFoundError(

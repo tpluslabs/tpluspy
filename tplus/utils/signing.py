@@ -22,7 +22,13 @@ def create_cancel_order_ob_request_payload(
     compact_sign_payload_json = (
         sign_payload_json.replace(" ", "").replace("\r", "").replace("\n", "")
     )
-    signature_bytes = signer.sign(compact_sign_payload_json)
+    signature, additional_signers = signer.signing_parts(compact_sign_payload_json)
+    if additional_signers:
+        raise ValueError(
+            "Order cancellation does not support additional signers until its wire format "
+            "can identify cancellation co-signatures."
+        )
+
     return CancelOrderRequest(
-        cancel=cancel, signature=list(signature_bytes), post_sign_timestamp=time.time_ns()
+        cancel=cancel, signature=signature, post_sign_timestamp=time.time_ns()
     )

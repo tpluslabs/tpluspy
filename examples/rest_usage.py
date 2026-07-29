@@ -38,7 +38,7 @@ async def main() -> None:
 
     async with (
         OrderBookClient(API_BASE_URL, default_user=user) as client,
-        MarketDataClient(MARKET_DATA_URL) as md_client,
+        MarketDataClient(MARKET_DATA_URL, default_user=user) as md_client,
     ):
         # ---------------- read-only sanity check ----------------
         try:
@@ -88,7 +88,7 @@ async def main() -> None:
         open_orders = await client.get_open_orders_for_book(EXAMPLE_ASSET)
         logger.info("Open orders for %s: %d", EXAMPLE_ASSET, len(open_orders))
 
-        trades = await client.get_user_trades_for_asset(EXAMPLE_ASSET)
+        trades = await md_client.get_user_trades_for_asset(EXAMPLE_ASSET, user=user)
         logger.info("User has %d trades on %s", len(trades), EXAMPLE_ASSET)
 
         inventory = await client.get_user_inventory()

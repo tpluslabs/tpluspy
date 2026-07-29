@@ -1,3 +1,4 @@
+from .api import TplusApiClient
 from .blockchain import BlockchainClient
 from .clearingengine import ClearingEngineClient
 from .market_data import MarketDataClient
@@ -10,6 +11,7 @@ __all__ = (
     "ClearingEngineClient",
     "MarketDataClient",
     "OrderBookClient",
+    "TplusApiClient",
     "WithdrawalClient",
     "AssetRegistryClient",
 )

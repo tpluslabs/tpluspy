@@ -15,9 +15,11 @@ class CrossVenueClient(BaseClearingEngineClient):
 
         User-authenticated: the query is signed with ``user``'s key, so a user
         can only read their own venue state. Returns
-        ``{venue_present, allocation_bps, locked, usd_balance}`` — ``venue_present``
-        flips true once the adapter binding reaches the CE, and ``allocation_bps``
-        is non-zero once the credit line is applied.
+        ``{venue_present, allocation_bps, assigned_to, locked, usd_balance}`` —
+        ``venue_present`` flips true once the adapter binding reaches the CE,
+        ``allocation_bps`` is non-zero once the credit line is applied, and
+        ``assigned_to`` is its sub-account index under ``user`` (or ``None``
+        before a credit line exists).
         """
         ts = time.time_ns()
         sep = b"\x1f"

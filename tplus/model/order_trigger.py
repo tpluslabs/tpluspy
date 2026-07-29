@@ -2,6 +2,8 @@ from typing import Any
 
 from pydantic import BaseModel, model_serializer
 
+from tplus.model.order_id import UserOrderId
+
 
 class TriggerAbove(BaseModel):
     price: int
@@ -26,7 +28,7 @@ class TriggerBelow(BaseModel):
 
 
 class OrderTrigger(BaseModel):
-    parent_order_id: str | None
+    parent_order_id: UserOrderId | None
     trigger: TriggerAbove | TriggerBelow
 
     @model_serializer

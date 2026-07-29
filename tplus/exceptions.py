@@ -82,6 +82,10 @@ class AuthError(OmsError):
     pass
 
 
+class SignerRegistryUnavailable(AuthError):
+    pass
+
+
 class RateLimitError(OmsError):
     """Rate limit exceeded."""
 
@@ -142,6 +146,8 @@ _ORDER_PREFIXES = (
 
 def _classify(code: str, status_code: int) -> type[OmsError]:
     """Return the most specific ``OmsError`` subclass for *code*."""
+    if code == "SIGNER_REGISTRY_UNAVAILABLE":
+        return SignerRegistryUnavailable
     if code in _AUTH_CODES or any(code.startswith(p) for p in _AUTH_PREFIXES):
         return AuthError
     if code in _RATE_LIMIT_CODES:
@@ -163,6 +169,17 @@ def _classify(code: str, status_code: int) -> type[OmsError]:
         return NotFoundError
     # Default
     return OmsError
+
+
+def from_flat_error(
+    message: str,
+    status_code: int,
+    *,
+    response: httpx.Response | None = None,
+) -> OmsError:
+    """Build an ``OmsError`` from a flat ``{"error": "<reason>"}`` body, classified by status."""
+    cls = _classify("", status_code)
+    return cls(code="UNKNOWN", message=message, status_code=status_code, response=response)
 
 
 def from_error_body(

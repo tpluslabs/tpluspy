@@ -27,6 +27,7 @@ class TestInnerSettlementRequest:
             user.public_key,
             CHAIN_ID,
             0,
+            7,
             mode=SettlementMode.MARGIN,
         )
         assert (
@@ -38,6 +39,7 @@ class TestInnerSettlementRequest:
         )
         assert request.amount_out == 100
         assert request.chain_id == CHAIN_ID
+        assert request.nonce == 7
 
 
 class TestTxSettlementRequest:
@@ -49,6 +51,7 @@ class TestTxSettlementRequest:
             "settler": user.public_key,
             **get_base_settlement_data(),
             "chain_id": CHAIN_ID,
+            "nonce": 7,
         }
 
     def test_signing_payload(self, settlement, user):
@@ -57,7 +60,7 @@ class TestTxSettlementRequest:
         """
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7","expires_at":null,"mm_pubkey":null}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000","chain_id":"000000000000aa36a7","nonce":7,"expires_at":null,"mm_pubkey":null}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
@@ -112,6 +115,7 @@ class TestDelegatedSettlement:
             user.public_key,
             CHAIN_ID,
             0,
+            7,
             mm_user.public_key,
             1_700_000_000_000_000_000,
         )
@@ -131,6 +135,7 @@ class TestDelegatedSettlement:
             user.public_key,
             CHAIN_ID,
             0,
+            7,
             mode=SettlementMode.MARGIN,
             expires_at=1_700_000_000_000_000_000,
         )
@@ -149,6 +154,7 @@ class TestDelegatedSettlement:
             user.public_key,
             CHAIN_ID,
             0,
+            7,
             mm_user.public_key,
             1_700_000_000_000_000_000,
         )
@@ -156,9 +162,11 @@ class TestDelegatedSettlement:
         # Delegated flow: settler is null in the signed JSON (CE derives executor from maker order).
         assert '"settler":null' in payload
         assert f'"mm_pubkey":"{mm_user.public_key}"' in payload
+        assert '"nonce":7' in payload
         assert '"expires_at":1700000000000000000' in payload
-        # Field ordering: chain_id, then expires_at, then mm_pubkey (append order in signing_payload)
-        assert payload.index('"chain_id"') < payload.index('"expires_at"')
+        # Field ordering: chain_id, nonce, expires_at, then mm_pubkey (append order in signing_payload)
+        assert payload.index('"chain_id"') < payload.index('"nonce"')
+        assert payload.index('"nonce"') < payload.index('"expires_at"')
         assert payload.index('"expires_at"') < payload.index('"mm_pubkey"')
 
     def test_create_signed_delegated(self, user, mm_user, maker_order):
@@ -172,6 +180,7 @@ class TestDelegatedSettlement:
             user.public_key,
             CHAIN_ID,
             0,
+            7,
             mm_user.public_key,
             1_700_000_000_000_000_000,
         )
@@ -186,6 +195,7 @@ class TestDelegatedSettlement:
             "settler": None,
             **get_base_settlement_data(),
             "chain_id": CHAIN_ID,
+            "nonce": 7,
             "mm_pubkey": mm_user.public_key,
             "expires_at": 1_700_000_000_000_000_000,
         }
@@ -204,6 +214,7 @@ class TestDelegatedSettlement:
             user.public_key,
             CHAIN_ID,
             0,
+            7,
             mode=SettlementMode.MARGIN,
             expires_at=1_700_000_000_000_000_000,
         )
@@ -220,6 +231,7 @@ class TestDelegatedSettlement:
                 **get_base_settlement_data(),
                 "tplus_user": user.public_key,
                 "chain_id": CHAIN_ID,
+                "nonce": 7,
                 "mm_pubkey": mm_user.public_key,
             }
         )
@@ -239,6 +251,7 @@ class TestDelegatedSettlement:
             user.public_key,
             CHAIN_ID,
             0,
+            7,
             other_mm.public_key,
             1_700_000_000_000_000_000,
         )
@@ -258,10 +271,11 @@ class TestBundleSettlementRequest:
             "orders": [get_base_settlement_data()],
             "transactions": [],
             "chain_id": CHAIN_ID,
+            "nonce": 7,
         }
         settlement = BatchSettlementRequest.model_validate({"inner": inner})
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","orders":[{{"mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000"}}],"transactions":[],"chain_id":"000000000000aa36a7"}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","orders":[{{"mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"9f4cfc56cd29b000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"8e1bc9bf04000"}}],"transactions":[],"chain_id":"000000000000aa36a7","nonce":7}}'
         assert actual == expected
 
 

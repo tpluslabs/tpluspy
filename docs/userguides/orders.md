@@ -121,16 +121,30 @@ await client.create_limit_order(
 
 ## Replace and cancel
 
+A replacement is signed over the **complete effective terms** the order will have once it is
+installed — it is not a patch over the order's current state. Both `new_quantity` and
+`new_price` are therefore required, even when only one of them changes, and `new_quantity` is
+the **lifetime-total** quantity (the whole order line as originally signed), not the remaining
+unfilled part.
+
+Nothing is inferred server-side: the OMS, orderbook and clearing engine all derive the same
+effective order from the same signed bytes. To change one field, read the order first and pass
+its current value for the other, so the signed terms stay an explicit decision rather than
+something resolved from a possibly-stale view.
+
 ```{code-block} python
 await client.replace_order(
     original_order_id=resp.order_id,
     asset_id=asset,
-    new_quantity=6,
-    new_price=1_050,
+    new_quantity=6,       # effective lifetime-total quantity
+    new_price=1_050,      # effective limit price
 )
 
 await client.cancel_order(order_id=resp.order_id, asset_id=asset)
 ```
+
+A replacement on a trigger order must also restate its trigger via `new_trigger` — omitting it
+means "this order has no trigger", not "leave the trigger alone".
 
 ## Batch creates
 
@@ -150,12 +164,12 @@ User-scoped state comes from the OMS `OrderBookClient`; public market data
 ```{code-block} python
 from tplus.client import MarketDataClient
 
-md = MarketDataClient("http://127.0.0.1:8011")   # market-data-service URL
+md = MarketDataClient("http://127.0.0.1:8011", default_user=user)   # market-data-service URL
 snapshot = await md.get_orderbook_snapshot(asset)
 klines = await md.get_klines(asset, limit=200)
 ticker = await md.get_ticker(asset)
 
-trades = await client.get_user_trades_for_asset(asset)
+trades = await md.get_user_trades_for_asset(asset, user=user)   # per-user trades: authed against MDS
 orders, _ = await client.get_user_orders()
 open_orders = await client.get_open_orders_for_book(asset)
 inventory = await client.get_user_inventory()

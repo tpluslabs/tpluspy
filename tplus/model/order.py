@@ -3,11 +3,13 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ValidationError, field_serializer
+from pydantic import BaseModel, Field, ValidationError, field_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import LimitOrderDetails
 from tplus.model.market_order import MarketOrderDetails
+from tplus.model.multisig import AdditionalSigner
+from tplus.model.order_id import UserOrderId
 from tplus.model.order_trigger import OrderTrigger
 from tplus.model.types import UserPublicKey
 
@@ -60,7 +62,7 @@ class Side(str, Enum):
 
 class Order(BaseModel):
     signer: UserPublicKey
-    order_id: str
+    order_id: UserOrderId
     base_asset: AssetIdentifier
     book_price_decimals: int
     book_quantity_decimals: int
@@ -85,6 +87,7 @@ class CreateOrderRequest(BaseModel):
     order: Order
     signature: list[int]
     post_sign_timestamp: int
+    additional_signers: list[AdditionalSigner] = Field(default_factory=list)
 
 
 class OrderResponse(BaseModel):
@@ -241,41 +244,18 @@ _EVENT_TYPE_MODEL_MAP: dict[str, type[BaseOrderEvent]] = {
 
 
 def parse_order_event(data: dict[str, Any]) -> OrderEvent:
-    """
-    Parses an order event dictionary coming from the WebSocket stream.
+    type_key = data.get("type") if isinstance(data, dict) else None
+    if not isinstance(type_key, str):
+        logger.error("Invalid order event structure: missing 'type' field. Data: %s", data)
+        raise ValueError(f"Invalid order event structure: missing 'type' field, got {data}")
 
-    The server sends events in the form
-    ``{"Created": {<payload>}}``, ``{"ReplaceFailed": {<payload>}}``, ...
-
-    This helper will:
-
-    1. Extract the *single* event key.
-    2. Determine the appropriate Pydantic model (using an explicit mapping).
-    3. Instantiate and return the typed event object.
-    """
-    if not data or len(data) != 1:
-        logger.error("Invalid order event structure: expected a single event key. Data: %s", data)
-        raise ValueError(f"Invalid order event structure: expected a single event key, got {data}")
-
-    event_type_key = next(iter(data.keys()))
-    payload = data[event_type_key]
-
-    if not isinstance(payload, dict):
-        logger.error(
-            "Invalid payload for event type %s: expected dict, got %s",
-            event_type_key,
-            type(payload),
-        )
-        raise ValueError(f"Invalid payload for event type {event_type_key}: {payload}")
-
-    event_type_upper = event_type_key.upper()
+    event_type_upper = type_key.replace("_", "").upper()
     model_cls = _EVENT_TYPE_MODEL_MAP.get(event_type_upper)
-
     if model_cls is None:
-        logger.error("Unrecognised order event type '%s'", event_type_key)
-        raise ValueError(f"Unknown order event type: {event_type_key}")
+        logger.error("Unrecognised order event type '%s'", type_key)
+        raise ValueError(f"Unknown order event type: {type_key}")
 
-    model_input = {"event_type": event_type_upper, **payload}
+    model_input = {"event_type": event_type_upper, **{k: v for k, v in data.items() if k != "type"}}
 
     try:
         return model_cls(**model_input)  # type: ignore[return-value]
@@ -285,7 +265,7 @@ def parse_order_event(data: dict[str, Any]) -> OrderEvent:
             event_type_upper,
             model_cls.__name__,
             ve,
-            payload,
+            data,
             exc_info=True,
         )
         raise

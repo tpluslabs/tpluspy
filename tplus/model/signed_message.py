@@ -5,11 +5,12 @@ from pydantic import BaseModel, model_serializer
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.cancel_order import CancelOrderRequest
 from tplus.model.order import CreateOrderRequest
+from tplus.model.order_id import UserOrderId
 from tplus.model.replace_order import ReplaceOrderRequestPayload
 
 
 class ObRequest(BaseModel):
-    order_id: str
+    order_id: UserOrderId
     base_asset: AssetIdentifier
     ob_request_payload: CreateOrderRequest | CancelOrderRequest | ReplaceOrderRequestPayload
 

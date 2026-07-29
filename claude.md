@@ -91,7 +91,7 @@ from tplus.client import OrderBookClient, ClearingEngineClient, MarketDataClient
 
 - `User` — the signing identity. `User()` mints an ephemeral keypair; `load_user("name")` loads a stored, password-encrypted keyfile; `UserManager` enumerates / saves / sets defaults.
 - `OrderBookClient(base_url=..., default_user=...)` — talks to the OMS/orderbook (orders, user trades/inventory/positions/margin, `/market` + `/markets`, order/user-trade streams). The signing identity is `default_user=` (keyword); per-call `user=` overrides it.
-- `MarketDataClient(base_url=...)` — read-only client for the `market-data-service` (public market data: klines, order-book depth, public trades, 24h tickers, and their WS streams). No auth. Default base URL `http://localhost:8011`.
+- `MarketDataClient(base_url=..., default_user=...)` — client for the `market-data-service`: public market data (klines, order-book depth, public trades, 24h tickers, and their WS streams — unauthenticated) plus per-user trade history (`get_user_trades*`, which authenticates against MDS with its own token). Default base URL `http://localhost:8011`.
 - `ClearingEngineClient(base_url=..., default_user=...)` — talks to the CE directly (deposits, withdrawals, settlements, vaults, asset registry, decimals, admin). Sub-APIs are exposed as cached properties: `client.deposits`, `client.withdrawals`, `client.settlements`, `client.vaults`, `client.assets`, `client.decimals`, `client.admin`. There's also `ClearingEngineClient.from_local(user)` for `127.0.0.1:3032`.
 
 Both clients are async; use `async with` to get automatic cleanup:
@@ -119,7 +119,7 @@ async with OrderBookClient(base_url="http://127.0.0.1:8000", default_user=user) 
 | Batch send                    | `await client.send_multiple_orders([req1, req2, ...])`                                                         |
 | My open orders for a book     | `await client.get_open_orders_for_book(asset_id)`                                                              |
 | All my orders                 | `orders, raw = await client.get_user_orders()`                                                                 |
-| My trades                     | `await client.get_user_trades()` / `get_user_trades_for_asset(asset_id)`                                       |
+| My trades                     | `await md_client.get_user_trades(user=user)` / `get_user_trades_for_asset(asset_id, user=user)` *(MarketDataClient, bearer-authed)* |
 | My inventory                  | `await client.get_user_inventory()`                                                                            |
 | My margin breakdown           | `await client.get_user_margin_info(include_positions=True)`                                                    |
 | My solvency                   | `await client.get_user_solvency()`                                                                             |
@@ -156,9 +156,9 @@ Quick rules so Claude doesn't get this wrong:
   from tplus.model.types import ChainID
 
   AssetIdentifier(200)
-  AssetAddress.from_evm_address("0xToken...", chain_id=42161)   # builds the @<9-byte hex> for you
-  ChainID.evm(42161)                                            # ChainID('00000000000000a4b1')
-  ChainID.from_parts(routing_id=1, vm_id=101)                   # non-EVM routing
+  AssetAddress.from_evm_address("0xToken...", chain_id=42161)  # builds the @<9-byte hex> for you
+  ChainID.evm(42161)  # ChainID('00000000000000a4b1')
+  ChainID.from_parts(routing_id=1, vm_id=101)  # non-EVM routing
   ```
 
 - **Use `AssetAddress` vs. `ChainAddress` by semantic role**, not by typing convenience. They are the same type (`AssetAddress` is a `TypeAlias` for `ChainAddress` re-exported from `tplus.model.asset_identifier`), but the name carries meaning at the call site:
@@ -189,6 +189,7 @@ T+ uses its own **contract-defined signing scheme** across the board: Ed25519 ov
 ```python
 # Requires `pip install "tpluspy[evm]"` and an active Ape network.
 from tplus.evm.contracts import vault, registry
+
 registry.getAssets()
 ```
 
@@ -206,7 +207,12 @@ Use Ape's network chooser, e.g. `ape console --network ethereum:sepolia:alchemy`
 
 ```python
 from tplus import (
-    AuthError, NotFoundError, OmsError, OrderRejected, RateLimitError, ServerError,
+    AuthError,
+    NotFoundError,
+    OmsError,
+    OrderRejected,
+    RateLimitError,
+    ServerError,
 )
 ```
 
@@ -220,8 +226,8 @@ ______________________________________________________________________
 
 - `tplus/client/` — async clients.
   - `base.py` — shared HTTP/WS plumbing (`BaseClient`).
-  - `orderbook.py` — `OrderBookClient` (OMS REST + WS: orders, user trades/inventory/positions/margin, `/market` + `/markets`; optional persistent `/control` WS for create/replace/cancel via `use_ws_control=True`).
-  - `market_data.py` — `MarketDataClient` (read-only `market-data-service`: klines, order-book depth, public trades, 24h tickers + their WS streams). No auth.
+  - `orderbook.py` — `OrderBookClient` (OMS REST + WS: orders, user inventory/positions/margin, `/market` + `/markets`; optional persistent `/control` WS for create/replace/cancel via `use_ws_control=True`).
+  - `market_data.py` — `MarketDataClient` (`market-data-service`: klines, order-book depth, public trades, 24h tickers + their WS streams, all unauthenticated; plus per-user trade history `get_user_trades*`, which authenticates against MDS with its own token).
   - `clearingengine/` — `ClearingEngineClient` and its sub-clients (deposits, withdrawals, settlements, vaults, asset registry, decimals, admin).
   - `oms/` — OMS-admin endpoints.
 - `tplus/model/` — Pydantic v2 models mirroring the Rust wire types in `../messages/`. When adding a new one, mirror field names, order, and optionality exactly.

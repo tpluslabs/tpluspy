@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # type: ignore
 )
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # type: ignore
 
+from tplus.model.multisig import AdditionalSigner, SignerKey
 from tplus.model.types import UserPublicKey
 from tplus.utils.hex import str_to_vec
 from tplus.utils.user.validate import privkey_to_bytes
@@ -111,6 +112,79 @@ class User:
         payload = payload.replace("\n", "")
         payload_bytes = payload.encode("utf-8")
         return self.sk.sign(payload_bytes)
+
+    def signing_parts(self, payload: str) -> tuple[list[int], list[AdditionalSigner]]:
+        """Return the master and additional signatures for a request payload."""
+        return list(self.sign(payload)), []
+
+
+class DelegatedUser(User):
+    """Act for one account using a registered Ed25519 additional signer.
+
+    ``account_public_key`` identifies the account in request payloads and auth
+    headers. ``signer`` supplies the co-signature; its private key is never
+    treated as the account's master key.
+    """
+
+    def __init__(
+        self,
+        account_public_key: str | UserPublicKey,
+        signer: User,
+        sub_account: int | None = None,
+    ) -> None:
+        if isinstance(signer, DelegatedUser):
+            raise ValueError("signer must be a master-key User, not another DelegatedUser")
+
+        normalized = str(account_public_key).removeprefix("0x").lower()
+        if len(normalized) != 64:
+            raise ValueError("account_public_key must be a 32-byte Ed25519 public key")
+        try:
+            bytes.fromhex(normalized)
+        except ValueError as exc:
+            raise ValueError("account_public_key must be hexadecimal") from exc
+
+        # Deliberately do not call User.__init__: generating an unrelated master
+        # key would make direct-signing code appear to work for the wrong account.
+        self._account_public_key = UserPublicKey(normalized)
+        self._signer = signer
+        self._sub_account = sub_account
+
+    @property
+    def sk(self) -> Ed25519PrivateKey:  # type: ignore[override]
+        # AttributeError (not ValueError) keeps hasattr()/getattr() semantics.
+        raise AttributeError("DelegatedUser has no account master private key")
+
+    @property
+    def vk(self) -> Ed25519PublicKey:  # type: ignore[override]
+        raise AttributeError("DelegatedUser has no account master public-key object")
+
+    @cached_property
+    def public_key(self) -> UserPublicKey:
+        return self._account_public_key
+
+    @cached_property
+    def public_key_vec(self) -> list[int]:
+        return str_to_vec(self.public_key)
+
+    def pubkey(self) -> str:
+        return self.public_key
+
+    def pubkey_vec(self) -> list[int]:
+        return self.public_key_vec
+
+    def sign(self, payload: str):
+        """Reject direct signing, which has no co-signer wire-format context."""
+        raise ValueError(
+            "Delegated users cannot produce master signatures; use signing_parts() "
+            "for request types that support additional signers."
+        )
+
+    def signing_parts(self, payload: str) -> tuple[list[int], list[AdditionalSigner]]:
+        additional = AdditionalSigner(
+            signer=SignerKey.ed25519(self._signer.public_key_vec),
+            signature=list(self._signer.sign(payload)),
+        )
+        return [], [additional]
 
 
 class LocalUser(User):

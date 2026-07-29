@@ -6,6 +6,8 @@ from pydantic_core.core_schema import (
 
 from tplus.utils.serializers import hex_serialize_no_prefix
 
+U64_MAX = (1 << 64) - 1
+
 
 class UserPublicKey(str):
     """
@@ -105,7 +107,7 @@ class ChainID(str):
         if not (0 <= routing_id < 256):
             raise ValueError("routing_id must be 0-255")
 
-        elif not (0 <= vm_id < 2**64):
+        elif not (0 <= vm_id <= U64_MAX):
             raise ValueError("vm_id must fit in 8 bytes")
 
         return cls(f"{routing_id:02x}{vm_id:016x}")

@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.pagination import PageMeta
 
 PositionSide = Literal["long", "short", "closed"]
 
@@ -26,15 +27,9 @@ class PositionResponse(BaseModel):
     quote_liabilities: Decimal
 
 
-class UserPositionsPage(BaseModel):
+class UserPositionsPage(PageMeta):
     positions: list[PositionResponse]
-    page: int
-    limit: int
     total_positions: int
-    total_pages: int
-    cursor_size: int
-    has_next_page: bool
-    next_page: int | None = None
 
 
 def parse_positions(data: list[dict]) -> list[PositionResponse]:
@@ -47,11 +42,7 @@ def parse_positions_page(data: list[dict] | dict) -> UserPositionsPage:
         count = len(positions)
         return UserPositionsPage(
             positions=positions,
-            page=0,
-            limit=count,
             total_positions=count,
-            total_pages=1 if count else 0,
-            cursor_size=count,
-            has_next_page=False,
+            **PageMeta.single_page(count).model_dump(),
         )
     return UserPositionsPage.model_validate(data)

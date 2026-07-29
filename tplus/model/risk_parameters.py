@@ -33,3 +33,5 @@ class RiskParameters(BaseModel):
     max_utilization_rate: int = Field(alias="maxUtilizationRate")
     buffer_multiple: int = Field(alias="bufferMultiple")
     min_sub_account_balance: int = Field(default=0, alias="minSubAccountBalance")
+    # Max ADL notional (USD, 18 decimals). Zero disables auto-deleverage for the asset.
+    max_adl: int = Field(default=0, alias="maxAdl")

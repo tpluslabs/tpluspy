@@ -19,6 +19,7 @@ def _signed_settlement_request(user: User) -> TxSettlementRequest:
             "asset_out": "11fe4b6ae13d2a6055c8d9cf65c55bac32b5d844000000000000000000000000",
             "amount_out": "500000000000000000",
             "chain_id": "000000000000aa36a7",
+            "nonce": 0,
         },
         user,
     )
