@@ -1,5 +1,3 @@
-import pytest
-
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC
 from tplus.model.market_order import MarketBaseQuantity
@@ -72,20 +70,28 @@ def test_delegated_create_order_preserves_master_order_wire_shape(monkeypatch):
     assert len(delegated_additional_signers) == 1
 
 
-def test_delegated_replace_fails_until_wire_format_supports_additional_signers():
+def test_delegated_replace_uses_additional_signer():
     account = User()
-    delegated = DelegatedUser(account.public_key, User())
+    signer = User()
+    delegated = DelegatedUser(account.public_key, signer)
 
-    with pytest.raises(ValueError, match="does not support additional signers"):
-        create_replace_order_ob_request_payload(
-            original_order_id="order-1",
-            asset_identifier=AssetIdentifier("1"),
-            signer=delegated,
-            new_price=300,
-            new_quantity=100,
-            book_price_decimals=2,
-            book_quantity_decimals=2,
-        )
+    request = create_replace_order_ob_request_payload(
+        original_order_id="order-1",
+        asset_identifier=AssetIdentifier("1"),
+        signer=delegated,
+        new_price=300,
+        new_quantity=100,
+        book_price_decimals=2,
+        book_quantity_decimals=2,
+    )
+
+    payload = request.model_dump(mode="json")
+    [additional] = payload["additional_signers"]
+
+    assert payload["signer"] == account.public_key
+    assert payload["signature"] == []
+    assert additional["signer"] == {"Ed25519": signer.public_key_vec}
+    signer.vk.verify(bytes(additional["signature"]), request.request.model_dump_json().encode())
 
 
 def test_delegated_market_order_uses_additional_signer():
@@ -112,13 +118,16 @@ def test_delegated_market_order_uses_additional_signer():
     )
 
 
-def test_delegated_cancel_fails_until_wire_format_supports_additional_signers():
+def test_delegated_cancel_uses_authenticated_account_without_additional_signers():
     account = User()
     delegated = DelegatedUser(account.public_key, User())
 
-    with pytest.raises(ValueError, match="does not support additional signers"):
-        create_cancel_order_ob_request_payload(
-            signer=delegated,
-            asset_identifier=AssetIdentifier("1"),
-            order_id="order-1",
-        )
+    request = create_cancel_order_ob_request_payload(
+        signer=delegated,
+        asset_identifier=AssetIdentifier("1"),
+        order_id="order-1",
+    )
+
+    assert request.cancel.signer == account.public_key
+    assert request.signature == []
+    assert "additional_signers" not in request.model_dump(mode="json")

@@ -56,15 +56,11 @@ def create_replace_order_ob_request_payload(
         sign_payload_json.replace(" ", "").replace("\r", "").replace("\n", "")
     )
     signature, additional_signers = signer.signing_parts(compact_sign_payload_json)
-    if additional_signers:
-        raise ValueError(
-            "Order replacement does not support additional signers until its wire format "
-            "can identify replacement co-signatures."
-        )
 
     return ReplaceOrderRequestPayload(
         request=replace_details,
         user_id=signer.public_key,
         signature=signature,
         post_sign_timestamp=time.time_ns(),
+        additional_signers=additional_signers,
     )

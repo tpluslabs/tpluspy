@@ -8,6 +8,7 @@ class OmsAdminClient(AuthenticatedClient):
         solvency_verifier: str,
         auto_reduce_enabled: bool,
         interest_reservation_enabled: bool | None = None,
+        liquidation_monitor_enabled: bool | None = None,
     ):
         config = {
             "solvency_verifier": solvency_verifier,
@@ -15,6 +16,8 @@ class OmsAdminClient(AuthenticatedClient):
         }
         if interest_reservation_enabled is not None:
             config["interest_reservation_enabled"] = interest_reservation_enabled
+        if liquidation_monitor_enabled is not None:
+            config["liquidation_monitor_enabled"] = liquidation_monitor_enabled
 
         await self._post(
             "admin/settings/modify",

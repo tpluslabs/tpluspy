@@ -120,6 +120,7 @@ def _depth(cli_ctx: CLIContext, asset_id: str):
 @click.option("--page", type=int)
 @click.option("--limit", type=int)
 @click.option("--end-timestamp-ns", "end_timestamp_ns", type=int)
+@click.option("--interval", help="Bucket width, e.g. 1, 5m, 4h, 1D, 1W or 1M (a month).")
 @pass_cli_context
 def _klines(
     cli_ctx: CLIContext,
@@ -129,6 +130,7 @@ def _klines(
     page: int | None,
     limit: int | None,
     end_timestamp_ns: int | None,
+    interval: str | None,
 ):
     """Get candlestick data for ASSET_ID."""
     from tplus.model.asset_identifier import AssetIdentifier
@@ -136,7 +138,11 @@ def _klines(
     client = cli_ctx.market_data_client()
     klines = asyncio.run(
         client.get_klines(
-            AssetIdentifier(asset_id), page=page, limit=limit, end_timestamp_ns=end_timestamp_ns
+            AssetIdentifier(asset_id),
+            page=page,
+            limit=limit,
+            end_timestamp_ns=end_timestamp_ns,
+            interval=interval,
         )
     )
     if output_format == "raw":

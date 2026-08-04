@@ -22,12 +22,9 @@ def create_cancel_order_ob_request_payload(
     compact_sign_payload_json = (
         sign_payload_json.replace(" ", "").replace("\r", "").replace("\n", "")
     )
-    signature, additional_signers = signer.signing_parts(compact_sign_payload_json)
-    if additional_signers:
-        raise ValueError(
-            "Order cancellation does not support additional signers until its wire format "
-            "can identify cancellation co-signatures."
-        )
+    # Delegated cancels are authorized by the authenticated OMS session and account
+    # ownership. They do not reach the clearing engine, so no delegated signature is sent.
+    signature, _ = signer.signing_parts(compact_sign_payload_json)
 
     return CancelOrderRequest(
         cancel=cancel, signature=signature, post_sign_timestamp=time.time_ns()

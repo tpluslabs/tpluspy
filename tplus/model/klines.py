@@ -1,17 +1,50 @@
 import datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
 
 
-class KlineUpdate(BaseModel):
-    """Represents a single K-line (candlestick) update from the WebSocket stream."""
+class Interval(str, Enum):
+    """Kline bucket width, mirroring `orderbook_messages::interval::Interval`.
+
+    Values are the canonical spellings the server round-trips; it also accepts the
+    suffixed forms (`5m`, `4h`, `1d`) on the wire. Only `1M` is case-sensitive: it is a
+    month, while `1m` is a minute.
+    """
+
+    SEC_1 = "1S"
+    SEC_5 = "5S"
+    SEC_15 = "15S"
+    SEC_30 = "30S"
+    MIN_1 = "1"
+    MIN_3 = "3"
+    MIN_5 = "5"
+    MIN_15 = "15"
+    MIN_30 = "30"
+    HOUR_1 = "60"
+    HOUR_2 = "120"
+    HOUR_4 = "240"
+    HOUR_6 = "360"
+    HOUR_8 = "480"
+    HOUR_12 = "720"
+    DAY_1 = "1D"
+    DAY_3 = "3D"
+    WEEK_1 = "1W"
+    MONTH_1 = "1M"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class Timebar(BaseModel):
+    """One candlestick, mirroring `orderbook_messages::market_data::Timebar`."""
 
     open: Decimal
-    high: Decimal
-    low: Decimal
     close: Decimal
+    low: Decimal
+    high: Decimal
     volume: Decimal
 
     open_timestamp_ns: int
@@ -35,7 +68,7 @@ class KlineUpdate(BaseModel):
 class KlinesPage(BaseModel):
     """One page of klines plus pagination metadata (the `Page<Timebar>` envelope)."""
 
-    items: list[KlineUpdate]
+    items: list[Timebar]
     page: int
     limit: int
     total_pages: int
@@ -44,11 +77,11 @@ class KlinesPage(BaseModel):
     next_page: int | None = None
 
 
-def parse_kline_update(data: list[dict[str, Any]]) -> list[KlineUpdate]:
-    """Parses  a list of kline dictionaries into a List of KlineUpdate object."""
+def parse_timebars(data: list[dict[str, Any]]) -> list[Timebar]:
+    """Parses a list of kline dictionaries into Timebar objects."""
     try:
         return [
-            KlineUpdate(
+            Timebar(
                 open=Decimal(item["open"]),
                 high=Decimal(item["high"]),
                 low=Decimal(item["low"]),
@@ -60,14 +93,14 @@ def parse_kline_update(data: list[dict[str, Any]]) -> list[KlineUpdate]:
             for item in data
         ]
     except (KeyError, ValueError, TypeError) as e:
-        print(f"Error parsing KlineUpdate: {e}. Data: {data}")
-        raise ValueError(f"Invalid KlineUpdate data received: {data}") from e
+        print(f"Error parsing Timebar: {e}. Data: {data}")
+        raise ValueError(f"Invalid Timebar data received: {data}") from e
 
 
 def parse_klines_page(data: dict[str, Any] | list[dict[str, Any]]) -> KlinesPage:
     """Parse the `/klines` page envelope, tolerating a bare list from older servers."""
     if isinstance(data, list):
-        items = parse_kline_update(data)
+        items = parse_timebars(data)
         count = len(items)
         return KlinesPage(
             items=items,
@@ -79,7 +112,7 @@ def parse_klines_page(data: dict[str, Any] | list[dict[str, Any]]) -> KlinesPage
         )
 
     return KlinesPage(
-        items=parse_kline_update(data.get("items", [])),
+        items=parse_timebars(data.get("items", [])),
         page=int(data.get("page", 0)),
         limit=int(data.get("limit", 0)),
         total_pages=int(data.get("total_pages", 0)),

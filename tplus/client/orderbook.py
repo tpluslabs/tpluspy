@@ -1127,7 +1127,10 @@ class OrderBookClient(AuthenticatedClient):
         return parsed_data
 
     async def set_mds_export(self, enabled: bool, user: UserType | None = None) -> dict[str, Any]:
-        """Set whether the user's trade history is exported to the market-data service."""
+        """Set whether the user's trade history is exported to the market-data service.
+
+        Export is on by default; pass ``enabled=False`` to opt out.
+        """
         public_key = self._validate_user_public_key(user=user)
         return await self._put(
             f"/account/{public_key}/mds-export",

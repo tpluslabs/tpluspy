@@ -193,7 +193,7 @@ async for trade in client.stream_finalized_trades():
 # Other available streams:
 # client.stream_orders() -> OrderEvent
 # client.stream_all_trades() -> TradeEvent
-# client.stream_klines(asset_id) -> KlineUpdate
+# client.stream_klines(asset_id) -> Timebar
 ```
 
 See `examples/websocket_usage.py` for a runnable demonstration using `asyncio.gather` to run multiple streams concurrently.

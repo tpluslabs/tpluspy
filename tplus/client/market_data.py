@@ -7,7 +7,13 @@ from tplus.client.auth import AuthenticatedClient
 from tplus.client.base import page_params
 from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.klines import KlinesPage, KlineUpdate, parse_kline_update, parse_klines_page
+from tplus.model.klines import (
+    Interval,
+    KlinesPage,
+    Timebar,
+    parse_klines_page,
+    parse_timebars,
+)
 from tplus.model.order import OrderResponse, parse_orders
 from tplus.model.orderbook import OrderBook, OrderBookDiff
 from tplus.model.trades import (
@@ -23,17 +29,6 @@ from tplus.model.trades import (
 from tplus.types import UserType
 
 DEFAULT_BASE_URL = "http://localhost:8011"
-
-
-def _pagination(page: int | None, limit: int | None) -> dict[str, Any]:
-    params: dict[str, Any] = {}
-    if page:
-        params["page"] = page
-
-    if limit:
-        params["limit"] = limit
-
-    return params
 
 
 class MarketDataClient(AuthenticatedClient):
@@ -63,12 +58,19 @@ class MarketDataClient(AuthenticatedClient):
         page: int | None = None,
         limit: int | None = None,
         end_timestamp_ns: int | None = None,
+        interval: Interval | str | None = None,
     ) -> KlinesPage:
-        """A page of k-line (candlestick) data for `asset_id`, with pagination metadata."""
-        params = _pagination(page, limit)
-        if end_timestamp_ns:
-            params["end_timestamp_ns"] = end_timestamp_ns
+        """A page of k-line (candlestick) data for `asset_id`, with pagination metadata.
 
+        `interval` asks for wider candlesticks, e.g. `Interval.HOUR_4`. A raw string is
+        passed through, so the suffixed forms (`4h`, `1d`) also work.
+        """
+        params = page_params(
+            page,
+            limit,
+            end_timestamp_ns=end_timestamp_ns,
+            interval=str(interval) if interval is not None else None,
+        )
         response = await self._get(f"/klines/{asset_id}", params=params, requires_auth=False)
         if not isinstance(response, dict | list):
             raise ValueError(f"Invalid response from get_klines: {response}")
@@ -93,7 +95,7 @@ class MarketDataClient(AuthenticatedClient):
 
     async def get_trades(self, page: int | None = None, limit: int | None = None) -> list[Trade]:
         """Confirmed trades across all markets."""
-        response = await self._get("/trades", params=_pagination(page, limit), requires_auth=False)
+        response = await self._get("/trades", params=page_params(page, limit), requires_auth=False)
         if not isinstance(response, list):
             raise ValueError(f"Invalid response from get_trades: {response}")
 
@@ -104,7 +106,7 @@ class MarketDataClient(AuthenticatedClient):
     ) -> list[Trade]:
         """Confirmed trades for `asset_id`."""
         response = await self._get(
-            f"/trades/{asset_id}", params=_pagination(page, limit), requires_auth=False
+            f"/trades/{asset_id}", params=page_params(page, limit), requires_auth=False
         )
         if not isinstance(response, list):
             raise ValueError(f"Invalid response from get_trades_for_asset: {response}")
@@ -328,9 +330,9 @@ class MarketDataClient(AuthenticatedClient):
         async for diff in self._stream_ws(path, lambda d: OrderBookDiff(**d), requires_auth=False):
             yield diff
 
-    async def stream_klines(self, asset_id: AssetIdentifier) -> AsyncIterator[KlineUpdate]:
+    async def stream_klines(self, asset_id: AssetIdentifier) -> AsyncIterator[Timebar]:
         """Candlestick (kline) updates for `asset_id`."""
         async for kline in self._stream_ws(
-            f"/klines/diff/{asset_id}", parse_kline_update, requires_auth=False
+            f"/klines/diff/{asset_id}", parse_timebars, requires_auth=False
         ):
             yield kline

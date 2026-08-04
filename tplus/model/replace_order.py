@@ -1,8 +1,9 @@
 from typing import Any
 
-from pydantic import BaseModel, model_serializer
+from pydantic import BaseModel, Field, model_serializer
 
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.multisig import AdditionalSigner
 from tplus.model.order_id import UserOrderId
 from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 
@@ -44,6 +45,7 @@ class ReplaceOrderRequestPayload(BaseModel):
     user_id: str  # Added user_id field
     signature: list[int]  # Signature of the 'request' (ReplaceOrderDetails)
     post_sign_timestamp: int
+    additional_signers: list[AdditionalSigner] = Field(default_factory=list)
 
     @model_serializer
     def serialize_model(self) -> dict[str, Any]:
@@ -55,4 +57,5 @@ class ReplaceOrderRequestPayload(BaseModel):
             "signer": self.user_id,  # Added user_id to serialization
             "signature": self.signature,
             "post_sign_timestamp": self.post_sign_timestamp,
+            "additional_signers": self.additional_signers,
         }
