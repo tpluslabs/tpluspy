@@ -32,3 +32,11 @@ Requires the `evm` extra: `pip install "tpluspy[evm]"`.
 .. automodule:: tplus.evm.utils
    :members:
 ```
+
+## ChainSigningManager
+
+```{eval-rst}
+.. autoclass:: tplus.evm.managers.evm.ChainSigningManager
+   :members:
+   :show-inheritance:
+```

@@ -14,6 +14,7 @@ import httpx
 from tplus.client.auth import AuthenticatedClient
 from tplus.client.base import page_params
 from tplus.client.oms.assetregistry import AssetRegistryClient
+from tplus.client.websocket import resolve_rejected_status_code
 from tplus.exceptions import NotFoundError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import (
@@ -27,7 +28,7 @@ from tplus.model.close_all_positions_preview import (
     parse_close_all_preview,
 )
 from tplus.model.limit_order import GTC, GTD, IOC
-from tplus.model.market import Market, parse_market
+from tplus.model.market import Market, MarketsPage, parse_market
 from tplus.model.market_order import (
     MarketBaseQuantity,
     MarketQuoteQuantity,
@@ -49,6 +50,7 @@ from tplus.model.position import (
     parse_positions_page,
 )
 from tplus.model.settlement import TxSettlementRequest
+from tplus.model.sub_account import RenameSubAccountResponse
 from tplus.model.trades import (
     UserTrade,
     parse_single_user_trade,
@@ -81,12 +83,17 @@ from tplus.utils.replace_order import (
 from tplus.utils.signing import (
     create_cancel_order_ob_request_payload,
 )
-from tplus.utils.user import DelegatedUser
+from tplus.utils.user import DelegatedUser, User, to_user
+
+CONTROL_WS_MAX_ATTEMPTS = 5
+# The handshake already re-authenticated and retried, so don't let a non-auth 403 burn all attempts.
+CONTROL_WS_MAX_ATTEMPTS_BY_STATUS = {401: 1, 403: 1}
+MARKETS_PAGE_LIMIT = 1000
 
 if TYPE_CHECKING:
     import websockets
 
-    from tplus.utils.user import User
+    from tplus.types import UserLike
 
 
 def compute_remaining(order: OrderResponse) -> int:
@@ -179,6 +186,31 @@ class OrderBookClient(AuthenticatedClient):
         self._market_cache[key] = market
         return market
 
+    async def get_markets(
+        self,
+        include_symbol_map: bool = False,
+        *,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> MarketsPage:
+        """Fetch one page of markets, and the canonical asset table when asked for it.
+
+        Args:
+            include_symbol_map: Also return the asset index -> :class:`Asset` map.
+            page: Zero-based page to fetch. Defaults to the first page.
+            limit: Markets per page. Defaults to a page big enough to hold them all.
+
+        Returns:
+            The :class:`MarketsPage` of active markets.
+        """
+        params = page_params(
+            page if page is not None else 0,
+            limit if limit is not None else MARKETS_PAGE_LIMIT,
+            include_symbol_map="true" if include_symbol_map else None,
+        )
+        response = await self._get("/markets", params=params, requires_auth=False)
+        return MarketsPage.model_validate(response)
+
     async def create_market_order(
         self,
         side: str,
@@ -192,7 +224,7 @@ class OrderBookClient(AuthenticatedClient):
         trigger: OrderTrigger | None = None,
         max_sellable_amount: int | None = None,
         max_sellable_quantity: int | None = None,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
     ) -> OrderOperationResponse:
         """Create a market order.
 
@@ -270,7 +302,9 @@ class OrderBookClient(AuthenticatedClient):
             payload = {"CreateOrderRequest": ob_request_payload.model_dump()}
             ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=15.0)
             return self._extract_operation_response(ws_resp)
-        resp = await self._post("/orders/create", json_data=ob_request_payload.model_dump())
+        resp = await self._post(
+            "/orders/create", json_data=ob_request_payload.model_dump(), user=user
+        )
         return OrderOperationResponse.model_validate(resp)
 
     async def create_limit_order(
@@ -284,7 +318,8 @@ class OrderBookClient(AuthenticatedClient):
         target: TradeTarget | None = None,
         max_trading_fees_rate: int | None = None,
         trigger: OrderTrigger | None = None,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
+        reduce_only: bool = False,
     ) -> OrderOperationResponse:
         """Create a limit order.
 
@@ -301,6 +336,7 @@ class OrderBookClient(AuthenticatedClient):
             max_trading_fees_rate: Optional maximum trading fee rate the
                 caller is willing to pay.
             trigger: Optional :class:`OrderTrigger` for conditional activation.
+            reduce_only: When true, the order may only reduce an existing position.
         Returns:
             The :class:`OrderOperationResponse` from the OMS.
 
@@ -322,6 +358,7 @@ class OrderBookClient(AuthenticatedClient):
             max_trading_fees_rate=max_trading_fees_rate,
             trigger=trigger,
             user=user,
+            reduce_only=reduce_only,
         )
 
         self.logger.debug(
@@ -331,7 +368,7 @@ class OrderBookClient(AuthenticatedClient):
             payload = {"CreateOrderRequest": signed_message.model_dump()}
             ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=15.0)
             return self._extract_operation_response(ws_resp)
-        resp = await self._post("/orders/create", json_data=signed_message.model_dump())
+        resp = await self._post("/orders/create", json_data=signed_message.model_dump(), user=user)
         return OrderOperationResponse.model_validate(resp)
 
     async def prepare_limit_order_request(
@@ -345,7 +382,8 @@ class OrderBookClient(AuthenticatedClient):
         max_trading_fees_rate: int | None = None,
         trigger: OrderTrigger | None = None,
         order_id: str | None = None,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
+        reduce_only: bool = False,
     ):
         user = self._resolve_user(user=user)
         asset_id_unwrapped: AssetIdentifier = asset_id  # type: ignore
@@ -366,6 +404,7 @@ class OrderBookClient(AuthenticatedClient):
             target=target,
             max_trading_fees_rate=max_trading_fees_rate,
             trigger=trigger,
+            reduce_only=reduce_only,
         )
         return order_id, signed_message
 
@@ -380,7 +419,7 @@ class OrderBookClient(AuthenticatedClient):
         return parse_batch_order_response(batch_order_response_data)
 
     async def cancel_order(
-        self, order_id: str, asset_id: AssetIdentifier, user: "User | None" = None
+        self, order_id: str, asset_id: AssetIdentifier, user: "UserLike | None" = None
     ) -> OrderOperationResponse:
         """Cancel a previously submitted order.
 
@@ -401,7 +440,9 @@ class OrderBookClient(AuthenticatedClient):
             payload = {"CancelOrderRequest": signed_message.model_dump()}
             ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=10.0)
             return self._extract_operation_response(ws_resp)
-        resp = await self._delete("/orders/cancel", json_data=signed_message.model_dump())
+        resp = await self._delete(
+            "/orders/cancel", json_data=signed_message.model_dump(), user=user
+        )
         return OrderOperationResponse.model_validate(resp)
 
     async def replace_order(
@@ -411,8 +452,9 @@ class OrderBookClient(AuthenticatedClient):
         new_quantity: int,
         new_price: int,
         new_trigger: TriggerAbove | TriggerBelow | None = None,
-        user: "User | None" = None,
-    ) -> OrderOperationResponse:
+        user: "UserLike | None" = None,
+        additional_signers: "list[UserLike] | None" = None,
+    ) -> tuple[OrderOperationResponse, int]:
         """Replace an existing open order, signing its complete effective terms.
 
         Both ``new_quantity`` and ``new_price`` are **required**: the signed replacement
@@ -429,9 +471,12 @@ class OrderBookClient(AuthenticatedClient):
             new_price: Effective limit price in quote-asset units.
             new_trigger: Effective trigger state. ``None`` means the order has no trigger; a
                 replacement on a trigger order must restate the trigger to keep it.
+            additional_signers: Optional cosigners that also sign the replace payload.
 
         Returns:
-            The :class:`OrderOperationResponse` from the OMS.
+            The :class:`OrderOperationResponse` from the OMS, and the replacement's
+            ``timestamp_ns``: the authorization revision the order now rests on, which a later
+            :meth:`amend_order` must quote as ``expected_authorization_revision``.
         """
         user = self._resolve_user(user=user)
         validate_order_id(original_order_id)
@@ -445,6 +490,7 @@ class OrderBookClient(AuthenticatedClient):
             new_trigger=new_trigger,
             book_price_decimals=market.book_price_decimals,
             book_quantity_decimals=market.book_quantity_decimals,
+            additional_signers=additional_signers,
         )
         self.logger.debug(
             f"Sending Replace Order for original OrderID {original_order_id} (Asset {asset_id}): "
@@ -455,10 +501,73 @@ class OrderBookClient(AuthenticatedClient):
             ws_resp = await self._control_ws_send(
                 payload, expected_order_id=original_order_id, timeout=15.0
             )
-            return self._extract_operation_response(ws_resp)
-        resp = await self._patch(
-            "/orders/replace", json_data=signed_message.model_dump(exclude_none=True)
+            result = self._extract_operation_response(ws_resp)
+        else:
+            resp = await self._patch(
+                "/orders/replace",
+                json_data=signed_message.model_dump(exclude_none=True),
+                user=user,
+            )
+            result = OrderOperationResponse.model_validate(resp)
+        return result, signed_message.request.timestamp_ns
+
+    async def amend_order(
+        self,
+        order_id: str,
+        asset_id: AssetIdentifier,
+        new_quantity: int,
+        expected_authorization_revision: int | None = None,
+        user: "User | None" = None,
+    ) -> OrderOperationResponse:
+        """Amend a resting order's quantity, without signing new terms.
+
+        An amend carries no signature and no price, so it may only **reduce** the order's
+        lifetime-total quantity — raising it would increase exposure the user never
+        authorized, and needs :meth:`replace_order` instead. Reducing to zero is a
+        cancellation and is rejected; use :meth:`cancel_order`.
+
+        Args:
+            order_id: ID of the order to amend. Must still be open.
+            asset_id: Asset the order belongs to.
+            new_quantity: New **lifetime-total** quantity in base-asset units — the whole
+                order line, filled part included, not the remaining unfilled part.
+            expected_authorization_revision: The revision the order is expected to be on:
+                the timestamp of the last replace or amend, or ``None`` if it still rests on
+                its original signed terms. The book rejects the amend with 409 if the order
+                has moved on since, so an amend computed against stale terms cannot apply.
+
+        Returns:
+            The :class:`OrderOperationResponse` from the OMS.
+        """
+        user = self._resolve_user(user=user)
+        validate_order_id(order_id)
+        market = await self.get_market(asset_id)
+        payload = {
+            "request": {
+                "order_id": order_id,
+                "base_asset": asset_id.model_dump()
+                if hasattr(asset_id, "model_dump")
+                else asset_id,
+                "new_quantity": new_quantity,
+                "book_quantity_decimals": market.book_quantity_decimals,
+                "expected_authorization_revision": expected_authorization_revision,
+                "timestamp_ns": time.time_ns(),
+                "source": "User",
+            },
+            "user_id": user.public_key,
+            "target": {"account": 0, "is_spot": False},
+            "oms_operator_pubkey": "",
+            "receive_timestamp_ns": None,
+        }
+        self.logger.debug(
+            f"Sending Amend Order for OrderID {order_id} (Asset {asset_id}): New Qty={new_quantity}"
         )
+        if self._use_ws_control:
+            ws_resp = await self._control_ws_send(
+                {"AmendOrderRequest": payload}, expected_order_id=order_id, timeout=15.0
+            )
+            return self._extract_operation_response(ws_resp)
+        resp = await self._patch("/orders/amend", json_data=payload, user=user)
         return OrderOperationResponse.model_validate(resp)
 
     def parse_user_trades(self, trades_data: list[dict[str, Any]]) -> list[UserTrade]:
@@ -483,7 +592,7 @@ class OrderBookClient(AuthenticatedClient):
         endpoint = f"/positions/{public_key}/{asset_id}"
         params = {"sub_account": sub_account} if sub_account is not None else None
         try:
-            data = await self._get(endpoint, params=params)
+            data = await self._get(endpoint, params=params, user=user)
         except NotFoundError:
             return []
         return parse_positions_page(data).positions
@@ -518,7 +627,7 @@ class OrderBookClient(AuthenticatedClient):
         endpoint = f"/positions/{public_key}"
         params = page_params(page, limit, sub_account=sub_account)
         try:
-            data = await self._get(endpoint, params=params)
+            data = await self._get(endpoint, params=params, user=user)
         except NotFoundError:
             return parse_positions_page([])
         return parse_positions_page(data)
@@ -535,7 +644,7 @@ class OrderBookClient(AuthenticatedClient):
         endpoint = f"/orders/user/{public_key}"
         self.logger.debug(f"Getting Orders for user {public_key}")
         try:
-            response_data = await self._get(endpoint, params=page_params(page, limit))
+            response_data = await self._get(endpoint, params=page_params(page, limit), user=user)
         except NotFoundError:
             return [], {}
 
@@ -580,7 +689,7 @@ class OrderBookClient(AuthenticatedClient):
                 params_dict["open_only"] = bool(open_only)
         self.logger.debug(f"Getting Orders for user {public_key}, asset {asset_id}")
         try:
-            response_data = await self._get(endpoint, params=params_dict)
+            response_data = await self._get(endpoint, params=params_dict, user=user)
 
             if isinstance(response_data, dict) and "error" in response_data:
                 self.logger.error(
@@ -667,10 +776,18 @@ class OrderBookClient(AuthenticatedClient):
                             pass
                     self._control_ws_task = asyncio.create_task(self._control_ws_reader())
                     break
-                except Exception:
+                except Exception as err:
                     attempt += 1
-                    if attempt >= 5:
+                    rejected_status_code = resolve_rejected_status_code(err)
+                    max_attempts = CONTROL_WS_MAX_ATTEMPTS
+                    if rejected_status_code is not None:
+                        max_attempts = CONTROL_WS_MAX_ATTEMPTS_BY_STATUS.get(
+                            rejected_status_code, CONTROL_WS_MAX_ATTEMPTS
+                        )
+
+                    if attempt >= max_attempts:
                         raise
+
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, 5.0)
 
@@ -756,6 +873,7 @@ class OrderBookClient(AuthenticatedClient):
             "CreateOrderRequest": "CreateOrderResponse",
             "CancelOrderRequest": "CancelOrderResponse",
             "ReplaceOrderRequest": "ReplaceOrderResponse",
+            "AmendOrderRequest": "AmendOrderResponse",
         }
         response_variant = response_variant_map.get(request_variant, request_variant)
         asset_id: str | None = None
@@ -868,7 +986,7 @@ class OrderBookClient(AuthenticatedClient):
         endpoint = f"/inventory/user/{public_key}"
         self.logger.debug(f"Getting Inventory for user {public_key}")
         try:
-            return await self._get(endpoint)
+            return await self._get(endpoint, user=user)
         except NotFoundError:
             return {}
 
@@ -891,11 +1009,11 @@ class OrderBookClient(AuthenticatedClient):
 
     async def add_multisig_signer(
         self,
-        signer: "User",
+        signer: "UserLike",
         *,
         weight: int = 1,
         session_duration_ns: int = U64_MAX,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
     ) -> dict[str, Any]:
         """Register an Ed25519 additional signer on an account.
 
@@ -910,6 +1028,7 @@ class OrderBookClient(AuthenticatedClient):
         unlimited.
         """
         user = self._resolve_user(user=user)
+        signer = to_user(signer)
         if isinstance(signer, DelegatedUser):
             raise ValueError("signer must be a master-key User or LocalUser, not DelegatedUser")
         if weight <= 0:
@@ -973,7 +1092,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         user_id = self._validate_user_public_key(user=user)
         path = f"/trades/user/events/{user_id}"
-        async for trade in self._stream_ws(path, parse_single_user_trade):
+        async for trade in self._stream_ws(path, parse_single_user_trade, user=user):
             yield trade
 
     async def stream_user_finalized_trades(
@@ -989,7 +1108,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         user_id = self._validate_user_public_key(user=user)
         path = f"/trades/user/{user_id}"
-        async for trade in self._stream_ws(path, parse_single_user_trade):
+        async for trade in self._stream_ws(path, parse_single_user_trade, user=user):
             yield trade
 
     async def stream_user_trades(self, user: UserType | None = None) -> AsyncIterator[UserTrade]:
@@ -1016,7 +1135,7 @@ class OrderBookClient(AuthenticatedClient):
         """
         user_id = self._validate_user_public_key(user=user)
         path = f"/account/events/{user_id}"
-        async for event in self._stream_ws(path, parse_user_event):
+        async for event in self._stream_ws(path, parse_user_event, user=user):
             yield event
 
     async def get_user_solvency(self, user: UserType | None = None) -> UserSolvency:
@@ -1029,7 +1148,7 @@ class OrderBookClient(AuthenticatedClient):
 
         self.logger.debug(f"Getting Solvency for user {public_key}")
         try:
-            response_data = await self._get(endpoint)
+            response_data = await self._get(endpoint, user=user)
         except NotFoundError:
             response_data = {"accounts": {}}
 
@@ -1062,7 +1181,7 @@ class OrderBookClient(AuthenticatedClient):
         self.logger.debug(
             f"Getting close-all preview for user {uid}, sub_account={sub_account_index}"
         )
-        response_data = await self._get(endpoint)
+        response_data = await self._get(endpoint, user=user)
 
         if not isinstance(response_data, dict):
             raise Exception("Invalid response from get_close_all_preview.")
@@ -1116,7 +1235,7 @@ class OrderBookClient(AuthenticatedClient):
             f"sub_accounts={sub_accounts}, include_positions={include_positions}"
         )
         try:
-            response_data = await self._get(endpoint, params=params if params else None)
+            response_data = await self._get(endpoint, params=params if params else None, user=user)
         except NotFoundError:
             response_data = {"accounts": {}}
 
@@ -1137,6 +1256,23 @@ class OrderBookClient(AuthenticatedClient):
             json_data={"enabled": enabled},
             user=user,
         )
+
+    async def rename_sub_account(
+        self, account_index: int, name: str, user: UserType | None = None
+    ) -> RenameSubAccountResponse:
+        """Give a sub-account a human-readable name.
+
+        The main (``0``) and margin (``1``) sub-accounts are reserved and cannot be
+        renamed. Unless the user has opted out of market-data export, the name is
+        also served back by :meth:`MarketDataClient.get_sub_account_names`.
+        """
+        public_key = self._validate_user_public_key(user=user)
+        response_data = await self._patch(
+            f"/account/{public_key}/sub-account/{account_index}/name",
+            json_data={"name": name},
+            user=user,
+        )
+        return RenameSubAccountResponse.model_validate(response_data)
 
     async def init_margin_simulate(
         self,
@@ -1201,7 +1337,7 @@ class OrderBookClient(AuthenticatedClient):
         transfer_amount: int,
         target_account_type: None = None,
         nonce: int | None = None,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
     ) -> dict[str, Any]:
         user = self._resolve_user(user=user)
         payload = self._build_transfer_to_subaccount(
@@ -1230,7 +1366,7 @@ class OrderBookClient(AuthenticatedClient):
         transfer_amount,
         target_account_type=None,
         nonce: int | None = None,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
     ):
         user = self._resolve_user(user=user)
         inner = {
@@ -1257,7 +1393,7 @@ class OrderBookClient(AuthenticatedClient):
         account: int,
         transfer_asset: str,
         nonce: int | None = None,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
     ) -> dict[str, Any]:
         user = self._resolve_user(user=user)
         payload = self._build_close_position_request(
@@ -1272,7 +1408,7 @@ class OrderBookClient(AuthenticatedClient):
         account: int,
         transfer_asset: str,
         nonce: int | None = None,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
     ) -> dict:
         """Same signing rules as CE: compact JSON of inner, ed25519 over UTF-8 bytes."""
         user = self._resolve_user(user=user)

@@ -727,7 +727,7 @@ class DepositVault(TPlusContract):
 
     @property
     def domain_separator(self) -> HexBytes:
-        return HexBytes(self.chain_manager.provider.get_storage(self.address, 2))
+        return HexBytes(self.chain_manager.provider.get_storage(self.address, 3))
 
     @property
     def approved_settlers(self) -> list["AddressType"]:

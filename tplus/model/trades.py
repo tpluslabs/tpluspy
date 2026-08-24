@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, overload
 
 from pydantic import BaseModel, Field
 
@@ -64,8 +64,40 @@ def parse_trades(data: list[dict]) -> list[Trade]:
 
 
 class UserTradesPage(PageMeta):
+    """One page of user trades plus pagination metadata (`has_next_page`, etc.).
+
+    Behaves like a sequence of `UserTrade` for existing list-style callers
+    (`for trade in page`, `len(page)`, `page[i]`).
+    """
+
     trades: list[UserTrade]
     total_trades: int
+
+    def __iter__(self):
+        return iter(self.trades)
+
+    def __len__(self) -> int:
+        return len(self.trades)
+
+    @overload
+    def __getitem__(self, index: int) -> UserTrade: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[UserTrade]: ...
+
+    def __getitem__(self, index: int | slice) -> UserTrade | list[UserTrade]:
+        return self.trades[index]
+
+    def __bool__(self) -> bool:
+        return bool(self.trades)
+
+    def __contains__(self, item: object) -> bool:
+        return item in self.trades
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, list):
+            return self.trades == other
+        return super().__eq__(other)
 
 
 def parse_user_trades(data: list[dict]) -> list[UserTrade]:

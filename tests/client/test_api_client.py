@@ -12,21 +12,34 @@ class FakeGateway:
     """Simulates the API gateway fronting both OMS and MDS on one origin."""
 
     def __init__(self) -> None:
-        self.nonce_calls = 0
-        self.auth_calls = 0
+        self.oms_nonce_calls = 0
+        self.oms_auth_calls = 0
+        self.mds_nonce_calls = 0
+        self.mds_auth_calls = 0
         self.auth_headers: dict[str, str | None] = {}
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
-        if path.startswith("/nonce/"):
-            self.nonce_calls += 1
-            return httpx.Response(200, json={"value": "n"})
+        if path.startswith("/market-data/nonce/"):
+            self.mds_nonce_calls += 1
+            return httpx.Response(200, json={"value": "mds-n"})
 
-        if path == "/auth":
-            self.auth_calls += 1
+        if path == "/market-data/auth":
+            self.mds_auth_calls += 1
             return httpx.Response(
                 200,
-                json={"token": "tok-1", "expiry_ns": time.time_ns() + 3_600_000_000_000},
+                json={"token": "mds-tok", "expiry_ns": time.time_ns() + 3_600_000_000_000},
+            )
+
+        if path.startswith("/nonce/"):
+            self.oms_nonce_calls += 1
+            return httpx.Response(200, json={"value": "oms-n"})
+
+        if path == "/auth":
+            self.oms_auth_calls += 1
+            return httpx.Response(
+                200,
+                json={"token": "oms-tok", "expiry_ns": time.time_ns() + 3_600_000_000_000},
             )
 
         if path.startswith("/inventory/user/"):
@@ -65,7 +78,7 @@ def make_client(gateway: FakeGateway) -> TplusApiClient:
 
 
 @pytest.mark.anyio
-async def test_tplus_api_client_shares_one_token_across_both_services():
+async def test_tplus_api_client_uses_service_scoped_tokens():
     gateway = FakeGateway()
     client = make_client(gateway)
 
@@ -75,22 +88,25 @@ async def test_tplus_api_client_shares_one_token_across_both_services():
     assert inventory == {"balances": []}
     assert trades == []
 
-    assert gateway.auth_calls == 1
-    assert gateway.nonce_calls == 1
-    assert gateway.auth_headers["inventory"] == "Bearer tok-1"
-    assert gateway.auth_headers["trades"] == "Bearer tok-1"
+    assert gateway.oms_auth_calls == 1
+    assert gateway.oms_nonce_calls == 1
+    assert gateway.mds_auth_calls == 1
+    assert gateway.mds_nonce_calls == 1
+    assert gateway.auth_headers["inventory"] == "Bearer oms-tok"
+    assert gateway.auth_headers["trades"] == "Bearer mds-tok"
 
     await client.close()
 
 
-def test_tplus_api_client_subclients_share_connection_and_auth():
+def test_tplus_api_client_subclients_share_connection_but_not_mds_auth():
     gateway = FakeGateway()
     client = make_client(gateway)
 
     assert client.oms._client is client._client
     assert client.mds._client is client._client
     assert client.oms._auth is client._auth
-    assert client.mds._auth is client._auth
+    assert client.mds._auth is not client._auth
+    assert client.mds._auth_path_prefix == "/market-data"
 
 
 @pytest.mark.anyio

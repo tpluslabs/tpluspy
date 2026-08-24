@@ -34,3 +34,19 @@
    :members:
    :show-inheritance:
 ```
+
+## DelegatedUser
+
+```{eval-rst}
+.. autoclass:: tplus.utils.user.DelegatedUser
+   :members:
+   :show-inheritance:
+```
+
+## EvmDelegatedUser
+
+```{eval-rst}
+.. autoclass:: tplus.utils.user.EvmDelegatedUser
+   :members:
+   :show-inheritance:
+```

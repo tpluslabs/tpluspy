@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 
 _EVM_AVAILABLE = importlib.util.find_spec("ape") is not None
+PROFILE_WINDOW_SECONDS = 7 * 24 * 60 * 60
 
 
 @click.group()
@@ -181,6 +182,43 @@ if _EVM_AVAILABLE:
         help="Automata verifier contract address.",
     )
     @click.option(
+        "--attestation-test-mode",
+        is_flag=True,
+        help="Accept unattested credentials. Dev only.",
+    )
+    @click.option(
+        "--council-member",
+        "security_council",
+        multiple=True,
+        help="Security council member address. May be repeated. Required off dev networks.",
+    )
+    @click.option(
+        "--council-threshold",
+        type=int,
+        help="Security council threshold. Defaults to a strict majority of the council.",
+    )
+    @click.option(
+        "--manage-profile-window",
+        type=int,
+        default=PROFILE_WINDOW_SECONDS,
+        show_default=True,
+        help="Seconds a measurement-profile change stays pending.",
+    )
+    @click.option(
+        "--signer-rotation-window",
+        type=int,
+        default=PROFILE_WINDOW_SECONDS,
+        show_default=True,
+        help="Seconds a signer rotation stays pending.",
+    )
+    @click.option(
+        "--withdrawal-quorum",
+        type=int,
+        default=1,
+        show_default=True,
+        help="Approvals required to release a withdrawal.",
+    )
+    @click.option(
         "--skip-if-deployed",
         is_flag=True,
         help="Reuse the CE-registered CredentialManager on this chain if live.",
@@ -192,9 +230,17 @@ if _EVM_AVAILABLE:
         quorum: int | None,
         measurements: tuple[str, ...],
         automata_verifier: str,
+        attestation_test_mode: bool,
+        security_council: tuple[str, ...],
+        council_threshold: int | None,
+        manage_profile_window: int,
+        signer_rotation_window: int,
+        withdrawal_quorum: int,
         skip_if_deployed: bool,
     ):
         """Deploy a new CredentialManager pointing at REGISTRY_ADDRESS."""
+        from ape import chain
+
         from tplus.evm.contracts import CredentialManager
 
         if skip_if_deployed and (adopted := CredentialManager()._adopt_ce_deployment()):
@@ -204,6 +250,19 @@ if _EVM_AVAILABLE:
         op_list = list(operators) or [account.address]
         threshold = quorum if quorum is not None else len(op_list)
         meas = [bytes.fromhex(m.removeprefix("0x")) for m in measurements]
+
+        council = list(security_council)
+        if not council:
+            # Defaulting the veto council to the operators would collapse the independent
+            # veto, so only a dev chain may fall back to it.
+            if not chain.provider.network.is_dev:
+                raise click.UsageError("--council-member is required off dev networks.")
+
+            council = op_list
+
+        # Strict majority, matching the contract's own 2k>n check.
+        council_threshold = council_threshold or (len(council) // 2 + 1)
+
         instance = CredentialManager.deploy(
             op_list,
             threshold,
@@ -211,6 +270,12 @@ if _EVM_AVAILABLE:
             registry_address,
             meas,
             automata_verifier,
+            attestation_test_mode,
+            council,
+            council_threshold,
+            manage_profile_window,
+            signer_rotation_window,
+            withdrawal_quorum,
             sender=account,
         )
         click.echo(f"deployed: {instance.address}")
@@ -226,18 +291,29 @@ if _EVM_AVAILABLE:
         except click.UsageError:
             ce = None
 
+        # Waiting on vault registration reads the vault list back from the OMS.
+        try:
+            assets = cli_ctx.orderbook_client(anonymous=True).assets
+        except click.UsageError:
+            assets = None
+
         credman = (
             cast("CredentialManager", CredentialManager.at(credential_manager_address))
             if credential_manager_address
             else None
         )
         return CredentialManagerOwner(
-            admin=signer, signers=[signer], credential_manager=credman, clearing_engine=ce
+            admin=signer,
+            signers=[signer],
+            credential_manager=credman,
+            clearing_engine=ce,
+            asset_registry_client=assets,
         )
 
     @vaults.command("register", cls=ConnectedProviderCommand)
     @tplus_network_option()
     @clearing_url_option()
+    @orderbook_url_option()
     @ignore_ssl_option()
     @credential_manager_address_option()
     @tplus_account_option()

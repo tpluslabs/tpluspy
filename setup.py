@@ -8,7 +8,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tpluspy",
-    version="0.3.2",
+    version="0.4.0",
     description="""tpluspy: Client utilities for interacting with tplus""",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -34,6 +34,7 @@ setup(
     python_requires=">=3.10,<4",
     extras_require={
         "test": [
+            "eth-account>=0.13.0,<0.14",
             "pytest>=8.0",
             "pytest-timeout>=2.2.0,<3",
             "pytest-mock",
@@ -55,6 +56,7 @@ setup(
             "ape-tokens",
             "click",
             "eip712>=0.3.1",
+            "eth-account>=0.13.0,<0.14",
             "eth-ape>=0.8.49,<0.9",
             "hexbytes>=1.3.1,<2",
         ],

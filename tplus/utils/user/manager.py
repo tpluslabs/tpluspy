@@ -12,7 +12,14 @@ from cryptography.hazmat.primitives.serialization import (  # type: ignore
 )
 
 from tplus.utils.user.ed_keyfile import decrypt_keyfile, encrypt_keyfile
-from tplus.utils.user.model import LocalUser, User
+from tplus.utils.user.model import (
+    MAIN_SUB_ACCOUNT,
+    EvmAccount,
+    LocalUser,
+    User,
+    resolve_ape_account,
+    sign_master_key_message,
+)
 from tplus.utils.user.validate import privkey_to_bytes
 
 PUBKEY_SUFFIX = ".pub"
@@ -35,17 +42,23 @@ def _store(path: Path, password: str, private_key: bytes):
 
 
 class UserManager:
-    """Manage local T+ users stored as encrypted Ed25519 keyfiles.
+    """Manage T+ users: those stored as encrypted Ed25519 keyfiles, and those
+    derived from EVM accounts.
 
     Keyfiles live under ``~/.tplus/users/``. Each user has an encrypted
     private-key file and a plaintext ``<name>.pub`` sidecar containing the
     hex public key, so listing and identifying users does not require
     decrypting them.
+
+    Users derived from EVM accounts are not stored on disk; they are held for the
+    lifetime of the manager, keyed by EVM address and sub-account.
     """
 
     def __init__(self):
         self._data_folder = Path.home() / ".tplus" / "users"
         self._default_user = None
+        self._evm_users: dict[tuple[str, int], User] = {}
+        self._evm_signatures: dict[str, bytes] = {}
 
     @property
     def usernames(self) -> Iterator[str]:
@@ -130,6 +143,66 @@ class UserManager:
         user = User(private_key=_unlock())
         self._write_pubkey(name, user)
         return user
+
+    def master_key_signature(self, account: "EvmAccount") -> bytes:
+        """The account's signature over :data:`~tplus.utils.user.model.MASTER_KEY_MESSAGE`.
+
+        Held per EVM address: signing costs a wallet prompt, and both the derived T+
+        identity and the wallet's registered signer key come from this one signature.
+
+        Args:
+            account (EvmAccount): An Ape ``AccountAPI`` or an ``eth_account`` account.
+
+        Returns:
+            bytes: The ``r || s || v`` signature.
+        """
+        address = account.address.lower()
+        if address not in self._evm_signatures:
+            self._evm_signatures[address] = sign_master_key_message(account)
+
+        return self._evm_signatures[address]
+
+    def load_from_evm_account(
+        self, account: "EvmAccount", sub_account: int | None = None
+    ) -> "User":
+        """Load the T+ user derived from an EVM account.
+
+        The account signs a fixed message once and the T+ identity is derived from that
+        signature, so the same EVM key always resolves to the same T+ user. The result is
+        held per EVM address and sub-account, since deriving costs a signature and a
+        password-protected account would otherwise prompt on every use.
+
+        This is a local derivation, not a lookup of the account the wallet already
+        controls; see :meth:`tplus.client.base.BaseClient.resolve_evm_user` for that.
+
+        Args:
+            account (EvmAccount): An Ape ``AccountAPI`` or an ``eth_account`` account.
+            sub_account (int | None): Optional sub-account index.
+
+        Returns:
+            User: The user derived from ``account``.
+        """
+        key = (account.address.lower(), sub_account or MAIN_SUB_ACCOUNT)
+        if key not in self._evm_users:
+            self._evm_users[key] = User.from_evm_account(
+                account, sub_account=sub_account, signature=self.master_key_signature(account)
+            )
+
+        return self._evm_users[key]
+
+    def load_from_ape_account(
+        self, account: "str | EvmAccount", sub_account: int | None = None
+    ) -> "User":
+        """Load the T+ user backed by an Ape account. Requires the ``[evm]`` extra.
+
+        Args:
+            account (str | EvmAccount): An Ape account alias, or an ``AccountAPI``.
+            sub_account (int | None): Optional sub-account index.
+
+        Returns:
+            User: The user backed by ``account``.
+        """
+        return self.load_from_evm_account(resolve_ape_account(account), sub_account=sub_account)
 
     def load_default(self, password=None) -> Optional["User"]:
         """Load the default user, if one is configured or inferable.
@@ -222,3 +295,8 @@ class UserManager:
         path = self._pubkey_path(name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"{user.public_key}\n")
+
+
+user_manager = UserManager()
+"""The process-wide :class:`UserManager` backing :func:`tplus.utils.user.load_user` and
+friends. Holding one instance is what lets an EVM-backed user be derived a single time."""

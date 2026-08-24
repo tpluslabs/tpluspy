@@ -24,11 +24,14 @@ from tplus.model.types import ChainID
 from tplus.utils.address import to_evm_address
 from tplus.utils.amount import Amount
 from tplus.utils.hex import str_to_vec
+from tplus.utils.serializers import parse_int
+from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
     from tplus.client import ClearingEngineClient
     from tplus.model.chain_address import Address32
     from tplus.model.types import UserPublicKey
+    from tplus.types import UserLike
     from tplus.utils.user import User
 
 
@@ -43,11 +46,11 @@ class DeveloperEnvironment(ManagerAccessMixin):
 
     def __init__(
         self,
-        default_user: "User",
+        default_user: "UserLike",
         ce: "ClearingEngineClient",
         deposit_vault: DepositVault | None = None,
     ):
-        self.default_user = default_user
+        self.default_user = to_user(default_user)
         self.ce_client: ClearingEngineClient = ce
         self._deposit_vault = deposit_vault
         self.setup_snapshot = None
@@ -116,8 +119,8 @@ class DeveloperEnvironment(ManagerAccessMixin):
     def settlement_manager(self) -> SettlementManager:
         return self.create_settlement_manager()
 
-    def create_settlement_manager(self, trader: "User | None" = None) -> SettlementManager:
-        trader = trader or self.default_user
+    def create_settlement_manager(self, trader: "UserLike | None" = None) -> SettlementManager:
+        trader = to_user(trader) if trader is not None else self.default_user
         return SettlementManager(
             trader,
             self.admin,
@@ -134,8 +137,8 @@ class DeveloperEnvironment(ManagerAccessMixin):
     def withdrawal_manager(self) -> WithdrawalManager:
         return self.create_withdrawal_manager()
 
-    def create_withdrawal_manager(self, trader: "User | None" = None) -> WithdrawalManager:
-        trader = trader or self.default_user
+    def create_withdrawal_manager(self, trader: "UserLike | None" = None) -> WithdrawalManager:
+        trader = to_user(trader) if trader is not None else self.default_user
         return WithdrawalManager(
             trader,
             self.admin,
@@ -172,13 +175,13 @@ class DeveloperEnvironment(ManagerAccessMixin):
         amount_in: Amount,
         asset_out: AssetAddress,
         amount_out: Amount,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
         settler: "UserPublicKey | None" = None,
         maker_order: MakerOrderAttachment | None = None,
         sub_account: int | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
     ):
-        user = user or self.default_user
+        user = to_user(user) if user is not None else self.default_user
         key = f"{user.public_key}"
         self._pending_settlements.setdefault(key, {})
         self._pending_settlement_errors.pop(key, None)
@@ -293,11 +296,11 @@ class DeveloperEnvironment(ManagerAccessMixin):
         self,
         asset: AssetAddress,
         amount: Amount,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
         target: "Address32 | str | None" = None,
         nonce: int | None = None,
     ) -> WithdrawalInfo:
-        user = user or self.default_user
+        user = to_user(user) if user is not None else self.default_user
         key = f"{user.public_key}"
         self._pending_withdrawals.setdefault(key, {})
         self._pending_withdrawal_errors.pop(key, None)
@@ -359,15 +362,15 @@ class DeveloperEnvironment(ManagerAccessMixin):
         self,
         info: WithdrawalInfo,
         approvals: list[dict],
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
     ):
-        user = user or self.default_user
+        user = to_user(user) if user is not None else self.default_user
         return await self.withdrawal_manager.execute_withdrawal(info, approvals, user=user)
 
     async def submit_latest_approved_withdrawal_onchain(
-        self, user: "User | None" = None, nonce: int | None = None
+        self, user: "UserLike | None" = None, nonce: int | None = None
     ):
-        user = user or self.default_user
+        user = to_user(user) if user is not None else self.default_user
         key = f"{user.public_key}"
         pending = self._pending_withdrawals.get(key, {})
         if not pending:
@@ -414,8 +417,8 @@ class DeveloperEnvironment(ManagerAccessMixin):
 
             try:
                 if spot:
-                    asset_inv = int(account["spot"].get(f"{asset}", "0x0"), 16)
-                    usd_inv = int(account["spot"].get("0", "0x0"), 16)
+                    asset_inv = parse_int(account["spot"].get(f"{asset}"))
+                    usd_inv = parse_int(account["spot"].get("0"))
 
                     if expected_amount is not None and asset_inv != expected_amount:
                         raise ValueError(f"Spot '{asset_inv}' != expected '{expected_amount}'")
@@ -428,11 +431,11 @@ class DeveloperEnvironment(ManagerAccessMixin):
                     return
 
                 inventory = account["margins"][f"{asset}"]
-                asset_inv = int(inventory["asset"]["credits"], 16) - int(
-                    inventory["asset"]["liabilities"], 16
+                asset_inv = parse_int(inventory["asset"]["credits"]) - parse_int(
+                    inventory["asset"]["liabilities"]
                 )
-                quote_inv = int(inventory["quote"]["credits"], 16) - int(
-                    inventory["quote"]["liabilities"], 16
+                quote_inv = parse_int(inventory["quote"]["credits"]) - parse_int(
+                    inventory["quote"]["liabilities"]
                 )
 
                 if expected_amount is not None and asset_inv != expected_amount:

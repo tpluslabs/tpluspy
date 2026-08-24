@@ -90,6 +90,8 @@ from tplus.client import OrderBookClient, ClearingEngineClient, MarketDataClient
 ```
 
 - `User` — the signing identity. `User()` mints an ephemeral keypair; `load_user("name")` loads a stored, password-encrypted keyfile; `UserManager` enumerates / saves / sets defaults.
+- **An EVM account can be a T+ user.** Pass an Ape `AccountAPI` or an `eth_account` account anywhere a `User` is accepted (`default_user=`, per-call `user=`, `signer=`). Everything funnels through `tplus.utils.user.to_user`, which resolves it via `UserManager.load_from_evm_account`: the T+ identity is derived from one EIP-191 signature and held per address. `load_user_from_ape_account(alias_or_account)` returns the `User` itself. `load_user` is keyfile-only, so Ape aliases and keyfile names can't collide.
+- **That derivation is not the frontend's account id.** The T+ frontend registers the wallet's *own* secp256k1 key as an additional signer and finds the account id via `POST /multisig/signers`; the account's Ed25519 master is random and carries weight 0. `await client.resolve_evm_user(account)` does that lookup and returns an `EvmDelegatedUser` that co-signs with the wallet under EIP-191. Reserve `User.from_evm_account` / passing the account directly for tpluspy-created accounts.
 - `OrderBookClient(base_url=..., default_user=...)` — talks to the OMS/orderbook (orders, user trades/inventory/positions/margin, `/market` + `/markets`, order/user-trade streams). The signing identity is `default_user=` (keyword); per-call `user=` overrides it.
 - `MarketDataClient(base_url=..., default_user=...)` — client for the `market-data-service`: public market data (klines, order-book depth, public trades, 24h tickers, and their WS streams — unauthenticated) plus per-user trade history (`get_user_trades*`, which authenticates against MDS with its own token). Default base URL `http://localhost:8011`.
 - `ClearingEngineClient(base_url=..., default_user=...)` — talks to the CE directly (deposits, withdrawals, settlements, vaults, asset registry, decimals, admin). Sub-APIs are exposed as cached properties: `client.deposits`, `client.withdrawals`, `client.settlements`, `client.vaults`, `client.assets`, `client.decimals`, `client.admin`. There's also `ClearingEngineClient.from_local(user)` for `127.0.0.1:3032`.
@@ -106,6 +108,7 @@ async with OrderBookClient(base_url="http://127.0.0.1:8000", default_user=user) 
 | Task                          | Call                                                                                                           |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Load my stored user           | `user = load_user("alice")` (prompts for password if needed)                                                   |
+| Use my Ape/EVM account        | pass it as `default_user=` / `user=` / `signer=`, or `load_user_from_ape_account("me")`                        |
 | Create an ephemeral user      | `user = User()`                                                                                                |
 | List stored users             | `UserManager().list()`                                                                                         |
 | Get a market                  | `await client.get_market(AssetIdentifier(200))`                                                                |
@@ -180,7 +183,7 @@ All on-the-wire quantities and prices are **integers in the book's native units*
 
 ## Signing model
 
-T+ uses its own **contract-defined signing scheme** across the board: Ed25519 over compact JSON (no spaces, sorted keys), produced by `User.sign()`. Every order, cancel, replace, transfer, approval, and settlement request carries this signature. On-chain payloads use a t+-specific structured-message variant of the same idea, also defined by the t+ contracts. There is no separate "wallet signing" path.
+T+ uses its own **contract-defined signing scheme** across the board: Ed25519 over compact JSON (no spaces, sorted keys), produced by `User.sign()`. Every order, cancel, replace, transfer, approval, and settlement request carries this signature. On-chain payloads use a t+-specific structured-message variant of the same idea, also defined by the t+ contracts. There is no separate "wallet signing" path: an EVM-derived user signs requests with Ed25519 like any other — the wallet signature is only the seed the Ed25519 key is derived from.
 
 ## Ape / EVM extra
 
@@ -249,6 +252,16 @@ pytest
 ```
 
 The user runs tests; **don't invoke `pytest` from agent sessions** unless explicitly asked.
+
+### Test layout
+
+- **A test class only ever mirrors a class under test** — `TestUser` for `User`, `TestUserManager` for `UserManager`. Module-level functions get module-level tests; don't group them under a `TestFoo` wrapper.
+
+### Test doubles
+
+- **Use the real type before you fake anything.** Build the actual exception, response, or model the production code will see — `websockets.exceptions.InvalidStatus(Response(401, ...))`, a real `httpx.Response`, a real Pydantic model. A `class FakeThing` carrying only the attribute under test can pass while the real type's shape differs.
+- **When a real object won't do**, reach for `pytest-mock`'s `mocker` fixture — `mocker.patch`, `mocker.patch.object`, `mocker.Mock`, `mocker.AsyncMock`. It's already a test dependency and used in `tests/*/conftest.py`. Don't use `monkeypatch`, don't import `unittest.mock` directly, don't hand-roll a fake class.
+- Legitimate reasons to mock: live sockets/WS handshakes, network transports, the clock, anything that would make the test hit a real service. Not: "constructing the real object took two extra lines."
 
 ## Conventions
 

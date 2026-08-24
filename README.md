@@ -71,6 +71,41 @@ async def run_client():
 asyncio.run(run_client())
 ```
 
+#### Use EVM accounts as T+ accounts
+
+An EVM account can back a T+ account: it signs one fixed message and the T+ identity is derived from that signature, so the same wallet always maps to the same T+ account (the one the T+ frontend derives on wallet login).
+
+Pass the account itself anywhere a `User` is accepted, whether that is `default_user=`, a per-call `user=`, or a `signer=`:
+
+```python
+from ape import accounts
+
+account = accounts.load("me")
+
+async with OrderBookClient(API_BASE_URL, default_user=account) as client:
+    await client.get_user_inventory()                  # signs as the T+ user behind the account
+    await client.create_limit_order(..., user=account) # per-call override
+```
+
+An `eth_account` signer works the same way, with no `[evm]` extra:
+
+```python
+from eth_account import Account
+
+client = OrderBookClient(API_BASE_URL, default_user=Account.from_key("0x..."))
+```
+
+Use `load_user_from_ape_account` to hold the `User` itself, for example to read its public key or to pick a sub-account. `load_user` loads stored keyfiles by name, so Ape aliases and keyfile names occupy separate namespaces and cannot collide:
+
+```python
+from tplus.utils.user import load_user_from_ape_account
+
+user = load_user_from_ape_account("me")        # by Ape alias (needs the `evm` extra)
+user = load_user_from_ape_account(account)     # an already-loaded Ape account
+```
+
+The result is a normal T+ `User` and signs every request the same way.
+
 #### REST API Usage
 
 The client offers async methods for common REST endpoints:
@@ -154,13 +189,15 @@ print(f"Cancel Order Response: {cancel_response}")
 # Replace an Order
 # Original Order ID should be from an existing, open order.
 original_order_id_to_replace = "actual-original-order-id"  # Replace with a real order ID
-replace_response = await client.replace_order(
+replace_response, revision = await client.replace_order(
     original_order_id=original_order_id_to_replace,
     asset_id=example_asset,
-    new_quantity=6,  # Optional: New integer quantity
-    new_price=1050,  # Optional: New integer price
+    new_quantity=6,  # Effective lifetime-total quantity
+    new_price=1050,  # Effective limit price
 )
 print(f"Replace Order Response: {replace_response}")
+# `revision` is the replacement's timestamp_ns; a later amend_order must quote it as
+# expected_authorization_revision.
 ```
 
 See `examples/rest_usage.py` for a runnable demonstration.
@@ -197,6 +234,10 @@ async for trade in client.stream_finalized_trades():
 ```
 
 See `examples/websocket_usage.py` for a runnable demonstration using `asyncio.gather` to run multiple streams concurrently.
+
+#### Token Recovery
+
+When a bearer token stops working before it actually expires (e.g. from a service restart), both transports recover on their own. A REST response or WebSocket handshake rejected with `401` or `403` re-authenticates and retries once; a second rejection is raised to the caller. Requests rejected concurrently share a single re-authentication.
 
 ### Contracts
 

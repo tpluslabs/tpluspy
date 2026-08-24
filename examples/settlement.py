@@ -9,6 +9,8 @@ be re-fetched later via ``client.get_settlement_signatures(...)``.
 
 import asyncio
 
+from ape import accounts
+
 from tplus.client import OrderBookClient
 from tplus.model.settlement import (
     InnerSettlementRequest,
@@ -16,9 +18,7 @@ from tplus.model.settlement import (
     TxSettlementRequest,
 )
 from tplus.model.types import ChainID
-from tplus.utils.user import load_user
-
-USERNAME = "az"
+from tplus.utils.user import load_user_from_ape_account
 
 # asset_in/asset_out are 32-byte addresses on a single chain, not `address@chain`.
 ASSET_IN = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
@@ -28,8 +28,12 @@ SUB_ACCOUNT = 0
 
 
 async def main() -> None:
-    tplus_user = load_user(USERNAME)
-    client = OrderBookClient("http://127.0.0.1:8000", default_user=tplus_user)
+    account = accounts.load("my-acct")
+
+    # The account works anywhere a T+ user does; derived here only because the request
+    # payload needs its public key.
+    tplus_user = load_user_from_ape_account(account)
+    client = OrderBookClient("http://127.0.0.1:8000", default_user=account)
 
     inner = InnerSettlementRequest.model_validate(
         {

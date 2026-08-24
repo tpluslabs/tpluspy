@@ -91,7 +91,13 @@ def test_delegated_replace_uses_additional_signer():
     assert payload["signer"] == account.public_key
     assert payload["signature"] == []
     assert additional["signer"] == {"Ed25519": signer.public_key_vec}
-    signer.vk.verify(bytes(additional["signature"]), request.request.model_dump_json().encode())
+    compact = (
+        request.request.model_dump_json(exclude_none=False)
+        .replace(" ", "")
+        .replace("\r", "")
+        .replace("\n", "")
+    )
+    signer.vk.verify(bytes(additional["signature"]), compact.encode())
 
 
 def test_delegated_market_order_uses_additional_signer():

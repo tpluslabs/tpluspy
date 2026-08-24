@@ -118,6 +118,9 @@ _AUTH_CODES = frozenset(
 )
 _AUTH_PREFIXES = ("SIGNER_", "NONCE_")
 
+# Our services only 401 a stale token; gateways fronting them often 403 it instead.
+UNAUTHENTICATED_STATUS_CODES = frozenset({401, 403})
+
 _RATE_LIMIT_CODES = frozenset({"RATE_LIMITED"})
 
 _NOT_FOUND_SUFFIXES = ("_NOT_FOUND",)
@@ -144,6 +147,10 @@ _ORDER_PREFIXES = (
 )
 
 
+def is_unauthenticated_status(status_code: int) -> bool:
+    return status_code in UNAUTHENTICATED_STATUS_CODES
+
+
 def _classify(code: str, status_code: int) -> type[OmsError]:
     """Return the most specific ``OmsError`` subclass for *code*."""
     if code == "SIGNER_REGISTRY_UNAVAILABLE":
@@ -163,7 +170,7 @@ def _classify(code: str, status_code: int) -> type[OmsError]:
         return ServerError
     if status_code == 429:
         return RateLimitError
-    if status_code in {401, 403}:
+    if is_unauthenticated_status(status_code):
         return AuthError
     if status_code == 404:
         return NotFoundError

@@ -117,7 +117,7 @@ def _replace(
     from tplus.model.asset_identifier import AssetIdentifier
 
     client = cli_ctx.orderbook_client()
-    response = asyncio.run(
+    response, _revision = asyncio.run(
         client.replace_order(
             original_order_id=order_id,
             asset_id=AssetIdentifier(asset_id),

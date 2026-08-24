@@ -1,5 +1,7 @@
+import hashlib
 from collections.abc import Callable
 from functools import cached_property
+from typing import TYPE_CHECKING, Any, Protocol, TypeGuard, runtime_checkable
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # type: ignore
     Ed25519PrivateKey,
@@ -12,10 +14,121 @@ from tplus.model.types import UserPublicKey
 from tplus.utils.hex import str_to_vec
 from tplus.utils.user.validate import privkey_to_bytes
 
+if TYPE_CHECKING:
+    from ape.api.accounts import AccountAPI
+
 SEED_SIZE = 32
 MAIN_SUB_ACCOUNT = 0
 
 UnlockFn = Callable[[], "bytes | Ed25519PrivateKey"]
+
+# Message an EVM wallet signs (EIP-191) to derive its T+ identity. Must stay byte-identical
+# to the T+ frontend (and the onboard skill) so a browser wallet and a local ape/eth account
+# resolve to the same T+ account.
+MASTER_KEY_MESSAGE = (
+    "tplus-core: authorize account\n\n"
+    "This signature derives your wallet signer key and will never be broadcast to the blockchain."
+)
+
+
+@runtime_checkable
+class EvmAccount(Protocol):
+    """Structural type for an EVM signer: an Ape ``AccountAPI`` or an ``eth_account`` account."""
+
+    @property
+    def address(self) -> str: ...
+
+    def sign_message(self, message: Any, /) -> Any: ...
+
+
+def is_evm_account(value: Any) -> TypeGuard[EvmAccount]:
+    """Whether ``value`` is an EVM account a T+ user can be derived from."""
+    return not isinstance(value, User) and isinstance(value, EvmAccount)
+
+
+def is_ape_account(value: Any) -> "TypeGuard[AccountAPI]":
+    """Whether ``value`` is an Ape ``AccountAPI``. Always ``False`` without the ``[evm]`` extra."""
+    try:
+        from ape.api.accounts import AccountAPI
+    except ImportError:
+        return False
+
+    return isinstance(value, AccountAPI)
+
+
+def sign_personal_message(account: "EvmAccount", message: str) -> bytes:
+    """Sign ``message`` with an EVM account under EIP-191 (``personal_sign``).
+
+    Args:
+        account (EvmAccount): An Ape ``AccountAPI`` or an ``eth_account`` account.
+        message (str): The message to sign.
+
+    Returns:
+        bytes: The ``r || s || v`` signature.
+
+    Raises:
+        ValueError: If an Ape account declines to sign.
+    """
+    if is_ape_account(account):
+        ape_signature = account.sign_message(message)
+        if ape_signature is None:
+            raise ValueError("Ape account declined to sign.")
+
+        return bytes(ape_signature.encode_rsv())
+
+    from eth_account.messages import encode_defunct
+
+    signed = account.sign_message(encode_defunct(text=message))
+    return bytes(signed.signature)
+
+
+def sign_master_key_message(account: "EvmAccount") -> bytes:
+    return sign_personal_message(account, MASTER_KEY_MESSAGE)
+
+
+def _seed_from_evm_signature(signature: "bytes | bytearray") -> bytes:
+    return hashlib.sha512(bytes(signature)).digest()[:SEED_SIZE]
+
+
+def compact_payload(payload: str) -> str:
+    """Strip the whitespace T+ removes before verifying a signed payload."""
+    return payload.replace(" ", "").replace("\r", "").replace("\n", "")
+
+
+def coerce_account_public_key(value: "str | UserPublicKey") -> UserPublicKey:
+    """Validate and normalize a T+ account id to lowercase, unprefixed 64-hex."""
+    normalized = str(value).removeprefix("0x").lower()
+    if len(normalized) != 64:
+        raise ValueError("account_public_key must be a 32-byte Ed25519 public key")
+    try:
+        bytes.fromhex(normalized)
+    except ValueError as exc:
+        raise ValueError("account_public_key must be hexadecimal") from exc
+
+    return UserPublicKey(normalized)
+
+
+def resolve_ape_account(account: "str | EvmAccount") -> "EvmAccount":
+    """Load an Ape account by alias, or return an already-loaded one unchanged.
+
+    Args:
+        account (str | EvmAccount): An Ape account alias, or an ``AccountAPI``.
+
+    Returns:
+        EvmAccount: The loaded Ape account.
+
+    Raises:
+        ImportError: If the ``[evm]`` extra is not installed.
+    """
+    if not isinstance(account, str):
+        return account
+
+    try:
+        from ape import accounts as ape_accounts
+    except ImportError as err:
+        raise ImportError('Install the "evm" extra to load Ape accounts.') from err
+
+    return ape_accounts.load(account)
 
 
 def _coerce_vk(value: "str | bytes | Ed25519PublicKey") -> Ed25519PublicKey:
@@ -55,6 +168,8 @@ class User:
             sub-account (``0``).
     """
 
+    _evm_address: str | None = None
+
     def __init__(
         self,
         private_key: "str | bytes | Ed25519PrivateKey | None" = None,
@@ -67,6 +182,73 @@ class User:
 
         self.vk = self.sk.public_key()
         self._sub_account = sub_account
+
+    @classmethod
+    def from_evm_account(
+        cls,
+        account: "EvmAccount",
+        sub_account: int | None = None,
+        signature: "bytes | None" = None,
+    ) -> "User":
+        """Derive a T+ user deterministically from an EVM account's EIP-191 signature.
+
+        Works with an Ape ``AccountAPI`` or an ``eth_account`` account. The same EVM key
+        always yields the same T+ user, so this is a stable local identity and the account
+        a wallet gets when it creates one through tpluspy.
+
+        It is **not** how the T+ frontend identifies an existing account: there the account
+        id comes from a ``POST /multisig/signers`` lookup on the wallet's own secp256k1 key,
+        and the master key is unrelated to this signature. Use
+        :meth:`tplus.client.base.BaseClient.resolve_evm_user` to reach that account.
+
+        Args:
+            account (EvmAccount): The EVM account to derive from.
+            sub_account (int | None): Optional sub-account index.
+            signature (bytes | None): A signature over :data:`MASTER_KEY_MESSAGE` to derive
+                from. Supply one to avoid re-prompting the account.
+
+        Returns:
+            User: The derived user.
+        """
+        if signature is None:
+            signature = sign_master_key_message(account)
+
+        user = cls(_seed_from_evm_signature(signature), sub_account)
+        user._evm_address = account.address
+        return user
+
+    @classmethod
+    def from_eth_account(cls, account: "EvmAccount", sub_account: int | None = None) -> "User":
+        """Derive a T+ user from an ``eth_account`` account (e.g. ``LocalAccount``).
+
+        Args:
+            account (EvmAccount): The ``eth_account`` account to derive from.
+            sub_account (int | None): Optional sub-account index.
+
+        Returns:
+            User: The derived user.
+        """
+        return cls.from_evm_account(account, sub_account=sub_account)
+
+    @classmethod
+    def from_ape_account(
+        cls, account: "str | EvmAccount", sub_account: int | None = None
+    ) -> "User":
+        """Derive a T+ user from an Ape account. Requires the ``[evm]`` extra.
+
+        Args:
+            account (str | EvmAccount): An Ape account alias, or an ``AccountAPI``.
+            sub_account (int | None): Optional sub-account index.
+
+        Returns:
+            User: The derived user.
+        """
+        return cls.from_evm_account(resolve_ape_account(account), sub_account=sub_account)
+
+    @property
+    def evm_address(self) -> str | None:
+        """EVM address this user was derived from, if any."""
+        return self._evm_address
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} {self.public_key}>"
@@ -135,17 +317,9 @@ class DelegatedUser(User):
         if isinstance(signer, DelegatedUser):
             raise ValueError("signer must be a master-key User, not another DelegatedUser")
 
-        normalized = str(account_public_key).removeprefix("0x").lower()
-        if len(normalized) != 64:
-            raise ValueError("account_public_key must be a 32-byte Ed25519 public key")
-        try:
-            bytes.fromhex(normalized)
-        except ValueError as exc:
-            raise ValueError("account_public_key must be hexadecimal") from exc
-
         # Deliberately do not call User.__init__: generating an unrelated master
         # key would make direct-signing code appear to work for the wrong account.
-        self._account_public_key = UserPublicKey(normalized)
+        self._account_public_key = coerce_account_public_key(account_public_key)
         self._signer = signer
         self._sub_account = sub_account
 

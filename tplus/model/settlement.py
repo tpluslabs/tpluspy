@@ -2,16 +2,16 @@ import json
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from eth_pydantic_types.hex.int import HexInt
 from pydantic import BaseModel, field_serializer
 
 from tplus.model.asset_identifier import Address32, AssetAddress
+from tplus.model.multisig import AdditionalSigner
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.decimals import to_inventory_decimals
-from tplus.utils.hex import str_to_vec
+from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
-    from tplus.utils.user import User
+    from tplus.types import UserLike
 
 
 class SettlementMode(str, Enum):
@@ -26,13 +26,13 @@ class BaseSettlement(BaseModel):
 
     mode: SettlementMode = SettlementMode.MARGIN
     asset_in: Address32
-    amount_in: HexInt
+    amount_in: int
     asset_out: Address32
-    amount_out: HexInt
+    amount_out: int
 
     @field_serializer("amount_in", "amount_out")
     def serialize_amounts(self, val):
-        return hex(val)[2:]
+        return str(val)
 
 
 class InnerSettlementRequest(BaseSettlement):
@@ -219,11 +219,16 @@ class TxSettlementRequest(BaseModel):
     Optional maker order for delegated settlement.
     """
 
+    additional_signers: list[AdditionalSigner] = []
+    """
+    Multisig co-signatures, for accounts the master key alone cannot authorize.
+    """
+
     @classmethod
     def create_signed(
         cls,
         inner: InnerSettlementRequest | dict,
-        signer: "User",
+        signer: "UserLike",
     ) -> "TxSettlementRequest":
         """
         Create and sign a settlement request.
@@ -234,6 +239,7 @@ class TxSettlementRequest(BaseModel):
             signer:
             signer (:class:`~tplus.utils.user.model.User`): The tplus user signing.
         """
+        signer = to_user(signer)
 
         if isinstance(inner, dict):
             if "tplus_user" not in inner:
@@ -243,14 +249,14 @@ class TxSettlementRequest(BaseModel):
 
         signing_payload = inner.signing_payload()
 
-        signature = str_to_vec(signer.sign(signing_payload).hex())
-        return cls(inner=inner, signature=signature)
+        signature, additional_signers = signer.signing_parts(signing_payload)
+        return cls(inner=inner, signature=signature, additional_signers=additional_signers)
 
     @classmethod
     def create_signed_delegated(
         cls,
         inner: InnerSettlementRequest | dict,
-        signer: "User",
+        signer: "UserLike",
         maker_order: MakerOrderAttachment,
     ) -> "TxSettlementRequest":
         """
@@ -259,6 +265,7 @@ class TxSettlementRequest(BaseModel):
         enforces this binding server-side; checking locally surfaces the
         mismatch earlier with a clearer error.
         """
+        signer = to_user(signer)
         if isinstance(inner, dict):
             if "tplus_user" not in inner:
                 inner["tplus_user"] = signer.public_key
@@ -279,8 +286,13 @@ class TxSettlementRequest(BaseModel):
                 "the CE will reject this as MmPubkeyMismatch."
             )
 
-        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
-        return cls(inner=inner, signature=signature, maker_order=maker_order)
+        signature, additional_signers = signer.signing_parts(inner.signing_payload())
+        return cls(
+            inner=inner,
+            signature=signature,
+            maker_order=maker_order,
+            additional_signers=additional_signers,
+        )
 
     def signing_payload(self) -> str:
         return self.inner.signing_payload()
@@ -307,12 +319,17 @@ class BatchSettlementRequest(BaseModel):
     The settler's signature from signing the necessary data (mostly from ``.inner``).
     """
 
+    additional_signers: list[AdditionalSigner] = []
+    """
+    Multisig co-signatures, for accounts the master key alone cannot authorize.
+    """
+
     @classmethod
     def create_signed(
-        cls, inner: "InnerBatchSettlementRequest", signer: "User"
+        cls, inner: "InnerBatchSettlementRequest", signer: "UserLike"
     ) -> "BatchSettlementRequest":
-        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
-        return cls(inner=inner, signature=signature)
+        signature, additional_signers = to_user(signer).signing_parts(inner.signing_payload())
+        return cls(inner=inner, signature=signature, additional_signers=additional_signers)
 
     def signing_payload(self) -> str:
         return self.inner.signing_payload()

@@ -61,7 +61,7 @@ def _client_returning(
 
 
 @pytest.mark.anyio
-async def test_get_user_trades_page_parses_envelope():
+async def test_get_user_trades_parses_envelope():
     envelope = {
         "trades": [_trade(2, 300), _trade(1, 100)],
         "page": 0,
@@ -73,7 +73,7 @@ async def test_get_user_trades_page_parses_envelope():
         "next_page": 1,
     }
     client, captured = _client_returning(envelope, MarketDataClient)
-    page = await client.get_user_trades_page(page=0, limit=2)
+    page = await client.get_user_trades(page=0, limit=2)
     assert [t.timestamp_ns for t in page.trades] == [300, 100]
     assert page.total_trades == 5
     assert page.has_next_page is True
@@ -82,7 +82,7 @@ async def test_get_user_trades_page_parses_envelope():
 
 
 @pytest.mark.anyio
-async def test_get_user_trades_returns_list_from_envelope():
+async def test_get_user_trades_is_list_like():
     envelope = {
         "trades": [_trade(2, 300), _trade(1, 100)],
         "page": 0,
@@ -96,12 +96,14 @@ async def test_get_user_trades_returns_list_from_envelope():
     client, _ = _client_returning(envelope, MarketDataClient)
     trades = await client.get_user_trades()
     assert [t.trade_id for t in trades] == [2, 1]
+    assert len(trades) == 2
+    assert trades.total_trades == 2
 
 
 @pytest.mark.anyio
-async def test_get_user_trades_page_tolerates_bare_list():
+async def test_get_user_trades_tolerates_bare_list():
     client, _ = _client_returning([_trade(1, 100)], MarketDataClient)
-    page = await client.get_user_trades_page()
+    page = await client.get_user_trades()
     assert page.total_trades == 1
     assert page.has_next_page is False
 
@@ -174,3 +176,72 @@ async def test_get_user_orders_parses_envelope():
     assert orders == []
     assert raw["has_next_page"] is False
     assert captured == [{"page": 2, "limit": 50}]
+
+
+@pytest.mark.anyio
+async def test_get_markets_parses_page_and_symbol_map():
+    envelope = {
+        "markets": [
+            {
+                "asset_id": "1",
+                "book_price_decimals": 2,
+                "book_quantity_decimals": 4,
+                "max_leverage": "3.77",
+                "isolated_only": False,
+                "fee_schedule": {
+                    "fee_account": "ab" * 32,
+                    "global": [
+                        {
+                            "min_rolling_volume_usd": 0,
+                            "taker_fee_rate": 500,
+                            "maker_fee_rate": 100,
+                            "maker_rebate_rate_of_taker_fee": None,
+                        }
+                    ],
+                    "per_asset": [],
+                },
+            }
+        ],
+        "total_markets": 1,
+        "page": 2,
+        "limit": 50,
+        "total_pages": 3,
+        "cursor_size": 1,
+        "has_next_page": False,
+        "next_page": None,
+        "symbol_map": {
+            "1": {
+                "index": 1,
+                "symbol": "ETH",
+                "name": "Ethereum",
+                "asset_class": "ETH",
+                "representations": ["WETH"],
+            }
+        },
+    }
+    client, captured = _client_returning(envelope)
+    page = await client.get_markets(include_symbol_map=True, page=2, limit=50)
+    assert page[0].max_leverage == "3.77"
+    assert len(page[0].fee_schedule.global_) == 1
+    assert page.symbol_map[1].symbol == "ETH"
+    assert page.symbol_map[1].name == "Ethereum"
+    assert page.symbol_map[1].representations == ["WETH"]
+    assert captured == [{"include_symbol_map": "true", "page": 2, "limit": 50}]
+
+
+@pytest.mark.anyio
+async def test_get_markets_defaults_to_one_full_page():
+    envelope = {
+        "markets": [],
+        "total_markets": 0,
+        "page": 0,
+        "limit": 1000,
+        "total_pages": 0,
+        "cursor_size": 0,
+        "has_next_page": False,
+        "next_page": None,
+    }
+    client, captured = _client_returning(envelope)
+    page = await client.get_markets()
+    assert page.symbol_map is None
+    assert captured == [{"page": 0, "limit": 1000}]

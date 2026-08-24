@@ -1,7 +1,7 @@
 import logging
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, overload
 
 from pydantic import BaseModel, Field, ValidationError, field_serializer
 
@@ -11,6 +11,7 @@ from tplus.model.market_order import MarketOrderDetails
 from tplus.model.multisig import AdditionalSigner
 from tplus.model.order_id import UserOrderId
 from tplus.model.order_trigger import OrderTrigger
+from tplus.model.pagination import PageMeta
 from tplus.model.types import UserPublicKey
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,66 @@ def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
             )
 
     return parsed_orders
+
+
+class UserOrdersPage(PageMeta):
+    """One page of user orders plus pagination metadata (`has_next_page`, etc.).
+
+    Behaves like a sequence of `OrderResponse` for existing list-style callers
+    (`for order in page`, `len(page)`, `page[i]`).
+    """
+
+    orders: list[OrderResponse]
+    total_orders: int
+
+    def __iter__(self):
+        return iter(self.orders)
+
+    def __len__(self) -> int:
+        return len(self.orders)
+
+    @overload
+    def __getitem__(self, index: int) -> OrderResponse: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> list[OrderResponse]: ...
+
+    def __getitem__(self, index: int | slice) -> OrderResponse | list[OrderResponse]:
+        return self.orders[index]
+
+    def __bool__(self) -> bool:
+        return bool(self.orders)
+
+    def __contains__(self, item: object) -> bool:
+        return item in self.orders
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, list):
+            return self.orders == other
+        return super().__eq__(other)
+
+
+def parse_user_orders_page(data: list[dict] | dict) -> UserOrdersPage:
+    if isinstance(data, list):
+        orders = parse_orders(data)
+        count = len(orders)
+        return UserOrdersPage(
+            orders=orders,
+            total_orders=count,
+            **PageMeta.single_page(count).model_dump(),
+        )
+
+    orders = parse_orders(data.get("orders", []))
+    count = len(orders)
+    meta = {
+        **PageMeta.single_page(count).model_dump(),
+        **{key: data[key] for key in PageMeta.model_fields if key in data},
+    }
+    return UserOrdersPage(
+        orders=orders,
+        total_orders=int(data.get("total_orders", count)),
+        **meta,
+    )
 
 
 class BaseOrderEvent(BaseModel):

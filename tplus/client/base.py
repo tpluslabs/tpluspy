@@ -2,6 +2,7 @@ import json
 import logging
 import ssl
 from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -12,14 +13,23 @@ from typing_extensions import Self
 
 from tplus.exceptions import MissingClientUserError, from_error_body, from_flat_error
 from tplus.logger import get_logger
-from tplus.utils.user import User
+from tplus.model.multisig import SignerKey
+from tplus.model.types import UserPublicKey
+from tplus.utils.user import User, to_user, user_manager
+from tplus.utils.user.model import coerce_account_public_key
 
 if TYPE_CHECKING:
-    from tplus.model.types import UserPublicKey
-    from tplus.types import UserType
+    from tplus.types import UserLike, UserType
+    from tplus.utils.user import EvmAccount
 
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+
+WebSocketConnection = AbstractAsyncContextManager[Any]
+
+
+def strip_query_from_path(path: str) -> str:
+    return path.split("?", 1)[0].split("#", 1)[0]
 
 
 class ClientSettings(BaseModel):
@@ -93,7 +103,7 @@ class BaseClient:
         self,
         base_url: str = "http://localhost:3032",
         *,
-        default_user: User | None = None,
+        default_user: "UserLike | None" = None,
         client: httpx.AsyncClient | None = None,
         log_level: int = logging.INFO,
         timeout: float = DEFAULT_TIMEOUT,
@@ -108,7 +118,7 @@ class BaseClient:
             headers=headers if headers is not None else dict(DEFAULT_HEADERS),
             websocket_kwargs=websocket_kwargs if websocket_kwargs is not None else {},
         )
-        self._default_user = default_user
+        self._default_user = to_user(default_user) if default_user is not None else None
         self._client = client or create_httpx_client(self._settings)
         self.logger = get_logger(log_level=log_level)
 
@@ -131,9 +141,23 @@ class BaseClient:
             client=client._client,
         )
 
-    def _resolve_user(self, user: User | None = None) -> User:
+    def set_default_user(self, user: "UserLike | None") -> None:
+        """Replace the identity used by calls that pass no ``user`` of their own.
+
+        Args:
+            user (UserLike | None): The new default signer, or ``None`` to require one
+                per call.
+        """
+        self._default_user = to_user(user) if user is not None else None
+
+    def _resolve_user(self, user: "UserLike | None" = None) -> User:
+        """Resolve any signer argument to a :class:`User`.
+
+        Every ``user=`` / ``default_user=`` argument in every client lands here, so an EVM
+        account (Ape or ``eth_account``) works anywhere a ``User`` does.
+        """
         if user is not None:
-            return user
+            return to_user(user)
 
         elif self._default_user is None:
             raise MissingClientUserError()
@@ -141,9 +165,105 @@ class BaseClient:
         return self._default_user
 
     def _validate_user_public_key(self, user: "UserType | None" = None) -> "UserPublicKey":
+        """As :meth:`_resolve_user`, but for read-only calls that also accept a bare public key."""
         if isinstance(user, str):
-            return user
-        return self._resolve_user(user=user).public_key
+            return UserPublicKey(user)
+
+        return self._resolve_user(user).public_key
+
+    async def get_accounts_for_signer(self, signer: "SignerKey") -> list[UserPublicKey]:
+        """Look up the T+ accounts that have registered ``signer`` as an additional signer.
+
+        Args:
+            signer (SignerKey): The signer key to look up.
+
+        Returns:
+            list[UserPublicKey]: The account ids ``signer`` can act for, possibly empty.
+        """
+        result = await self._post(
+            "/multisig/signers", json_data=signer.model_dump(mode="json"), requires_auth=False
+        )
+        if not isinstance(result, list):
+            return []
+
+        return [UserPublicKey(str(account)) for account in result]
+
+    async def resolve_evm_user(
+        self,
+        account: "str | EvmAccount",
+        *,
+        account_public_key: "str | UserPublicKey | None" = None,
+        sub_account: int | None = None,
+    ) -> User:
+        """Resolve the T+ account an EVM wallet controls, the way the T+ frontend does.
+
+        The wallet signs the T+ identity message once, and the resulting signer key is
+        looked up via ``POST /multisig/signers``. The returned user acts for the account
+        that comes back, co-signing requests with the wallet.
+
+        Falls back to :meth:`tplus.utils.user.User.from_evm_account` when the wallet
+        controls no account yet — that derived identity is the account tpluspy would
+        create for it.
+
+        Args:
+            account (str | EvmAccount): An EVM account, or an Ape account alias.
+            account_public_key (str | UserPublicKey | None): Which account to act for.
+                Required only when the wallet signs for more than one.
+            sub_account (int | None): Optional sub-account index.
+
+        Returns:
+            User: The user to sign as.
+
+        Raises:
+            ValueError: If the wallet signs for several accounts and none was chosen, or
+                if ``account_public_key`` is not one of them.
+        """
+        from tplus.utils.user.evm import (
+            EvmDelegatedUser,
+            derive_legacy_signer_key,
+            recover_signer_key,
+        )
+        from tplus.utils.user.model import resolve_ape_account
+
+        account = resolve_ape_account(account)
+        signature = user_manager.master_key_signature(account)
+        signer_key = recover_signer_key(signature)
+        accounts = await self.get_accounts_for_signer(SignerKey.secp256k1(list(signer_key)))
+        if not accounts:
+            legacy_key = derive_legacy_signer_key(signature)
+            accounts = await self.get_accounts_for_signer(SignerKey.secp256k1(list(legacy_key)))
+            if accounts:
+                signer_key = legacy_key
+
+        derived = User.from_evm_account(account, sub_account=sub_account, signature=signature)
+        if not accounts:
+            self.logger.debug(
+                "No T+ account registers %s as a signer; using its derived identity %s.",
+                account.address,
+                derived.public_key,
+            )
+            return derived
+
+        if account_public_key is not None:
+            chosen = coerce_account_public_key(account_public_key)
+            if chosen not in accounts:
+                raise ValueError(f"{account.address} does not sign for account {chosen}.")
+
+        elif derived.public_key in accounts:
+            # An account tpluspy created for this wallet: its master key is the derived one.
+            chosen = derived.public_key
+        elif len(accounts) == 1:
+            chosen = accounts[0]
+        else:
+            raise ValueError(
+                f"{account.address} signs for several T+ accounts "
+                f"({', '.join(accounts)}); pass account_public_key to choose one."
+            )
+
+        if chosen == derived.public_key:
+            return derived
+
+        return EvmDelegatedUser(chosen, account, signer_key=signer_key, sub_account=sub_account)
 
     async def _get(self, endpoint: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
         return await self._request("GET", endpoint, *args, **kwargs)
@@ -264,6 +384,27 @@ class BaseClient:
         ws_path = path if path.startswith("/") else f"/{path}"
         return urlunparse((scheme, netloc, ws_path, "", "", ""))
 
+    async def open_ws(
+        self,
+        path: str,
+        ws_kwargs: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        *,
+        requires_auth: bool = True,
+        user: "UserType | None" = None,
+    ) -> WebSocketConnection:
+        """
+        Open a WebSocket connection context for the given path. Enter it with
+        ``async with`` to perform the handshake and get the connection.
+        """
+        return await self._open_ws(
+            path,
+            ws_kwargs=ws_kwargs,
+            extra_headers=extra_headers,
+            requires_auth=requires_auth,
+            user=user,
+        )
+
     async def _open_ws(
         self,
         path: str,
@@ -272,7 +413,7 @@ class BaseClient:
         *,
         requires_auth: bool = True,
         user: "UserType | None" = None,
-    ):
+    ) -> WebSocketConnection:
         """
         Build a WebSocket connection context for the given path with proper
         TLS/handshake settings. Returns a websockets.connect context manager.

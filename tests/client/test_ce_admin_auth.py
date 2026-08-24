@@ -9,16 +9,12 @@ import pytest
 
 from tplus.client.clearingengine import AdminClient
 
-CE_URL = "http://127.0.0.1:3032"
-# this one's the one from the ce.toml config
-OPERATOR_SECRET = "afa3fd40eafd3703780358990983f75930c87744455bf18a472012a04ae521ff"
-
 
 @pytest.mark.integration
 class TestCeAdminAuth:
-    def test_modify_user_status_request(self):
+    def test_modify_user_status_request(self, operator_secret, ce_url):
         """Sign a ModifyUserStatusRequest and POST to /admin/status/modify."""
-        sk = AdminClient._load_operator_sk(operator_secret=OPERATOR_SECRET)
+        sk = AdminClient._load_operator_sk(operator_secret=operator_secret)
         ts = time.time_ns()
         nonce = time.time_ns()
         user_pubkey = bytes(range(32))
@@ -32,7 +28,7 @@ class TestCeAdminAuth:
         sig = AdminClient._sign(payload, sk)
 
         resp = httpx.post(
-            f"{CE_URL}/admin/status/modify",
+            f"{ce_url}/admin/status/modify",
             json={
                 "inner": {
                     "user": user_pubkey.hex(),

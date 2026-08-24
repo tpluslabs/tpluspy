@@ -1,20 +1,20 @@
 from typing import TYPE_CHECKING
 
-from eth_pydantic_types.hex import HexInt
 from pydantic import BaseModel, Field, field_serializer
 
 from tplus.model.asset_identifier import Address32, AssetAddress, AssetIdentifier
+from tplus.model.multisig import AdditionalSigner
 from tplus.model.types import UserPublicKey
-from tplus.utils.hex import str_to_vec
+from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
-    from tplus.utils.user import User
+    from tplus.types import UserLike
 
 
 class InnerWithdrawalRequest(BaseModel):
     tplus_user: UserPublicKey
     asset: AssetAddress
-    amount: HexInt
+    amount: int
     nonce: int | None = None
     target: Address32 = Address32("00" * 32)
 
@@ -22,23 +22,25 @@ class InnerWithdrawalRequest(BaseModel):
         return self.model_dump_json()
 
     @field_serializer("amount")
-    def serialize_amount(self, value: HexInt) -> str:
-        return hex(value)[2:]
+    def serialize_amount(self, value: int) -> str:
+        return str(value)
 
 
 class WithdrawalRequest(BaseModel):
     inner: InnerWithdrawalRequest
     signature: list[int]
+    additional_signers: list[AdditionalSigner] = []
 
     @classmethod
     def create_signed(
         cls,
-        signer: "User",
+        signer: "UserLike",
         asset: AssetAddress | str,
         amount: int,
         nonce: int | None = None,
         target: Address32 | str | None = None,
     ) -> "WithdrawalRequest":
+        signer = to_user(signer)
         if isinstance(asset, str):
             asset = AssetIdentifier.model_validate(asset)
         elif not isinstance(asset, AssetAddress):
@@ -57,8 +59,8 @@ class WithdrawalRequest(BaseModel):
             data["target"] = target
 
         inner = InnerWithdrawalRequest.model_validate(data)
-        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
-        return cls(inner=inner, signature=signature)
+        signature, additional_signers = signer.signing_parts(inner.signing_payload())
+        return cls(inner=inner, signature=signature, additional_signers=additional_signers)
 
     def signing_payload(self) -> str:
         return self.inner.signing_payload()
@@ -76,14 +78,16 @@ class InnerCancelWithdrawalRequest(BaseModel):
 class CancelWithdrawalRequest(BaseModel):
     inner: InnerCancelWithdrawalRequest
     signature: list[int]
+    additional_signers: list[AdditionalSigner] = []
 
     @classmethod
     def create_signed(
         cls,
-        signer: "User",
+        signer: "UserLike",
         asset_address: AssetAddress | str,
         nonce: int,
     ) -> "CancelWithdrawalRequest":
+        signer = to_user(signer)
         if not isinstance(asset_address, AssetAddress):
             asset_address = AssetAddress.model_validate(asset_address)
 
@@ -92,8 +96,8 @@ class CancelWithdrawalRequest(BaseModel):
             asset_address=asset_address,
             nonce=nonce,
         )
-        signature = str_to_vec(signer.sign(inner.signing_payload()).hex())
-        return cls(inner=inner, signature=signature)
+        signature, additional_signers = signer.signing_parts(inner.signing_payload())
+        return cls(inner=inner, signature=signature, additional_signers=additional_signers)
 
     def signing_payload(self) -> str:
         return self.inner.signing_payload()

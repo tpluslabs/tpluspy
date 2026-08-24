@@ -73,6 +73,7 @@ class CLIContext(dict):
                 "Pass --tplus-account, set TPLUS_ACCOUNT, "
                 "or create one with `tplus accounts add`."
             )
+
         return self.user_manager.load(name)
 
     def _resolve_default_account(self) -> str | None:

@@ -285,11 +285,12 @@ async def inspect_account(base_url: str, user: User, trades_limit: int) -> dict[
             out["open_orders"] = {"error": f"{type(err).__name__}: {err}"}
         await safe("recent_trades", client.get_user_trades(user=user, limit=trades_limit))
         try:
-            markets = await client._request("GET", "/markets", requires_auth=False)
+            response = await client._request("GET", "/markets", requires_auth=False)
+            markets = response.get("markets") if isinstance(response, dict) else response
             if isinstance(markets, list):
                 out["markets"] = [enrich_market_metadata(market) for market in markets]
             else:
-                out["markets"] = to_jsonable(markets)
+                out["markets"] = to_jsonable(response)
         except Exception as err:  # noqa: BLE001
             out["markets"] = {"error": f"{type(err).__name__}: {err}"}
     finally:

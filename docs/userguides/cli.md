@@ -14,6 +14,9 @@
 | `--output-format` / `TPLUS_OUTPUT_FORMAT` | Output format for `list`/address commands: `table` (default), `json`, or `raw`. `raw` prints the underlying chain address string (`<address>@<chain>`) one per line; handy for piping into scripts. |
 | `TPLUS_PASSWORD` | Password used to encrypt/decrypt local keyfiles, bypassing the `getpass` prompt. Intended for automation; avoid in shared shells. |
 
+`--tplus-account` / `TPLUS_ACCOUNT` names a stored keyfile. To sign as the T+ user backed
+by an EVM account, see [users.md](users.md#using-an-evm-account-as-a-t-user).
+
 CLI logs are written to `~/.tplus/cli/logs/tplus.log` (rotating, 1 MB × 3).
 
 Run `tplus --help` to see the top-level command list. To inspect which of these

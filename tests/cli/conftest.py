@@ -8,15 +8,16 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from tests.conftest import (  # noqa: F401
+    CE_URL,
+    OMS_URL,
+    PASSWORD,
+    PRIVATE_KEY_HEX,
+    PUBLIC_KEY_HEX,
+)
 from tplus.client import ClearingEngineClient
 from tplus.utils.user.manager import UserManager
 
-PRIVATE_KEY_HEX = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
-PUBLIC_KEY_HEX = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
-PASSWORD = "hunter2"
-
-CE_URL = "http://127.0.0.1:3032"
-OMS_URL = "https://127.0.0.1:8000"
 NETWORK = "ethereum:local:foundry"
 APE_ACCOUNT = "TEST::0"
 CHAIN_ID_EVM = 31337

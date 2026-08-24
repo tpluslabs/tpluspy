@@ -57,6 +57,21 @@ async def test_create_limit_order_threads_trigger():
 
 
 @pytest.mark.anyio
+async def test_create_limit_order_threads_reduce_only():
+    client = _CapturingClient(user=User())
+
+    await client.create_limit_order(
+        quantity=10,
+        price=100_00,
+        side="Sell",
+        asset_id=AssetIdentifier("200"),
+        reduce_only=True,
+    )
+
+    assert client._require_captured()["order"]["reduce_only"] is True
+
+
+@pytest.mark.anyio
 async def test_create_limit_order_without_trigger_serialises_null():
     client = _CapturingClient(user=User())
 
@@ -196,6 +211,23 @@ async def test_prepare_limit_order_request_threads_trigger():
         "parent_order_id": None,
         "condition": {"PriceAbove": {"price": 123_45}},
     }
+
+
+@pytest.mark.anyio
+async def test_prepare_limit_order_request_threads_reduce_only():
+    client = _CapturingClient(user=User())
+
+    _, signed = await client.prepare_limit_order_request(
+        AssetIdentifier("200"),
+        100_00,
+        10,
+        "Sell",
+        None,
+        None,
+        reduce_only=True,
+    )
+
+    assert signed.order.reduce_only is True
 
 
 @pytest.mark.anyio

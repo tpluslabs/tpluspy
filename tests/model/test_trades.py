@@ -55,6 +55,15 @@ def test_parse_user_trades_page_tolerates_bare_list():
     assert page.next_page is None
 
 
+def test_user_trades_page_is_list_like():
+    page = parse_user_trades_page([_user_trade(2, 300), _user_trade(1, 100)])
+    assert len(page) == 2
+    assert [t.trade_id for t in page] == [2, 1]
+    assert page[0].trade_id == 2
+    assert page == page.trades
+    assert bool(page)
+
+
 @pytest.fixture(scope="module")
 def make_trade():
     def fn(ty: str, buyer_is_maker: bool = False) -> str:

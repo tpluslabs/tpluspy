@@ -1,15 +1,20 @@
 import time
+from typing import TYPE_CHECKING
 
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.multisig import AdditionalSigner, SignerKey
 from tplus.model.order_trigger import TriggerAbove, TriggerBelow
 from tplus.model.replace_order import ReplaceOrderDetails, ReplaceOrderRequestPayload
-from tplus.utils.user import User
+from tplus.utils.user import to_user
+
+if TYPE_CHECKING:
+    from tplus.types import UserLike
 
 
 def create_replace_order_ob_request_payload(
     original_order_id: str,  # ID of the order to be replaced
     asset_identifier: AssetIdentifier,  # Asset ID of the order
-    signer: User,
+    signer: "UserLike",
     # Complete effective terms the order will have once replaced (all mandatory).
     new_price: int,
     new_quantity: int,
@@ -19,6 +24,7 @@ def create_replace_order_ob_request_payload(
     new_trigger: TriggerAbove | TriggerBelow | None = None,
     # Timestamp for the replace operation itself
     request_timestamp_ns: int | None = None,
+    additional_signers: "list[UserLike] | None" = None,
 ) -> ReplaceOrderRequestPayload:
     """
     Creates the ReplaceOrderRequestPayload for an ObRequest.
@@ -29,6 +35,7 @@ def create_replace_order_ob_request_payload(
     ``new_quantity`` are mandatory: the server never fills an omitted term from its own view
     of the order. ``new_quantity`` is the lifetime-total quantity, not the remaining part.
     """
+    signer = to_user(signer)
 
     current_ts = request_timestamp_ns if request_timestamp_ns is not None else time.time_ns()
 
@@ -55,12 +62,19 @@ def create_replace_order_ob_request_payload(
     compact_sign_payload_json = (
         sign_payload_json.replace(" ", "").replace("\r", "").replace("\n", "")
     )
-    signature, additional_signers = signer.signing_parts(compact_sign_payload_json)
+    signature, cosigners = signer.signing_parts(compact_sign_payload_json)
+    for cosigner in map(to_user, additional_signers or []):
+        cosigners.append(
+            AdditionalSigner(
+                signer=SignerKey.ed25519(cosigner.public_key_vec),
+                signature=list(cosigner.sign(compact_sign_payload_json)),
+            )
+        )
 
     return ReplaceOrderRequestPayload(
         request=replace_details,
         user_id=signer.public_key,
         signature=signature,
         post_sign_timestamp=time.time_ns(),
-        additional_signers=additional_signers,
+        additional_signers=cosigners,
     )

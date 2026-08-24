@@ -60,7 +60,7 @@ class PositionCleared(BaseModel):
 class SubAccountAssetTransferred(BaseModel):
     """The user transferred an asset between two of their own sub-accounts.
 
-    `amount` is in `INVENTORY_DECIMALS` (1e18), encoded as 0x-hex.
+    `amount` is in `INVENTORY_DECIMALS` (1e18), encoded as a base-10 string.
     """
 
     model_config = ConfigDict(populate_by_name=True)

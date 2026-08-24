@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from eth_pydantic_types.address import AddressType
 from eth_pydantic_types.hex.str import HexStr32
@@ -43,6 +43,10 @@ class AssetIdentifier(ChainAddress):
     """
 
     root: str
+
+    if TYPE_CHECKING:
+        # A registry index may be given as an int; the before-validator stringifies it.
+        def __init__(self, root: "str | int") -> None: ...
 
     @model_validator(mode="before")
     @classmethod

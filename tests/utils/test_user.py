@@ -2,7 +2,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # type: ignore
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # type: ignore
 
-from tplus.utils.user import DelegatedUser, LocalUser, User
+from tplus.utils.user import DelegatedUser, LocalUser, User, to_user, to_user_public_key
 
 
 class TestUser:
@@ -23,10 +23,12 @@ class TestUser:
             == signing_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
         )
 
-    def test_hardcoded_key_signature(self, private_key_hex, public_key_hex, expected_sig_hex):
+    def test_hardcoded_key_signature(
+        self, private_key_hex, public_key_hex, signed_message, expected_sig_hex
+    ):
         user = User(private_key=private_key_hex)
         assert user.public_key == public_key_hex
-        assert user.sign("testmessage").hex() == expected_sig_hex
+        assert user.sign(signed_message).hex() == expected_sig_hex
 
     def test_local_user_pubkey_does_not_invoke_unlock(self, private_key_hex, public_key_hex):
         unlocked = []
@@ -41,7 +43,7 @@ class TestUser:
         assert unlocked == []
 
     def test_local_user_sign_invokes_unlock_once(
-        self, private_key_hex, public_key_hex, expected_sig_hex
+        self, private_key_hex, public_key_hex, signed_message, expected_sig_hex
     ):
         calls = []
 
@@ -51,8 +53,8 @@ class TestUser:
 
         user = LocalUser(public_key=public_key_hex, unlock=unlock)
 
-        assert user.sign("testmessage").hex() == expected_sig_hex
-        assert user.sign("testmessage").hex() == expected_sig_hex
+        assert user.sign(signed_message).hex() == expected_sig_hex
+        assert user.sign(signed_message).hex() == expected_sig_hex
         assert len(calls) == 1
 
     def test_local_user_unlock_pubkey_mismatch_raises(self, private_key_hex):
@@ -106,3 +108,33 @@ class TestUser:
     def test_delegated_user_rejects_invalid_account_public_key(self, account):
         with pytest.raises(ValueError, match="account_public_key"):
             DelegatedUser(account, User())
+
+    def test_from_eth_account_matches_browser_vector(self, eth_account, eth_user, expected_user_id):
+        assert eth_user.public_key == expected_user_id
+        assert eth_user.evm_address == eth_account.address
+
+    def test_from_eth_account_signs_like_native_user(self, eth_user):
+        assert eth_user.sign("hello") == User(private_key=eth_user.sk).sign("hello")
+
+
+def test_to_user_user():
+    user = User()
+
+    assert to_user(user) is user
+
+
+def test_to_user_evm_account(eth_account, expected_user_id):
+    assert to_user(eth_account).public_key == expected_user_id
+
+
+def test_to_user_public_key_raises(expected_user_id):
+    with pytest.raises(TypeError, match="Cannot sign with"):
+        to_user(expected_user_id)  # type: ignore[arg-type]
+
+
+def test_to_user_public_key_passes_through_str(expected_user_id):
+    assert to_user_public_key(expected_user_id) == expected_user_id
+
+
+def test_to_user_public_key_evm_account(eth_account, expected_user_id):
+    assert to_user_public_key(eth_account) == expected_user_id

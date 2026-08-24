@@ -6,10 +6,11 @@ from tplus.client.clearingengine import ClearingEngineClient
 from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import ChainID
+from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
     from tplus.model.asset_identifier import AssetAddress
-    from tplus.utils.user import User
+    from tplus.types import UserLike
 
 
 class ChainDataFetcher(ChainConnectedManager):
@@ -19,12 +20,12 @@ class ChainDataFetcher(ChainConnectedManager):
 
     def __init__(
         self,
-        default_user: "User",
+        default_user: "UserLike",
         clearing_engine: ClearingEngineClient | None = None,
         asset_registry: AssetRegistryClient | None = None,
         chain_id: ChainID | None = None,
     ):
-        self.default_user = default_user
+        self.default_user = to_user(default_user)
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient.from_local(
             self.default_user
         )

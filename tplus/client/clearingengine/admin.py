@@ -1,5 +1,5 @@
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
@@ -8,7 +8,11 @@ from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.interest_rates import InterestRates
 from tplus.model.types import UserPublicKey
 from tplus.utils.operator import load_operator_sk, sign_operator_payload
-from tplus.utils.user import User
+from tplus.utils.serializers import to_u256_str
+from tplus.utils.user import to_user_public_key
+
+if TYPE_CHECKING:
+    from tplus.types import UserType
 
 
 class AdminClient(BaseClearingEngineClient):
@@ -97,9 +101,9 @@ class AdminClient(BaseClearingEngineClient):
         asset_index = _asset_id_to_index(asset_id)
         config = {
             "address": address,
-            "max_deposits": max_deposits,
-            "max_1hr_deposits": max_1hr_deposits,
-            "min_weight": min_weight,
+            "max_deposits": to_u256_str(max_deposits),
+            "max_1hr_deposits": to_u256_str(max_1hr_deposits),
+            "min_weight": to_u256_str(min_weight),
         }
 
         await self._post(
@@ -137,10 +141,10 @@ class AdminClient(BaseClearingEngineClient):
         risk_parameters = {
             "collateral_factor": collateral_factor,
             "liability_factor": liability_factor,
-            "max_collateral": max_collateral,
-            "max_total_open_interest_notional": max_total_open_interest_notional,
-            "max_spot_open_interest": max_spot_open_interest,
-            "max_utilization": max_utilization,
+            "max_collateral": to_u256_str(max_collateral),
+            "max_total_open_interest_notional": to_u256_str(max_total_open_interest_notional),
+            "max_spot_open_interest": to_u256_str(max_spot_open_interest),
+            "max_utilization": to_u256_str(max_utilization),
             "isolated_only": isolated_only,
             "initial_margin_clamps": initial_margin_clamps,
             "initial_margin_factors": initial_margin_factors,
@@ -155,9 +159,9 @@ class AdminClient(BaseClearingEngineClient):
             "skew_cliff": skew_cliff,
             "premium_clamp": premium_clamp,
             "buffer_multiplier": buffer_multiplier,
-            "min_sub_account_balance": min_sub_account_balance,
+            "min_sub_account_balance": to_u256_str(min_sub_account_balance),
             # Zero disables auto-deleverage for the asset.
-            "max_adl_usd": max_adl,
+            "max_adl_usd": to_u256_str(max_adl),
         }
         await self._post(
             "admin/risk-parameters/modify",
@@ -193,7 +197,9 @@ class AdminClient(BaseClearingEngineClient):
     ):
         prices: dict[str, Any]
         if asset_price:
-            prices = {str(asset_id): {"price": asset_price, "decimals": asset_price_decimals}}
+            prices = {
+                str(asset_id): {"price": to_u256_str(asset_price), "decimals": asset_price_decimals}
+            }
         else:
             prices = {str(asset_id): None}
 
@@ -208,7 +214,10 @@ class AdminClient(BaseClearingEngineClient):
         prices: dict[str, Any]
         if asset_last_price:
             prices = {
-                str(asset_id): {"price": asset_last_price, "decimals": asset_last_price_decimals}
+                str(asset_id): {
+                    "price": to_u256_str(asset_last_price),
+                    "decimals": asset_last_price_decimals,
+                }
             }
         else:
             prices = {str(asset_id): None}
@@ -234,9 +243,11 @@ class AdminClient(BaseClearingEngineClient):
         else:
             override: dict[str, Any] = {}
             if buy_impact is not None:
-                override["buy_impact"] = {"price": buy_impact, "decimals": decimals}
+                override["buy_impact"] = {"price": to_u256_str(buy_impact), "decimals": decimals}
+
             if sell_impact is not None:
-                override["sell_impact"] = {"price": sell_impact, "decimals": decimals}
+                override["sell_impact"] = {"price": to_u256_str(sell_impact), "decimals": decimals}
+
             prices = {str(asset_id): override}
 
         await self._post("admin/impact-prices/modify", json_data={"prices": prices})
@@ -263,7 +274,7 @@ class AdminClient(BaseClearingEngineClient):
 
     async def set_trader_as_mm(
         self,
-        user: User,
+        user: "UserType",
         is_mm: bool,
         operator_secret: str,
         timestamp_ns: int | None = None,
@@ -273,7 +284,8 @@ class AdminClient(BaseClearingEngineClient):
         request_nonce = time.time_ns() if nonce is None else nonce
 
         sk = AdminClient._load_operator_sk(operator_secret=operator_secret)
-        user_pubkey = bytes(user.public_key_vec)
+        user_public_key = to_user_public_key(user)
+        user_pubkey = bytes.fromhex(user_public_key)
         payload = (
             b"ce.admin.status.modify.v1"
             + request_nonce.to_bytes(8, "big")
@@ -287,7 +299,7 @@ class AdminClient(BaseClearingEngineClient):
             "admin/status/modify",
             json_data={
                 "inner": {
-                    "user": user.public_key,
+                    "user": user_public_key,
                     "is_mm": is_mm,
                     "timestamp_ns": ts,
                     "nonce": request_nonce,

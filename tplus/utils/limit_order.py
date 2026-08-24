@@ -1,17 +1,21 @@
 import time
+from typing import TYPE_CHECKING
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC, GTD, IOC, LimitOrderDetails
 from tplus.model.order import CreateOrderRequest, Order, Side, TradeTarget
 from tplus.model.order_trigger import OrderTrigger
-from tplus.utils.user import User
+from tplus.utils.user import User, to_user
+
+if TYPE_CHECKING:
+    from tplus.types import UserLike
 
 
 def create_limit_order_ob_request_payload(
     quantity: int,
     price: int,
     side: str,
-    signer: User,
+    signer: "UserLike",
     book_quantity_decimals: int,
     book_price_decimals: int,
     asset_identifier: AssetIdentifier,
@@ -22,6 +26,7 @@ def create_limit_order_ob_request_payload(
     reduce_only: bool = False,
     max_trading_fees_rate: int | None = None,
 ) -> CreateOrderRequest:
+    signer = to_user(signer)
     side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
 
     actual_time_in_force = GTC(post_only=False) if time_in_force is None else time_in_force

@@ -1,4 +1,5 @@
 import time
+from typing import TYPE_CHECKING
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.market_order import (
@@ -9,12 +10,15 @@ from tplus.model.market_order import (
 )
 from tplus.model.order import CreateOrderRequest, Order, Side, TradeTarget
 from tplus.model.order_trigger import OrderTrigger
-from tplus.utils.user import User
+from tplus.utils.user import to_user
+
+if TYPE_CHECKING:
+    from tplus.types import UserLike
 
 
 def create_market_order_ob_request_payload(
     side: str,
-    signer: User,
+    signer: "UserLike",
     book_quantity_decimals: int,
     book_price_decimals: int,
     asset_identifier: AssetIdentifier,
@@ -27,6 +31,7 @@ def create_market_order_ob_request_payload(
     reduce_only: bool = False,
     max_trading_fees_rate: int | None = None,
 ) -> CreateOrderRequest:
+    signer = to_user(signer)
     side_normalized = Side.SELL if side.lower() == "sell" else Side.BUY
 
     details = MarketOrderDetails(

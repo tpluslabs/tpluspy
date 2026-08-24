@@ -10,7 +10,7 @@ from tplus.client.clearingengine.decimal import DecimalClient
 from tplus.client.clearingengine.vault import VaultClient
 
 if TYPE_CHECKING:
-    from tplus.utils.user import User
+    from tplus.types import UserLike
 
 
 class ClearingEngineClient(BaseClearingEngineClient):
@@ -20,7 +20,7 @@ class ClearingEngineClient(BaseClearingEngineClient):
     """
 
     @classmethod
-    def from_local(cls, user: "User", port: int = 3032, **kwargs):
+    def from_local(cls, user: "UserLike", port: int = 3032, **kwargs):
         return cls(base_url=f"http://127.0.0.1:{port}", default_user=user, **kwargs)
 
     @cached_property

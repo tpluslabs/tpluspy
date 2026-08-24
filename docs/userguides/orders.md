@@ -133,12 +133,14 @@ its current value for the other, so the signed terms stay an explicit decision r
 something resolved from a possibly-stale view.
 
 ```{code-block} python
-await client.replace_order(
+replaced, revision = await client.replace_order(
     original_order_id=resp.order_id,
     asset_id=asset,
     new_quantity=6,       # effective lifetime-total quantity
     new_price=1_050,      # effective limit price
 )
+# `revision` is the replacement's timestamp_ns; quote it as expected_authorization_revision
+# on a later amend_order.
 
 await client.cancel_order(order_id=resp.order_id, asset_id=asset)
 ```

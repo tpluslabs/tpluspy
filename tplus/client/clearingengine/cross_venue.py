@@ -4,13 +4,13 @@ from typing import TYPE_CHECKING
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 
 if TYPE_CHECKING:
-    from tplus.utils.user import User
+    from tplus.types import UserLike
 
 
 class CrossVenueClient(BaseClearingEngineClient):
     """User-facing cross-venue (e.g. Hyperliquid) margin APIs on the clearing engine."""
 
-    async def get_venue_state(self, user: "User", venue: int) -> dict:
+    async def get_venue_state(self, user: "UserLike", venue: int) -> dict:
         """Read the caller's cross-venue ``(user, venue)`` state.
 
         User-authenticated: the query is signed with ``user``'s key, so a user
@@ -21,6 +21,7 @@ class CrossVenueClient(BaseClearingEngineClient):
         ``assigned_to`` is its sub-account index under ``user`` (or ``None``
         before a credit line exists).
         """
+        user = self._resolve_user(user)
         ts = time.time_ns()
         sep = b"\x1f"
         # Must match `xm_venue_state_signing_payload` in the CE creditline route.

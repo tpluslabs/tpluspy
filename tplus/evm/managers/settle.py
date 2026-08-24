@@ -13,22 +13,26 @@ from tplus.evm.contracts import DepositVault
 from tplus.evm.exceptions import SettlementError
 from tplus.evm.managers.chaindata import ChainDataFetcher
 from tplus.evm.managers.deposit import DepositManager
-from tplus.evm.managers.evm import ChainConnectedManager
+from tplus.evm.managers.evm import ChainSigningManager
 from tplus.logger import get_logger
 from tplus.model.approval import SettlementApproval
 from tplus.model.settlement import MakerOrderAttachment, SettlementMode, TxSettlementRequest
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.amount import Amount
+from tplus.utils.user import to_user, to_user_public_key
 from tplus.utils.user.decrypt import decrypt_ed25519_sealed
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from ape.api.accounts import AccountAPI
     from ape.api.transactions import ReceiptAPI
     from ape.contracts.base import ContractInstance
     from ape.types.address import AddressType
 
+    from tplus.client.base import BaseClient
     from tplus.model.asset_identifier import Address32, AssetAddress
-    from tplus.utils.user import User
+    from tplus.types import UserLike, UserType
 
 
 @dataclass
@@ -52,7 +56,7 @@ class SettlementInfo:
     account_index: int | None = None
 
 
-class SettlementManager(ChainConnectedManager):
+class SettlementManager(ChainSigningManager):
     """
     Integrates the clearing-engine client with the vault contract via Ape to
     abstract away full operations like settlements.
@@ -60,16 +64,15 @@ class SettlementManager(ChainConnectedManager):
 
     def __init__(
         self,
-        default_user: "User",
-        ape_account: "AccountAPI",
+        default_user: "UserLike",
+        ape_account: "AccountAPI | None" = None,
         clearing_engine: ClearingEngineClient | None = None,
         oms_client: OrderBookClient | None = None,
         chain_id: ChainID | None = None,
         vault: DepositVault | None = None,
         settlement_vault: DepositVault | None = None,
     ):
-        self.default_user = default_user
-        self.ape_account = ape_account
+        super().__init__(default_user, ape_account)
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient.from_local(
             self.default_user
         )
@@ -92,11 +95,17 @@ class SettlementManager(ChainConnectedManager):
         self.settlement_vault = settlement_vault or self.vault
         self.logger = get_logger()
 
+    def _user_clients(self) -> "Iterable[BaseClient]":
+        # OMS first: it is the signer registry the T+ frontend resolves accounts against.
+        return (self.oms, self.ce)
+
     @cached_property
     def deposits(self) -> DepositManager:
         return DepositManager(
             self.ape_account,
-            self.default_user,
+            # Hand over an unresolved user as "none given", so the child looks it up too
+            # rather than inheriting the guess.
+            None if self._derived_from is not None else self.default_user,
             vault=self.vault,
             chain_id=self.chain_id,
             clearing_engine=self.ce,
@@ -113,6 +122,8 @@ class SettlementManager(ChainConnectedManager):
     async def deposit(
         self, token: "str | AddressType | ContractInstance", amount: int, wait: bool = False
     ):
+        # Resolve before `deposits` is built, so the child manager inherits the real account.
+        await self.resolve_default_user()
         await self.deposits.deposit(token, amount, wait=wait)
 
     async def prefetch_chaindata(
@@ -128,7 +139,7 @@ class SettlementManager(ChainConnectedManager):
         )
 
     def decrypt_settlement_approval_message(
-        self, message: dict, user: "User | None" = None
+        self, message: dict, user: "UserLike | None" = None
     ) -> SettlementApproval | None:
         """
         Decrypt and parse a settlement approval message from the WebSocket.
@@ -139,7 +150,13 @@ class SettlementManager(ChainConnectedManager):
         if "Err" in message:
             raise SettlementError(message["Err"])
 
-        user = user or self.default_user
+        user = to_user(user) if user is not None else self.default_user
+        if getattr(user, "sk", None) is None:
+            raise ValueError(
+                "Settlement approvals are sealed to the account's Ed25519 key, which "
+                f"{type(user).__name__} does not hold. Pass the account's master key as `user`."
+            )
+
         key = "Approved"
 
         try:
@@ -168,7 +185,7 @@ class SettlementManager(ChainConnectedManager):
         amount_in: Amount,
         asset_out: "Address32",
         amount_out: Amount,
-        user: "User | None" = None,
+        user: "UserLike | None" = None,
         settler: "UserPublicKey | None" = None,
         maker_order: MakerOrderAttachment | None = None,
         account_index: int | None = None,
@@ -200,7 +217,7 @@ class SettlementManager(ChainConnectedManager):
             tuple[SettlementInfo, SettlementApproval]: Settlement metadata and the approval returned by CE.
         """
 
-        user = user or self.default_user
+        user = to_user(user) if user is not None else await self.resolve_default_user()
 
         if account_index is None:
             account_index = user.sub_account
@@ -271,7 +288,7 @@ class SettlementManager(ChainConnectedManager):
         self,
         settlement_info: SettlementInfo,
         approval: SettlementApproval,
-        user: "UserPublicKey | None" = None,
+        user: "UserLike | None" = None,
         **kwargs,
     ) -> "ReceiptAPI":
         """
@@ -289,7 +306,7 @@ class SettlementManager(ChainConnectedManager):
         """
         nonce = approval.inner.nonce
         expiry = approval.expiry
-        user = user or self.default_user
+        user = to_user(user) if user is not None else await self.resolve_default_user()
         settler = settlement_info.settler or user.public_key
         token_in_address = kwargs.pop("token_in", None)
         token_out_address = kwargs.pop("token_out", None)
@@ -361,9 +378,15 @@ class SettlementApprovalHandler:
         on_error: "Callable[[SettlementError], Awaitable[None] | None] | None" = None,
         pending_settlements: dict[int, SettlementInfo] | None = None,
         stop_at: int | None = None,
-        user: "UserPublicKey | None" = None,
+        user: "UserType | None" = None,
     ) -> None:
-        user = user or self.settlement_manager.default_user.public_key
+        # A bare public key cannot decrypt, so those approvals stay on the default user's key.
+        signer = to_user(user) if user is not None and not isinstance(user, str) else None
+        user = (
+            to_user_public_key(user)
+            if user is not None
+            else (await self.settlement_manager.resolve_default_user()).public_key
+        )
         self.logger.info(f"Starting approval handler for user {user}")
 
         pending_settlements = pending_settlements or {}
@@ -383,7 +406,9 @@ class SettlementApprovalHandler:
             while True:
                 approval = None
                 try:
-                    approval = self.settlement_manager.decrypt_settlement_approval_message(message)
+                    approval = self.settlement_manager.decrypt_settlement_approval_message(
+                        message, user=signer
+                    )
                 except SettlementError as err:
                     if on_error:
                         result = on_error(err)

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from tplus.client.auth import AuthenticatedClient
+from tplus.client.auth import Auth, AuthenticatedClient
 from tplus.client.market_data import MarketDataClient
 from tplus.client.orderbook import OrderBookClient
 
@@ -10,12 +10,11 @@ DEFAULT_BASE_URL = "http://localhost:8080"
 
 
 class TplusApiClient(AuthenticatedClient):
-    """Single-token client for the T+ API gateway.
+    """Client for the T+ API gateway.
 
     The gateway is a reverse proxy exposing both the OMS and the MDS behind one
-    origin and one auth token, so a single nonce/token handshake authenticates
-    every endpoint. This client owns the shared httpx connection and ``Auth``;
-    the two service namespaces are composed off it so they reuse both:
+    origin. OMS and MDS are separate token authorities, so the service namespaces
+    share one HTTP connection but maintain independent auth sessions:
 
     - ``.oms`` — :class:`OrderBookClient` (orders, inventory, positions, margin).
     - ``.mds`` — :class:`MarketDataClient` (klines, depth, tickers, user trades).
@@ -33,7 +32,11 @@ class TplusApiClient(AuthenticatedClient):
     def __init__(self, base_url: str = DEFAULT_BASE_URL, **kwargs) -> None:
         super().__init__(base_url, **kwargs)
         self.oms = OrderBookClient.from_client(self)
-        self.mds = MarketDataClient.from_client(self)
+        self.mds = MarketDataClient.from_client(
+            self,
+            auth=Auth(cache_dir=self._auth.cache_dir),
+            auth_path_prefix="/market-data",
+        )
 
     def __getattr__(self, name: str) -> Any:
         # Only reached when normal lookup fails, so real inherited attributes

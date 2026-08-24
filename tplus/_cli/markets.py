@@ -1,6 +1,5 @@
 import asyncio
 import json
-from typing import Any, cast
 
 import click
 
@@ -19,6 +18,23 @@ from tplus.cli_tools import (
     output_format_option,
     render,
 )
+from tplus.model.market import MarketResponse
+
+
+async def _collect_markets(
+    client, page_number: int | None, limit: int | None
+) -> list[MarketResponse]:
+    """The requested page, or every page when the caller did not pick one."""
+    page = await client.get_markets(page=page_number, limit=limit)
+    if page_number is not None:
+        return page.markets
+
+    markets = list(page.markets)
+    while page.next_page is not None:
+        page = await client.get_markets(page=page.next_page, limit=limit)
+        markets.extend(page.markets)
+
+    return markets
 
 
 @click.group()
@@ -60,40 +76,77 @@ def _get(cli_ctx: CLIContext, asset_id: str):
 @tplus_account_option()
 @output_format_option()
 @no_pager_option()
+@click.option("--page", "page_number", type=int)
+@click.option("--limit", type=int)
 @pass_cli_context
-def _list(cli_ctx: CLIContext, output_format: str, no_pager: bool):
-    """List all markets."""
+def _list(
+    cli_ctx: CLIContext,
+    output_format: str,
+    no_pager: bool,
+    page_number: int | None,
+    limit: int | None,
+):
+    """List all markets, following pagination unless `--page` picks one."""
     client = cli_ctx.orderbook_client()
-    response = cast("list[dict[str, Any]]", asyncio.run(client._request("GET", "/markets")))
+    markets = asyncio.run(_collect_markets(client, page_number, limit))
     if output_format == "raw":
-        click.echo(json.dumps(response, indent=2, default=str))
+        raw = [market.model_dump(by_alias=True) for market in markets]
+        click.echo(json.dumps(raw, indent=2, default=str))
         return
 
     records = []
-    for market in response or []:
-        fee_schedule = market.get("fee_schedule") or {}
-        asset_metadata = asset_metadata_dict(market.get("asset_id")) or {}
+    for market in markets:
+        fee_schedule = market.fee_schedule
+        asset_metadata = asset_metadata_dict(str(market.asset_id)) or {}
         records.append(
             {
-                "asset_id": market.get("asset_id"),
+                "asset_id": str(market.asset_id),
                 "symbol": asset_metadata.get("symbol"),
                 "asset_class": asset_metadata.get("asset_class"),
                 "representations": asset_metadata.get("representations"),
-                "price_decimals": market.get("book_price_decimals"),
-                "quantity_decimals": market.get("book_quantity_decimals"),
-                "max_leverage": market.get("max_leverage"),
-                "isolated_only": market.get("isolated_only"),
-                "tick_size": market.get("tick_size"),
-                "min_order_size": market.get("min_order_size"),
-                "fee_account": fee_schedule.get("fee_account"),
+                "price_decimals": market.book_price_decimals,
+                "quantity_decimals": market.book_quantity_decimals,
+                "max_leverage": market.max_leverage,
+                "isolated_only": market.isolated_only,
+                "tick_size": market.tick_size,
+                "min_order_size": market.min_order_size,
+                "fee_account": fee_schedule.fee_account if fee_schedule else None,
                 "fee_tiers": (
-                    f"{len(fee_schedule.get('global') or [])} global / "
-                    f"{len(fee_schedule.get('per_asset') or [])} per-asset"
+                    f"{len(fee_schedule.global_)} global / {len(fee_schedule.per_asset)} per-asset"
                     if fee_schedule
                     else None
                 ),
             }
         )
+    render(records, output_format, no_pager=no_pager)
+
+
+@markets.command("symbol-map")
+@orderbook_url_option()
+@ignore_ssl_option()
+@tplus_account_option()
+@output_format_option()
+@no_pager_option()
+@pass_cli_context
+def _symbol_map(cli_ctx: CLIContext, output_format: str, no_pager: bool):
+    """Show the canonical asset table served by the OMS."""
+    client = cli_ctx.orderbook_client()
+    symbol_map = asyncio.run(client.get_markets(include_symbol_map=True)).symbol_map or {}
+    if output_format == "raw":
+        raw = {str(index): asset.model_dump() for index, asset in symbol_map.items()}
+        click.echo(json.dumps(raw, indent=2))
+        return
+
+    records = [
+        {
+            "index": index,
+            "symbol": asset.symbol,
+            "name": asset.name,
+            "asset_class": asset.asset_class,
+            "representations": ", ".join(asset.representations),
+        }
+        for index, asset in sorted(symbol_map.items())
+    ]
     render(records, output_format, no_pager=no_pager)
 
 

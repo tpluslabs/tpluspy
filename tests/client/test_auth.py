@@ -1,15 +1,19 @@
 import asyncio
-import json
 import logging
 import time
 from collections.abc import Callable
 
 import httpx
 import pytest
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus, InvalidStatusCode
+from websockets.http11 import Response
 
 from tplus.client.auth import Auth, AuthenticatedClient
 from tplus.client.base import BaseClient, ClientSettings
 from tplus.exceptions import MissingClientUserError
+from tplus.model.auth import AuthRequestBody
+from tplus.model.multisig import AdditionalSigner, SignerKey
 from tplus.model.types import UserPublicKey
 from tplus.utils.user import DelegatedUser, User
 
@@ -30,6 +34,7 @@ class FakeAuthBackend:
         self.nonce_calls = 0
         self.auth_calls = 0
         self.nonce_users: list[str] = []
+        self.auth_bodies: list[AuthRequestBody] = []
 
     @property
     def expiry_ns(self) -> int:
@@ -52,6 +57,8 @@ class FakeAuthBackend:
 
         if path == "/auth":
             self.auth_calls += 1
+            if request.content:
+                self.auth_bodies.append(AuthRequestBody.model_validate_json(request.content))
             if self.auth_fail_after is not None and self.auth_calls > self.auth_fail_after:
                 return httpx.Response(503, text="auth down")
 
@@ -131,13 +138,13 @@ class TestAuth:
         account = User()
         signer = User()
         delegated = DelegatedUser(account.public_key, signer)
-        auth_payloads: list[dict] = []
+        auth_payloads: list[AuthRequestBody] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == f"/nonce/{account.public_key}":
                 return httpx.Response(200, json={"value": "nonce"})
             if request.url.path == "/auth":
-                auth_payloads.append(json.loads(request.content))
+                auth_payloads.append(AuthRequestBody.model_validate_json(request.content))
                 return httpx.Response(
                     200,
                     json={"token": "tok", "expiry_ns": time.time_ns() + 3_600_000_000_000},
@@ -153,10 +160,47 @@ class TestAuth:
         await client._authenticate()
 
         payload = auth_payloads[0]
-        assert payload["user_id"] == account.public_key
-        assert payload["signature"] == []
-        assert payload["additional_signers"][0]["signer"] == {"Ed25519": signer.public_key_vec}
-        signer.vk.verify(bytes(payload["additional_signers"][0]["signature"]), b"nonce")
+        assert payload.user_id == account.public_key
+        assert payload.signature == []
+        assert payload.additional_signers[0].signer == SignerKey.ed25519(signer.public_key_vec)
+        signer.vk.verify(bytes(payload.additional_signers[0].signature), b"nonce")
+        await client.close()
+
+    @pytest.mark.anyio
+    async def test_evm_delegated_user_authenticates_with_a_secp_signer(self, eth_account):
+        from tests.utils.test_evm_user import verify_like_backend
+        from tplus.utils.user import EvmDelegatedUser
+
+        account_id = "cd" * 32
+        wallet_user = EvmDelegatedUser(account_id, eth_account)
+        auth_payloads: list[AuthRequestBody] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == f"/nonce/{account_id}":
+                return httpx.Response(200, json={"value": "nonce"})
+            if request.url.path == "/auth":
+                auth_payloads.append(AuthRequestBody.model_validate_json(request.content))
+                return httpx.Response(
+                    200,
+                    json={"token": "tok", "expiry_ns": time.time_ns() + 3_600_000_000_000},
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+        httpx_client = httpx.AsyncClient(base_url="http://test", transport=transport)
+        client = AuthenticatedClient(
+            base_url="http://test", default_user=wallet_user, client=httpx_client
+        )
+
+        await client._authenticate()
+
+        payload = auth_payloads[0]
+        assert payload.user_id == account_id
+        # Empty master signature: T+ reads that as "none" and weighs the co-signers alone.
+        assert payload.signature == []
+        additional = payload.additional_signers[0]
+        assert additional.signer == SignerKey.secp256k1(list(wallet_user.signer_key))
+        assert verify_like_backend(wallet_user.signer_key, "nonce", additional.signature)
         await client.close()
 
 
@@ -338,6 +382,20 @@ class TestAuthenticatedClient:
         child = AuthenticatedClient.from_client(parent)
         assert child._auth is parent._auth
 
+    def test_from_client_can_use_independent_scoped_auth(self):
+        parent = self._make_client()
+        child_auth = Auth()
+        child = AuthenticatedClient.from_client(
+            parent,
+            auth=child_auth,
+            auth_path_prefix="market-data/",
+        )
+
+        assert child._client is parent._client
+        assert child._auth is child_auth
+        assert child._auth_path_prefix == "/market-data"
+        assert child._auth_cache_scope() == "http://localhost:3032/market-data"
+
     @pytest.mark.anyio
     async def test_request_retries_once_after_401(self):
         user = User()
@@ -467,6 +525,27 @@ class TestAuthenticatedClient:
         await client.close()
 
     @pytest.mark.anyio
+    async def test_request_bare_public_key_kwarg_keeps_header_matching_token(self):
+        # The token belongs to the default user, so `User-Id` must too: the OMS validates
+        # the token against the header's user, and a read of someone else's data is not a
+        # claim to be them.
+        default_user = User()
+        backend = FakeAuthBackend()
+        seen_user_id: list[str | None] = []
+
+        def on_request(request: httpx.Request) -> httpx.Response:
+            seen_user_id.append(request.headers.get("User-Id"))
+            return httpx.Response(200, json={"ok": True})
+
+        client = mock_client(backend, on_request, default_user=default_user)
+        await client._request("GET", "/inventory/user/xyz", user=UserPublicKey("ab" * 32))
+
+        assert backend.nonce_users == [default_user.public_key]
+        assert seen_user_id == [default_user.public_key]
+
+        await client.close()
+
+    @pytest.mark.anyio
     async def test_optional_auth_falls_back_anonymously_when_auth_fails(self, caplog):
         backend = FakeAuthBackend(auth_fail_after=0)
         seen: list[str | None] = []
@@ -533,71 +612,153 @@ class TestAuthenticatedClient:
         await client.close()
 
     @pytest.mark.anyio
-    async def test_open_ws_authenticates_when_user_set(self, monkeypatch):
+    async def test_open_ws_authenticates_when_user_set(self, mocker):
         user = User()
         client = AuthenticatedClient(base_url="http://test", default_user=user)
         client._auth.token = "tok-ws"
         client._auth.expiry_ns = time.time_ns() + 3600 * 1_000_000_000
 
-        captured: dict = {}
+        open_ws = mocker.patch.object(BaseClient, "_open_ws", new=mocker.AsyncMock())
 
-        async def fake_super_open_ws(self, path, ws_kwargs=None, extra_headers=None, **kwargs):
-            captured["extra_headers"] = extra_headers
-            return object()
+        await client.open_ws("/stream", requires_auth=False)
 
-        monkeypatch.setattr(BaseClient, "_open_ws", fake_super_open_ws)
-
-        await client._open_ws("/stream", requires_auth=False)
-
-        headers = captured["extra_headers"]
+        headers = open_ws.call_args.kwargs["extra_headers"]
         assert headers["Authorization"] == "Bearer tok-ws"
         assert headers["User-Id"] == user.public_key
 
         await client.close()
 
     @pytest.mark.anyio
-    async def test_open_ws_anonymous_when_no_user(self, monkeypatch):
+    async def test_open_ws_anonymous_when_no_user(self, mocker):
         client = AuthenticatedClient(base_url="http://test")
 
-        captured: dict = {}
+        open_ws = mocker.patch.object(BaseClient, "_open_ws", new=mocker.AsyncMock())
 
-        async def fake_super_open_ws(self, path, ws_kwargs=None, extra_headers=None, **kwargs):
-            captured["extra_headers"] = extra_headers
-            return object()
+        await client.open_ws("/stream", requires_auth=False)
 
-        monkeypatch.setattr(BaseClient, "_open_ws", fake_super_open_ws)
-
-        await client._open_ws("/stream", requires_auth=False)
-
-        headers = captured["extra_headers"] or {}
+        headers = open_ws.call_args.kwargs["extra_headers"] or {}
         assert "Authorization" not in headers
 
         await client.close()
 
     @pytest.mark.anyio
-    async def test_open_ws_falls_back_when_auth_fails(self, monkeypatch, caplog):
+    async def test_open_ws_falls_back_when_auth_fails(self, mocker, caplog):
         user = User()
         client = AuthenticatedClient(base_url="http://test", default_user=user)
 
-        async def fail_ensure_auth(user=None):
-            raise RuntimeError("auth service down")
-
-        monkeypatch.setattr(client, "_ensure_auth", fail_ensure_auth)
-
-        captured: dict = {}
-
-        async def fake_super_open_ws(self, path, ws_kwargs=None, extra_headers=None, **kwargs):
-            captured["extra_headers"] = extra_headers
-            return object()
-
-        monkeypatch.setattr(BaseClient, "_open_ws", fake_super_open_ws)
+        mocker.patch.object(
+            client, "_ensure_auth", new=mocker.AsyncMock(side_effect=RuntimeError("auth down"))
+        )
+        open_ws = mocker.patch.object(BaseClient, "_open_ws", new=mocker.AsyncMock())
 
         with caplog.at_level(logging.ERROR, logger="tplus"):
-            await client._open_ws("/stream", requires_auth=False)
+            await client.open_ws("/stream", requires_auth=False)
 
-        headers = captured["extra_headers"] or {}
+        headers = open_ws.call_args.kwargs["extra_headers"] or {}
         assert "Authorization" not in headers
         assert any("anonymous" in record.message.lower() for record in caplog.records), caplog.text
+
+        await client.close()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "rejection",
+        [
+            InvalidStatus(Response(401, "Unauthorized", Headers())),
+            InvalidStatus(Response(403, "Forbidden", Headers())),
+            InvalidStatusCode(401, Headers()),
+        ],
+        ids=["invalid_status_401", "invalid_status_403", "legacy_invalid_status_code_401"],
+    )
+    async def test_open_ws_reauthenticates_after_rejected_handshake(self, mocker, rejection):
+        backend = FakeAuthBackend(token=lambda attempt: f"tok-{attempt}")
+        client = mock_client(backend, default_user=User())
+
+        rejecting_connection = mocker.AsyncMock()
+        rejecting_connection.__aenter__.side_effect = rejection
+        accepted_connection = mocker.AsyncMock()
+        accepted_connection.__aenter__.return_value = "websocket"
+
+        open_ws = mocker.patch.object(
+            BaseClient,
+            "_open_ws",
+            new=mocker.AsyncMock(side_effect=[rejecting_connection, accepted_connection]),
+        )
+
+        async with await client.open_ws("/orders") as websocket:
+            assert websocket == "websocket"
+
+        presented_tokens = [
+            call.kwargs["extra_headers"]["Authorization"] for call in open_ws.call_args_list
+        ]
+        assert presented_tokens == ["Bearer tok-1", "Bearer tok-2"]
+        assert backend.auth_calls == 2
+
+        await client.close()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("failure", "expected_auth_calls"),
+        [
+            (InvalidStatus(Response(401, "Unauthorized", Headers())), 2),
+            (ConnectionRefusedError("no listener"), 1),
+        ],
+        ids=["second_rejection_is_not_retried", "non_auth_failure_is_not_refreshed"],
+    )
+    async def test_open_ws_raises_without_retrying_again(
+        self, mocker, failure, expected_auth_calls
+    ):
+        backend = FakeAuthBackend(token=lambda attempt: f"tok-{attempt}")
+        client = mock_client(backend, default_user=User())
+
+        failing_connection = mocker.AsyncMock()
+        failing_connection.__aenter__.side_effect = failure
+
+        open_ws = mocker.patch.object(
+            BaseClient, "_open_ws", new=mocker.AsyncMock(return_value=failing_connection)
+        )
+
+        with pytest.raises(type(failure)):
+            async with await client.open_ws("/orders"):
+                pass
+
+        assert open_ws.call_count == expected_auth_calls
+        assert backend.auth_calls == expected_auth_calls
+
+        await client.close()
+
+    @pytest.mark.anyio
+    async def test_open_ws_concurrent_rejections_refresh_once(self, mocker, anyio_backend):
+        if anyio_backend != "asyncio":
+            pytest.skip("Auth.lock is an asyncio.Lock, so contending it needs the asyncio backend")
+
+        backend = FakeAuthBackend(token=lambda attempt: f"tok-{attempt}")
+        client = mock_client(backend, default_user=User())
+
+        def build_connection(*_args, **kwargs):
+            connection = mocker.AsyncMock()
+            if kwargs["extra_headers"]["Authorization"] == "Bearer tok-1":
+                connection.__aenter__.side_effect = InvalidStatus(
+                    Response(401, "Unauthorized", Headers())
+                )
+            else:
+                connection.__aenter__.return_value = "websocket"
+
+            return connection
+
+        mocker.patch.object(
+            BaseClient, "_open_ws", new=mocker.AsyncMock(side_effect=build_connection)
+        )
+
+        async def open_and_enter():
+            async with await client.open_ws("/orders") as websocket:
+                return websocket
+
+        results = await asyncio.gather(open_and_enter(), open_and_enter(), open_and_enter())
+
+        assert results == ["websocket"] * 3
+        # One initial sign-in plus a single shared refresh, not one refresh per rejection.
+        assert backend.auth_calls == 2
 
         await client.close()
 
@@ -680,6 +841,93 @@ class TestAuthenticatedClient:
         assert client._auth.token == "tok-recovered"
 
         await client.close()
+
+    @pytest.mark.anyio
+    async def test_authenticate_includes_additional_signers(self):
+        backend = FakeAuthBackend(token="tok-ms")
+        master = User()
+        cosigner = User()
+        client = mock_client(backend, default_user=master)
+
+        await client.authenticate(additional_signers=[cosigner])
+
+        assert backend.auth_calls == 1
+        assert backend.auth_bodies[0] == AuthRequestBody(
+            user_id=master.public_key,
+            nonce="n",
+            signature=list(master.sign("n")),
+            additional_signers=[
+                AdditionalSigner(
+                    signer=SignerKey.ed25519(cosigner.public_key_vec),
+                    signature=list(cosigner.sign("n")),
+                )
+            ],
+        )
+        assert client._auth.token == "tok-ms"
+
+        await client.close()
+
+    @pytest.mark.anyio
+    async def test_auth_refresh_reuses_configured_additional_signers(self):
+        backend = FakeAuthBackend(token=lambda i: f"tok-{i}")
+        master = User()
+        cosigner = User()
+
+        def on_request(request: httpx.Request) -> httpx.Response:
+            if backend.auth_calls == 1:
+                return httpx.Response(401, text="token expired")
+            return httpx.Response(200, json={"ok": True})
+
+        client = mock_client(backend, on_request, default_user=master)
+        client.set_auth_additional_signers([cosigner])
+
+        await client._request("GET", "/data")
+
+        assert backend.auth_calls == 2
+        expected_signer = SignerKey.ed25519(cosigner.public_key_vec)
+        for body in backend.auth_bodies:
+            assert body.additional_signers
+            assert body.additional_signers[0].signer == expected_signer
+
+        await client.close()
+
+    @pytest.mark.anyio
+    async def test_set_auth_additional_signers_clears_token(self):
+        backend = FakeAuthBackend()
+        client = mock_client(backend, default_user=User())
+        await client.authenticate()
+        assert client._auth.token is not None
+
+        client.set_auth_additional_signers([User()])
+        assert client._auth.token is None
+        assert client._auth.is_expired() is True
+
+        await client.close()
+
+    def test_set_auth_additional_signers_preserves_token_when_unchanged(self):
+        client = AuthenticatedClient(base_url="http://test")
+        client._auth.token = "token"
+        client._auth.expiry_ns = time.time_ns() + 3600 * 1_000_000_000
+
+        client.set_auth_additional_signers([])
+
+        assert client._auth.token == "token"
+        assert client._auth.is_expired() is False
+
+    def test_from_client_preserves_auth_additional_signers(self):
+        master = User()
+        cosigner = User()
+        source = AuthenticatedClient(
+            base_url="http://test",
+            default_user=master,
+            auth_additional_signers=[cosigner],
+        )
+        cloned = AuthenticatedClient.from_client(source)
+        assert cloned.auth_additional_signers == [cosigner]
+        # Property returns a copy; mutating it must not affect the client.
+        mutated = cloned.auth_additional_signers
+        mutated.clear()
+        assert cloned.auth_additional_signers == [cosigner]
 
 
 class TestClientSettings:
