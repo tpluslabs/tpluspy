@@ -1,164 +1,187 @@
 import asyncio
-import json
-from typing import Any
 
 import pytest
 
+from tplus.client.orderbook import CONTROL_WS_PROTOCOL
+from tplus.exceptions import RateLimitError
+from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.batch_order import BatchCreateOrderRequest
+from tplus.utils.limit_order import create_limit_order_ob_request_payload
 
-class DummyWS:
-    def __init__(self):
-        self._queue: asyncio.Queue[str] = asyncio.Queue()
-        self.sent: list[str] = []
-        self.closed = False
-
-    async def send(self, data: str) -> None:
-        self.sent.append(data)
-
-    def feed(self, data: dict[str, Any]) -> None:
-        self._queue.put_nowait(json.dumps(data))
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        # Block until a message is fed; reader task will be cancelled by client.close()
-        return await self._queue.get()
-
-    async def close(self):
-        self.closed = True
+ASSET_ID = AssetIdentifier(root="200")
 
 
-@pytest.mark.anyio
-async def test_pending_key_composite(monkeypatch, anyio_backend):
-    if anyio_backend != "asyncio":
-        pytest.skip("OrderBookClient control channel uses asyncio internals")
-    from typing import Any, cast
-
-    from tplus.client.orderbook import OrderBookClient
-
-    class DummyClient(OrderBookClient):
-        async def _ensure_control_ws(self) -> None:
-            if not self._control_ws:
-                # Help type-checker: treat DummyWS as Any when assigning to _control_ws
-                self._control_ws = cast(Any, DummyWS())
-                # Start reader loop like the real client does
-                self._control_ws_task = asyncio.create_task(self._control_ws_reader())
-
-    class DummyUser:
-        public_key = "USER"
-
-    client = DummyClient(
-        "http://example.com",
-        default_user=DummyUser(),  # type: ignore
+def build_batch(user, *order_ids: str) -> BatchCreateOrderRequest:
+    return BatchCreateOrderRequest(
+        orders=[
+            create_limit_order_ob_request_payload(
+                quantity=1,
+                price=1000,
+                side="Buy",
+                signer=user,
+                book_quantity_decimals=3,
+                book_price_decimals=3,
+                asset_identifier=ASSET_ID,
+                order_id=order_id,
+            )
+            for order_id in order_ids
+        ]
     )
-    client._use_ws_control = True
 
-    order_id = "abc"
-    payload = {"CancelOrderRequest": {"cancel": {"order_id": order_id, "asset_id": "200"}}}
 
-    # Ensure control connection is established before sending
-    await client._ensure_control_ws()
-    ws = client._control_ws  # type: ignore[assignment]
-    assert ws is not None
+ACK = {"request": {"status": "submitted"}}
 
-    fut_task = asyncio.create_task(
-        client._control_ws_send(payload, expected_order_id=order_id, timeout=0.5)
-    )
-    # Yield to event loop to allow registration of the pending future
-    await asyncio.sleep(0)
 
-    # Response comes back
-    ws.feed(  # type: ignore[attr-defined]
-        {
-            "CancelOrderResponse": {
-                "response": {"order_id": order_id, "status": "Received"},
-                "asset_id": "200",
-            }
+def build_create_response(order_id: str, status: str, reason: str | None = None) -> dict:
+    return {
+        "CreateOrderResponse": {
+            "response": {"order_id": order_id, "status": status, "reason": reason},
+            "asset_id": str(ASSET_ID),
         }
-    )
-
-    res = await fut_task
-    assert isinstance(res, dict)
-    assert "CancelOrderResponse" in res
-
-    # Cleanup
-    await client.close()
+    }
 
 
 @pytest.mark.anyio
-async def test_batch_create_over_control_ws(monkeypatch, anyio_backend):
-    if anyio_backend != "asyncio":
-        pytest.skip("OrderBookClient control channel uses asyncio internals")
-    from typing import Any, cast
+async def test_ensure_control_ws_negotiates_v1(control_ws_client):
+    await control_ws_client._ensure_control_ws()
 
-    from tplus.client.orderbook import OrderBookClient
+    control_ws_client._open_ws.assert_awaited_once_with(
+        "/control", ws_kwargs={"subprotocols": [CONTROL_WS_PROTOCOL]}
+    )
 
-    class DummyClient(OrderBookClient):
-        async def _ensure_control_ws(self) -> None:
-            if not self._control_ws:
-                self._control_ws = cast(Any, DummyWS())
-                self._control_ws_task = asyncio.create_task(self._control_ws_reader())
 
-    class DummyUser:
-        public_key = "USER"
-
-    client = DummyClient("http://example.com", default_user=DummyUser())  # type: ignore
-    client._use_ws_control = True
-
-    # Stand in for a BatchCreateOrderRequest: only model_dump() is exercised by the
-    # control-ws batch path.
-    class FakeBatch:
-        def model_dump(self):
-            return {
-                "orders": [
-                    {"order": {"order_id": "oid1", "base_asset": "200"}, "signature": [1]},
-                    {"order": {"order_id": "oid2", "base_asset": "200"}, "signature": [1]},
-                ]
-            }
-
-    await client._ensure_control_ws()
-    ws = client._control_ws
-    assert ws is not None
+@pytest.mark.anyio
+async def test_control_ws_send_correlates_by_request_id(control_ws_client, control_ws):
+    order_id = "abc"
+    payload = {"CancelOrderRequest": {"cancel": {"order_id": order_id, "asset_id": str(ASSET_ID)}}}
 
     task = asyncio.create_task(
-        client._control_ws_send_batch(FakeBatch(), timeout=1.0)  # type: ignore[arg-type]
+        control_ws_client._control_ws_send(payload, expected_order_id=order_id, timeout=0.5)
     )
     await asyncio.sleep(0)
 
-    # Server acks once (no order id → ignored), then streams one response per order,
-    # out of submission order, mixing acceptance and a per-order rejection.
-    ws.feed({"request": {"status": "submitted"}})  # type: ignore[attr-defined]
-    ws.feed(  # type: ignore[attr-defined]
+    sent = control_ws.sent_frame()
+    assert sent["data"] == payload
+
+    control_ws.feed(
         {
-            "CreateOrderResponse": {
-                "response": {
-                    "order_id": "oid2",
-                    "status": "Rejected",
-                    "reason": "InsufficientInventory",
-                },
-                "asset_id": "200",
-            }
-        }
-    )
-    ws.feed(  # type: ignore[attr-defined]
-        {
-            "CreateOrderResponse": {
-                "response": {"order_id": "oid1", "status": "Received", "reason": None},
-                "asset_id": "200",
-            }
+            "type": "event",
+            "channel": "control",
+            "request_id": sent["request_id"],
+            "data": {
+                "CancelOrderResponse": {
+                    "response": {"order_id": order_id, "status": "Received"},
+                    "asset_id": str(ASSET_ID),
+                }
+            },
+            "error": None,
         }
     )
 
-    resp = await task
+    assert "CancelOrderResponse" in await task
 
-    # One BatchCreateRequest frame was sent.
-    sent = json.loads(ws.sent[0])  # type: ignore[attr-defined]
-    assert list(sent.keys()) == ["BatchCreateRequest"]
 
-    by_id = {s.order_id: s for s in resp.batch_order_status}
+@pytest.mark.anyio
+async def test_control_ws_send_ignores_submitted_ack(control_ws_client, control_ws):
+    payload = {"CancelOrderRequest": {"cancel": {"order_id": "oid1", "asset_id": str(ASSET_ID)}}}
+
+    task = asyncio.create_task(
+        control_ws_client._control_ws_send(payload, expected_order_id="oid1", timeout=1.0)
+    )
+    await asyncio.sleep(0)
+    request_id = control_ws.sent_frame()["request_id"]
+
+    # The server acks every accepted request under the same request id before the
+    # terminal response, so correlating on request id alone resolves too early.
+    control_ws.feed(
+        {
+            "type": "ack",
+            "channel": "control",
+            "request_id": request_id,
+            "data": ACK,
+            "error": None,
+        }
+    )
+    control_ws.feed(
+        {
+            "type": "event",
+            "channel": "control",
+            "request_id": request_id,
+            "data": build_create_response("oid1", "Received"),
+            "error": None,
+        }
+    )
+
+    assert control_ws_client._extract_operation_response(await task).status == "Received"
+
+
+@pytest.mark.anyio
+async def test_control_ws_send_batch_gathers_out_of_order_responses(
+    control_ws_client, control_ws, control_user
+):
+    batch = build_batch(control_user, "oid1", "oid2")
+
+    task = asyncio.create_task(control_ws_client._control_ws_send_batch(batch, timeout=1.0))
+    await asyncio.sleep(0)
+
+    sent = control_ws.sent_frame()
+    request_id = sent["request_id"]
+    assert list(sent.keys()) == ["request_id", "data"]
+    assert list(sent["data"].keys()) == ["BatchCreateRequest"]
+
+    # The ack carries no order id and must be ignored, then responses arrive reversed.
+    for data in (
+        ACK,
+        build_create_response("oid2", "Rejected", reason="InsufficientInventory"),
+        build_create_response("oid1", "Received"),
+    ):
+        control_ws.feed(
+            {
+                "type": "event",
+                "channel": "control",
+                "request_id": request_id,
+                "data": data,
+                "error": None,
+            }
+        )
+
+    response = await task
+
+    by_id = {status.order_id: status for status in response.batch_order_status}
     assert by_id["oid1"].status == "Received"
     assert by_id["oid1"].reason is None
     assert by_id["oid2"].status == "Rejected"
     assert by_id["oid2"].reason == "InsufficientInventory"
 
-    await client.close()
+
+@pytest.mark.anyio
+async def test_control_ws_send_rate_limit_is_correlated_without_timeout(
+    control_ws_client, control_ws
+):
+    payload = {"ReplaceOrderRequest": {"request": {"order_id": "oid1", "base_asset": "200"}}}
+
+    task = asyncio.create_task(
+        control_ws_client._control_ws_send(payload, expected_order_id="oid1", timeout=1.0)
+    )
+    await asyncio.sleep(0)
+
+    control_ws.feed(
+        {
+            "type": "error",
+            "channel": "control",
+            "request_id": control_ws.sent_frame()["request_id"],
+            "data": None,
+            "error": {
+                "code": "RATE_LIMITED",
+                "message": "Rate limit exceeded",
+                "details": {},
+                "retryable": True,
+            },
+        }
+    )
+
+    with pytest.raises(RateLimitError) as exc_info:
+        await task
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.retryable is True

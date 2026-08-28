@@ -15,7 +15,7 @@ from tplus.client.auth import AuthenticatedClient
 from tplus.client.base import page_params
 from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.client.websocket import resolve_rejected_status_code
-from tplus.exceptions import NotFoundError
+from tplus.exceptions import NotFoundError, from_error_body
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import (
     BatchCreateOrderRequest,
@@ -27,6 +27,7 @@ from tplus.model.close_all_positions_preview import (
     CloseAllPreviewResponse,
     parse_close_all_preview,
 )
+from tplus.model.control import ControlWSFrame
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, MarketsPage, parse_market
 from tplus.model.market_order import (
@@ -88,6 +89,12 @@ from tplus.utils.user import DelegatedUser, User, to_user
 CONTROL_WS_MAX_ATTEMPTS = 5
 # The handshake already re-authenticated and retried, so don't let a non-auth 403 burn all attempts.
 CONTROL_WS_MAX_ATTEMPTS_BY_STATUS = {401: 1, 403: 1}
+CONTROL_WS_PROTOCOL = "tplus.ws.v1"
+CONTROL_WS_ERROR_STATUS = {
+    "RATE_LIMITED": 429,
+    "SERVER_BUSY": 503,
+    "UNAUTHORIZED": 401,
+}
 MARKETS_PAGE_LIMIT = 1000
 
 if TYPE_CHECKING:
@@ -131,6 +138,7 @@ class OrderBookClient(AuthenticatedClient):
         self._control_ws_task: asyncio.Task | None = None
         self._control_ws_lock: asyncio.Lock = asyncio.Lock()
         self._pending_control: dict[str, asyncio.Future] = {}
+        self._pending_control_batches: dict[str, list[asyncio.Future]] = {}
         # Optional user callback for control channel state updates
         self._on_control_state: Callable[[str], None] | None = None
         self._last_user_action_nonce_ms: int = 0
@@ -766,7 +774,9 @@ class OrderBookClient(AuthenticatedClient):
             delay = 0.5
             while True:
                 try:
-                    websocket_cm = await self._open_ws("/control")
+                    websocket_cm = await self._open_ws(
+                        "/control", ws_kwargs={"subprotocols": [CONTROL_WS_PROTOCOL]}
+                    )
                     self._control_ws = await websocket_cm.__aenter__()  # type: ignore[attr-defined]
                     callback = self._on_control_state
                     if callback is not None:
@@ -798,30 +808,35 @@ class OrderBookClient(AuthenticatedClient):
                 return
             async for message in ws:
                 try:
-                    data = json.loads(message)
-                    if isinstance(data, dict) and data.get("type") in {
-                        "subscriptions",
-                        "ping",
-                        "pong",
-                    }:
+                    frame = ControlWSFrame.parse(message)
+                    if frame.is_heartbeat:
                         continue
-                    key_parts = self._control_response_order_id(data)
-                    if key_parts is None:
-                        continue
-                    variant, asset_id, order_id = key_parts
-                    composite_key = f"{variant}:{asset_id}:{order_id}"
-                    fut = self._pending_control.pop(composite_key, None)
-                    if fut and not fut.done():
-                        fut.set_result(data)
-                except Exception as e:
+
+                    # Admission errors are raised before any order response exists,
+                    # so the request id is the only thing they can be routed on.
+                    if frame.request_id is not None and not frame.is_ack:
+                        if frame.error is not None and self._reject_request(frame):
+                            continue
+
+                        if self._resolve_request(frame):
+                            continue
+
+                    if frame.order_payload is not None:
+                        self._resolve_order(frame.order_payload)
+                except Exception as err:
                     # Ignore malformed messages; futures will timeout
-                    self.logger.debug(f"Control WS reader parse error: {e}")
+                    self.logger.debug(f"Control WS reader parse error: {err}")
         except Exception as e:
             # Fail all pending futures on connection drop
             for _, fut in list(self._pending_control.items()):
                 if not fut.done():
                     fut.set_exception(e)
             self._pending_control.clear()
+            for futures in self._pending_control_batches.values():
+                for fut in futures:
+                    if not fut.done():
+                        fut.set_exception(e)
+            self._pending_control_batches.clear()
         finally:
             try:
                 if self._control_ws and not getattr(self._control_ws, "closed", False):
@@ -836,6 +851,55 @@ class OrderBookClient(AuthenticatedClient):
                     callback("disconnected")
                 except Exception:
                     pass
+
+    def _reject_request(self, frame: ControlWSFrame) -> bool:
+        """Fail whatever awaits *frame*, returning whether anything was awaiting it."""
+        exc = self._control_ws_error(frame.error or {})
+        fut = self._pending_control.pop(f"request:{frame.request_id}", None)
+        if fut is not None and not fut.done():
+            fut.set_exception(exc)
+            return True
+
+        batch = self._pending_control_batches.pop(frame.request_id or "", [])
+        for batch_fut in batch:
+            if not batch_fut.done():
+                batch_fut.set_exception(exc)
+
+        return bool(batch)
+
+    def _resolve_request(self, frame: ControlWSFrame) -> bool:
+        """Complete the future awaiting *frame*, returning whether one was awaiting it."""
+        fut = self._pending_control.pop(f"request:{frame.request_id}", None)
+        if fut is None or fut.done():
+            return False
+
+        if frame.data is None:
+            fut.set_exception(ValueError(f"Control WS response missing data: {frame}"))
+        else:
+            fut.set_result(frame.data)
+
+        return True
+
+    def _resolve_order(self, payload: dict[str, Any]) -> None:
+        """Complete the future keyed by the order named in *payload*.
+
+        Batch responses stay order-keyed because one request id fans out into one
+        terminal response per submitted order.
+        """
+        key_parts = self._control_response_order_id(payload)
+        if key_parts is None:
+            return
+
+        variant, asset_id, order_id = key_parts
+        fut = self._pending_control.pop(f"{variant}:{asset_id}:{order_id}", None)
+        if fut is not None and not fut.done():
+            fut.set_result(payload)
+
+    @staticmethod
+    def _control_ws_error(error: dict[str, Any]) -> Exception:
+        code = str(error.get("code", "UNKNOWN"))
+        status_code = CONTROL_WS_ERROR_STATUS.get(code, 400)
+        return from_error_body(error, status_code)
 
     def _control_response_order_id(self, data: dict[str, Any]) -> tuple[str, str, str] | None:
         if not isinstance(data, dict) or len(data) != 1:
@@ -864,39 +928,12 @@ class OrderBookClient(AuthenticatedClient):
         if not self._control_ws:
             raise RuntimeError("WS control not connected")
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        # Determine expected response variant and asset_id from payload to build key
         if len(payload) != 1:
             raise ValueError("Invalid WS control payload shape")
-        request_variant, content = next(iter(payload.items()))
-        # Map request variant to response variant names sent by server
-        response_variant_map = {
-            "CreateOrderRequest": "CreateOrderResponse",
-            "CancelOrderRequest": "CancelOrderResponse",
-            "ReplaceOrderRequest": "ReplaceOrderResponse",
-            "AmendOrderRequest": "AmendOrderResponse",
-        }
-        response_variant = response_variant_map.get(request_variant, request_variant)
-        asset_id: str | None = None
-        if isinstance(content, dict):
-            if isinstance(content.get("asset_id"), str):
-                asset_id = content["asset_id"]
-            elif isinstance(content.get("cancel"), dict) and isinstance(
-                content["cancel"].get("asset_id"), str
-            ):
-                asset_id = content["cancel"]["asset_id"]
-            elif isinstance(content.get("order"), dict) and isinstance(
-                content["order"].get("base_asset"), str
-            ):
-                asset_id = content["order"]["base_asset"]
-            elif isinstance(content.get("request"), dict) and isinstance(
-                content["request"].get("base_asset"), str
-            ):
-                asset_id = content["request"]["base_asset"]
-        if asset_id is None:
-            raise ValueError("WS control payload missing asset_id")
-        key = f"{response_variant}:{asset_id}:{expected_order_id}"
+        request_id = uuid.uuid4().hex
+        key = f"request:{request_id}"
         self._pending_control[key] = fut
-        await self._control_ws.send(json.dumps(payload))
+        await self._control_ws.send(json.dumps({"request_id": request_id, "data": payload}))
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
         finally:
@@ -919,6 +956,7 @@ class OrderBookClient(AuthenticatedClient):
 
         loop = asyncio.get_running_loop()
         dumped = request.model_dump()
+        request_id = uuid.uuid4().hex
         pending: list[tuple[str, asyncio.Future]] = []
         for order_request in dumped["orders"]:
             order = order_request["order"]
@@ -929,12 +967,21 @@ class OrderBookClient(AuthenticatedClient):
             self._pending_control[key] = fut
             pending.append((key, fut))
 
-        await self._control_ws.send(json.dumps({"BatchCreateRequest": dumped}))
+        self._pending_control_batches[request_id] = [fut for _, fut in pending]
+        await self._control_ws.send(
+            json.dumps(
+                {
+                    "request_id": request_id,
+                    "data": {"BatchCreateRequest": dumped},
+                }
+            )
+        )
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*(fut for _, fut in pending)), timeout=timeout
             )
         finally:
+            self._pending_control_batches.pop(request_id, None)
             for key, _ in pending:
                 self._pending_control.pop(key, None)
 

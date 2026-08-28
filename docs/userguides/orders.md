@@ -189,6 +189,10 @@ Order and user-trade streams are on `OrderBookClient`; market-data streams
 
 ```{code-block} python
 async for event in client.stream_orders():
+    # One of OrderCreatedEvent / OrderReplacedEvent / OrderAmendedEvent /
+    # OrderTriggeredEvent / OrderCancelledEvent / OrderRemovedEvent or the
+    # *FailedEvent rejections; `event.event_type` is the upper-cased variant.
+    # Fills are NOT reported here -- use stream_user_trade_events().
     ...
 
 async for trade in client.stream_user_trade_events():
