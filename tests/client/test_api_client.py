@@ -47,7 +47,10 @@ class FakeGateway:
             return httpx.Response(200, json={"balances": []})
 
         if path == "/tickers":
-            return httpx.Response(200, json=[{"symbol": "BTC"}])
+            return httpx.Response(
+                200,
+                json=[{"asset_id": "1", "volume_24h": "0", "timestamp_ns": 1}],
+            )
 
         if path.startswith("/trades/user/"):
             self.auth_headers["trades"] = request.headers.get("Authorization")
@@ -116,7 +119,7 @@ async def test_getattr_proxies_to_mds():
 
     tickers = await client.get_tickers()
 
-    assert tickers == [{"symbol": "BTC"}]
+    assert [str(ticker.asset_id) for ticker in tickers] == ["1"]
 
     await client.close()
 

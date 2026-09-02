@@ -9,7 +9,6 @@ from hexbytes import HexBytes
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.client.withdrawal import WithdrawalClient
-from tplus.evm.abi import get_erc20_type
 from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainSigningManager
 from tplus.exceptions import OmsError
@@ -25,11 +24,8 @@ from tplus.utils.user import to_user
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ape.api.accounts import AccountAPI
-    from ape.api.transactions import ReceiptAPI
-    from ape.types.address import AddressType
-
     from tplus.client.base import BaseClient
+    from tplus.evm.backends.base import AccountLike, EVMBackend
     from tplus.types import UserLike
 
 EVM_ROUTING_ID = 0
@@ -81,21 +77,23 @@ class WithdrawalInfo:
 
 class WithdrawalManager(ChainSigningManager):
     """
-    Integrates the clearing-engine client with the vault contract via Ape to
-    abstract away the full withdrawal lifecycle.
+    Integrates the clearing-engine client with the vault contract to abstract
+    away the full withdrawal lifecycle.
     """
 
     def __init__(
         self,
         default_user: "UserLike",
-        ape_account: "AccountAPI | None" = None,
+        account: "AccountLike | None" = None,
         clearing_engine: ClearingEngineClient | None = None,
         withdrawal_client: WithdrawalClient | None = None,
         chain_id: ChainID | None = None,
         vault: DepositVault | None = None,
         registry_client: AssetRegistryClient | None = None,
+        *,
+        backend: "EVMBackend | None" = None,
     ):
-        super().__init__(default_user, ape_account)
+        super().__init__(default_user, account, backend)
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient(
             "http://127.0.0.1:3032", default_user=self.default_user
         )
@@ -110,8 +108,8 @@ class WithdrawalManager(ChainSigningManager):
                 insecure_ssl=oms_insecure_ssl,
             )
         self.registry_client = registry_client or AssetRegistryClient.from_client(self.withdrawals)
-        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
-        self.vault = vault or DepositVault(chain_id=self.chain_id)
+        self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
+        self.vault = vault or DepositVault(chain_id=self.chain_id, backend=self.backend)
         self.logger = get_logger()
         self._decimals_cache: dict[str, int] = dict(SEEDED_DECIMALS_CACHE)
 
@@ -148,10 +146,7 @@ class WithdrawalManager(ChainSigningManager):
         if asset.chain_id.routing_id != EVM_ROUTING_ID:
             raise ValueError(f"Cannot read decimals on-chain for non-EVM asset '{asset}'.")
 
-        token = self.chain_manager.contracts.instance_at(
-            asset.evm_address, contract_type=get_erc20_type()
-        )
-        return token.decimals()
+        return self.backend.get_erc20(asset.evm_address).call("decimals")
 
     async def init_withdrawal(
         self,
@@ -182,7 +177,7 @@ class WithdrawalManager(ChainSigningManager):
             nonce = self.vault.get_withdrawal_count(user)
 
         if target is None:
-            target = Address32(self.ape_account.address)
+            target = Address32(self.account.address)
 
         if isinstance(amount, Amount):
             decimals: int | None = amount.decimals
@@ -270,9 +265,9 @@ class WithdrawalManager(ChainSigningManager):
         info: WithdrawalInfo,
         approvals: list[dict[str, Any]],
         user: "UserLike | None" = None,
-        target: "AddressType | str | None" = None,
+        target: "str | None" = None,
         **kwargs,
-    ) -> "ReceiptAPI":
+    ) -> Any:
         """Execute an approved withdrawal on-chain.
 
         The vault call uses ``info.chain_amount`` (native token decimals), not the
@@ -288,7 +283,7 @@ class WithdrawalManager(ChainSigningManager):
             raise ValueError("At least one approval is required.")
 
         user = to_user(user) if user is not None else await self.resolve_default_user()
-        kwargs.setdefault("sender", self.ape_account)
+        kwargs.setdefault("sender", self.account)
         kwargs.setdefault("required_confirmations", 0)
 
         first = approvals[0]

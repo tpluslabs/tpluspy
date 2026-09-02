@@ -9,6 +9,8 @@ class OmsAdminClient(AuthenticatedClient):
         auto_reduce_enabled: bool,
         interest_reservation_enabled: bool | None = None,
         liquidation_monitor_enabled: bool | None = None,
+        attached_bracket_budget_check_enabled: bool | None = None,
+        preflight_enabled: bool | None = None,
     ):
         config = {
             "solvency_verifier": solvency_verifier,
@@ -18,6 +20,10 @@ class OmsAdminClient(AuthenticatedClient):
             config["interest_reservation_enabled"] = interest_reservation_enabled
         if liquidation_monitor_enabled is not None:
             config["liquidation_monitor_enabled"] = liquidation_monitor_enabled
+        if attached_bracket_budget_check_enabled is not None:
+            config["attached_bracket_budget_check_enabled"] = attached_bracket_budget_check_enabled
+        if preflight_enabled is not None:
+            config["preflight_enabled"] = preflight_enabled
 
         await self._post(
             "admin/settings/modify",

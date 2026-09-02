@@ -1,5 +1,6 @@
 """Client for the `market-data-service` (public market data + per-user endpoints)."""
 
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -19,6 +20,7 @@ from tplus.model.order import UserOrdersPage, parse_user_orders_page
 from tplus.model.orderbook import OrderBook, OrderBookDiff
 from tplus.model.position_basis import PositionBasisResponse, parse_position_basis
 from tplus.model.sub_account import SubAccountNamesResponse
+from tplus.model.ticker import Ticker, parse_tickers
 from tplus.model.trades import (
     Trade,
     TradeEvent,
@@ -31,6 +33,7 @@ from tplus.model.trades import (
 from tplus.types import UserType
 
 DEFAULT_BASE_URL = "http://localhost:8011"
+DEFAULT_MAX_KLINE_PAGES = 50
 
 
 class MarketDataClient(AuthenticatedClient):
@@ -79,21 +82,58 @@ class MarketDataClient(AuthenticatedClient):
 
         return parse_klines_page(response)
 
-    async def get_ticker(self, asset_id: AssetIdentifier) -> dict[str, Any]:
+    async def iter_klines(
+        self,
+        asset_id: AssetIdentifier,
+        limit: int | None = None,
+        end_timestamp_ns: int | None = None,
+        interval: Interval | str | None = None,
+        max_pages: int | None = DEFAULT_MAX_KLINE_PAGES,
+    ) -> AsyncIterator[Timebar]:
+        """Every candlestick for `asset_id`, newest first; pins `end_timestamp_ns` so pages cannot slide.
+
+        `max_pages` bounds reads taken, not history reached: a clamped window resumes at its cutoff.
+        `None` lifts the bound and walks the asset's whole history.
+        """
+        end_timestamp_ns = end_timestamp_ns if end_timestamp_ns is not None else time.time_ns()
+        page = 0
+        reads = 0
+        while max_pages is None or reads < max_pages:
+            result = await self.get_klines(
+                asset_id,
+                page=page,
+                limit=limit,
+                end_timestamp_ns=end_timestamp_ns,
+                interval=interval,
+            )
+            reads += 1
+            for timebar in result.items:
+                yield timebar
+
+            if result.has_next_page:
+                page += 1
+                continue
+
+            # The clamped end of a window too wide to read whole; the rest is older still.
+            cutoff = result.truncated_before_ns
+            if cutoff is None or cutoff > end_timestamp_ns or cutoff == 0:
+                return
+
+            end_timestamp_ns = cutoff - 1
+            page = 0
+
+    async def get_ticker(self, asset_id: AssetIdentifier) -> Ticker:
         """24h ticker for `asset_id`."""
         response = await self._get(f"/ticker/{asset_id}", requires_auth=False)
-        if not isinstance(response, dict):
-            raise ValueError(f"Invalid response from get_ticker: {response}")
+        return Ticker.model_validate(response)
 
-        return response
-
-    async def get_tickers(self) -> list[dict[str, Any]]:
+    async def get_tickers(self) -> list[Ticker]:
         """24h tickers for all markets."""
         response = await self._get("/tickers", requires_auth=False)
         if not isinstance(response, list):
             raise ValueError(f"Invalid response from get_tickers: {response}")
 
-        return response
+        return parse_tickers(response)
 
     async def get_open_interest(self, asset_id: AssetIdentifier) -> OpenInterest:
         """Open interest for `asset_id`, `None` until the market first reports it."""

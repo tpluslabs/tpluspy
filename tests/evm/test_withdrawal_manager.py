@@ -1,9 +1,8 @@
+from importlib.util import find_spec
 from unittest.mock import MagicMock
 
 import httpx
 import pytest
-from ape.api.accounts import AccountAPI
-from ape_tokens.testing import MockERC20
 
 from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.client.withdrawal import WithdrawalClient
@@ -18,6 +17,7 @@ from tplus.model.asset_identifier import Address32, AssetAddress
 from tplus.model.types import ChainID
 from tplus.utils.amount import Amount
 from tplus.utils.user import User
+from tplus.utils.user.model import EvmAccount
 
 CHAIN_ID = ChainID.evm(11155111)
 USDC = AssetAddress.from_evm_address("0x62622e77d1349face943c6e7d5c01c61465fe1dc", CHAIN_ID)
@@ -33,7 +33,7 @@ def _build_manager(decimals: int = 6) -> WithdrawalManager:
     """
     manager = WithdrawalManager.__new__(WithdrawalManager)
     manager.default_user = User()
-    manager.ape_account = MagicMock(spec_set=AccountAPI)
+    manager.account = MagicMock(spec_set=EvmAccount)
     manager.chain_id = CHAIN_ID
     manager.logger = get_logger()
 
@@ -154,7 +154,11 @@ def test_build_seeded_decimals_cache_keys():
         assert decimals in (6, 18)
 
 
+@pytest.mark.skipif(find_spec("ape_tokens") is None, reason="needs the evm-ape extra")
 def test_get_erc20_decimals_reads_from_chain(manager, signer, chain):
+    # Deploying a token needs Ape's contract fixtures, and its `chain` fixture.
+    from ape_tokens.testing import MockERC20
+
     token = MockERC20.deploy(signer, "U.S. Dollar Coin", "USDC", 6, sender=signer)
     asset = AssetAddress.from_evm_address(token.address, ChainID.from_parts(0, chain.chain_id))
 

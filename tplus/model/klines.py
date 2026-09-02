@@ -66,7 +66,7 @@ class Timebar(BaseModel):
 
 
 class KlinesPage(BaseModel):
-    """One page of klines plus pagination metadata (the `Page<Timebar>` envelope)."""
+    """One page of klines plus pagination metadata."""
 
     items: list[Timebar]
     page: int
@@ -75,6 +75,7 @@ class KlinesPage(BaseModel):
     cursor_size: int
     has_next_page: bool
     next_page: int | None = None
+    truncated_before_ns: int | None = None
 
 
 def parse_timebars(data: list[dict[str, Any]]) -> list[Timebar]:
@@ -119,4 +120,5 @@ def parse_klines_page(data: dict[str, Any] | list[dict[str, Any]]) -> KlinesPage
         cursor_size=int(data.get("cursor_size", 0)),
         has_next_page=bool(data.get("has_next_page", False)),
         next_page=data.get("next_page"),
+        truncated_before_ns=data.get("truncated_before_ns"),
     )

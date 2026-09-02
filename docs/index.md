@@ -12,7 +12,7 @@ It bundles:
 - An async REST + WebSocket client for the order book / OMS (`tplus.client.OrderBookClient`).
 - An async client for the clearing engine (`tplus.client.ClearingEngineClient`).
 - A local user-key manager backed by encrypted keyfiles (`tplus.utils.user`).
-- An optional EVM extra (`tpluspy[evm]`) wrapping the on-chain T+ contracts via [Ape](https://docs.apeworx.io/ape).
+- An optional EVM extra wrapping the on-chain T+ contracts — on [web3.py](https://web3py.readthedocs.io/) (`tpluspy[evm]`) or [Ape](https://docs.apeworx.io/ape) (`tpluspy[evm-ape]`).
 
 ## Install
 
@@ -20,10 +20,11 @@ It bundles:
 pip install tpluspy
 ```
 
-To use the contract helpers, install the `evm` extra:
+To use the contract helpers, install an EVM extra (see the [Contracts guide](userguides/contracts.md)):
 
 ```{code-block} shell
-pip install "tpluspy[evm]"
+pip install "tpluspy[evm]"        # web3.py backend
+pip install "tpluspy[evm-ape]"    # adds the Ape backend
 ```
 
 ## At a glance

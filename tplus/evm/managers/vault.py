@@ -1,20 +1,17 @@
-from typing import TYPE_CHECKING
-
-from ape.types.address import AddressType
+from typing import TYPE_CHECKING, Any
 
 from tplus.client import ClearingEngineClient
 from tplus.evm.address import public_key_to_address
 from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import ChainID, UserPublicKey
+from tplus.utils.address import to_evm_address
 from tplus.utils.domain import get_dstack_domain
 from tplus.utils.timeout import wait_for_condition
 from tplus.utils.user import User
 
 if TYPE_CHECKING:
-    from ape.api.accounts import AccountAPI
-    from ape.api.transactions import ReceiptAPI
-    from ape.contracts.base import ContractInstance
+    from tplus.evm.backends.base import EVMBackend
 
 
 class VaultOwner(ChainConnectedManager):
@@ -25,50 +22,45 @@ class VaultOwner(ChainConnectedManager):
 
     def __init__(
         self,
-        owner: "AccountAPI",
+        owner: Any,
         vault: DepositVault | None = None,
         chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
+        *,
+        backend: "EVMBackend | None" = None,
     ):
-        self.owner = owner
-        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
+        self._set_backend(backend)
+        self.owner = self.backend.get_account(owner)
+        self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
 
         if vault is not None:
             self.vault = vault
         else:
             try:
-                self.vault = DepositVault.latest_on_chain()
+                self.vault = DepositVault.latest_on_chain(backend=self.backend)
             except ValueError:
-                self.vault = DepositVault(chain_id=self.chain_id)
+                self.vault = DepositVault(chain_id=self.chain_id, backend=self.backend)
 
         self.ce = clearing_engine
 
-    def set_domain_separator(
-        self, domain_separator: bytes | None = None, **tx_kwargs
-    ) -> "ReceiptAPI":
+    def set_domain_separator(self, domain_separator: bytes | None = None, **tx_kwargs) -> Any:
         tx_kwargs.setdefault("sender", self.owner)
 
         domain_separator = domain_separator or get_dstack_domain(self.vault.chain_address)
 
         return self.vault.set_domain_separator(domain_separator, **tx_kwargs)
 
-    def set_credential_manager(
-        self,
-        new_credential_manager: "AddressType | str | AccountAPI | ContractInstance",
-        **tx_kwargs,
-    ) -> "ReceiptAPI":
+    def set_credential_manager(self, new_credential_manager: Any, **tx_kwargs) -> Any:
         tx_kwargs.setdefault("sender", self.owner)
-        new_credential_manager = self.conversion_manager.convert(
-            new_credential_manager, AddressType
-        )
-        return self.vault.set_credential_manager(new_credential_manager, **tx_kwargs)
+        address = getattr(new_credential_manager, "address", new_credential_manager)
+        return self.vault.set_credential_manager(to_evm_address(address), **tx_kwargs)
 
     async def set_administrators(
         self,
         admin_keys: list[str] | None = None,
         withdrawal_quorum: int | None = None,
         **tx_kwargs,
-    ) -> "ReceiptAPI":
+    ) -> Any:
         """
         Register the connected clearing-engine as a valid deposit vault admin.
         Requires being the vault contract owner.
@@ -92,17 +84,17 @@ class VaultOwner(ChainConnectedManager):
     async def register_settler(
         self,
         settler: UserPublicKey | User,
-        executor: "AddressType | str | AccountAPI | ContractInstance",
+        executor: Any,
         wait: bool = False,
         **tx_kwargs,
-    ) -> "ReceiptAPI":
+    ) -> Any:
         """
         Allow a user to settler. Requires being the vault contract owner.
         """
         if isinstance(settler, User):
             settler = settler.public_key
 
-        executor = self.conversion_manager.convert(executor, AddressType)
+        executor = self.backend.convert_address(executor)
         tx_kwargs.setdefault("sender", self.owner)
         tx = self.vault.add_settler_executor(settler, executor, **tx_kwargs)
 
@@ -123,8 +115,6 @@ class VaultOwner(ChainConnectedManager):
 
         return tx
 
-    async def register_depositor(
-        self, depositor: "AddressType | str | AccountAPI | ContractInstance"
-    ) -> "ReceiptAPI":
-        depositor = self.conversion_manager.convert(depositor, AddressType)
+    async def register_depositor(self, depositor: Any) -> Any:
+        depositor = self.backend.convert_address(depositor)
         return self.vault.setDepositorStatus(depositor, True, sender=self.owner)

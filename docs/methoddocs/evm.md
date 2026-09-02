@@ -1,8 +1,21 @@
 # `tplus.evm`
 
 :::{note}
-Requires the `evm` extra: `pip install "tpluspy[evm]"`.
+Requires the EVM extra: `pip install "tpluspy[evm]"` (web3.py) or
+`pip install "tpluspy[evm-ape]"` (Ape). See the [Contracts guide](../userguides/contracts.md).
 :::
+
+## Backend selection
+
+```{eval-rst}
+.. automodule:: tplus.evm
+   :members:
+```
+
+```{eval-rst}
+.. automodule:: tplus.evm.backends
+   :members:
+```
 
 ## Contracts
 

@@ -10,10 +10,12 @@ pip install tpluspy
 ```
 
 If you also need the on-chain helpers (deposit vault, registry, settlement
-signatures), install the `evm` extra:
+signatures), install an EVM extra — web3.py or Ape (see the
+[Contracts guide](contracts.md)):
 
 ```{code-block} shell
-pip install "tpluspy[evm]"
+pip install "tpluspy[evm]"        # web3.py backend
+pip install "tpluspy[evm-ape]"    # adds the Ape backend
 ```
 
 ## 2. Create a user

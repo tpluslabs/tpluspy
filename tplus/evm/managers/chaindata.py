@@ -9,6 +9,7 @@ from tplus.model.types import ChainID
 from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
+    from tplus.evm.backends.base import EVMBackend
     from tplus.model.asset_identifier import AssetAddress
     from tplus.types import UserLike
 
@@ -24,13 +25,16 @@ class ChainDataFetcher(ChainConnectedManager):
         clearing_engine: ClearingEngineClient | None = None,
         asset_registry: AssetRegistryClient | None = None,
         chain_id: ChainID | None = None,
+        *,
+        backend: "EVMBackend | None" = None,
     ):
+        self._set_backend(backend)
         self.default_user = to_user(default_user)
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient.from_local(
             self.default_user
         )
         self.asset_registry = asset_registry
-        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
+        self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
 
     async def prefetch_chaindata(
         self,

@@ -3,19 +3,11 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-import yaml
-from ape.api.accounts import AccountAPI
-from ape.api.convert import ConvertibleAPI
-from ape.exceptions import ContractLogicError, ContractNotFoundError, ConversionError, ProjectError
-from ape.managers.project import Project
-from ape.types.address import AddressType
-from ape.utils.basemodel import ManagerAccessMixin
-from ape.utils.misc import ZERO_ADDRESS
 from eth_pydantic_types.hex.bytes import HexBytes
 
-from tplus.evm.abi import get_erc20_type
+from tplus.evm.backends import ContractHandle, get_backend, resolve_backend
 from tplus.evm.constants import LATEST_ARB_DEPOSIT_VAULT, REGISTRY_ADDRESS
-from tplus.evm.exceptions import ContractNotExists
+from tplus.evm.exceptions import ContractLogicError, ContractNotExists
 from tplus.logger import get_logger
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.config import ChainConfig
@@ -24,14 +16,42 @@ from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.bytes32 import to_bytes32
 from tplus.utils.hex import to_hex
 
+# Ape's ``AddressType`` / ``ConversionError`` are loaded lazily *at module
+# import time* (not from inside functions): they're only needed when Ape is
+# installed, so we set the names to ``None`` otherwise.
+try:
+    from ape.api.convert import ConvertibleAPI as _ApeConvertibleAPI
+    from ape.exceptions import ConversionError as _ApeConversionError
+    from ape.types.address import AddressType as _ApeAddressType
+except ImportError:
+    _ApeAddressType = None  # type: ignore[assignment,misc]
+    _ApeConversionError = None  # type: ignore[assignment,misc]
+    _ApeConvertibleAPI = None  # type: ignore[assignment,misc]
+
+# Same pattern for the Ape ``tplus-contracts`` project loaders.
+try:
+    from tplus.evm.backends._ape_project import (
+        load_tplus_contract_container as _load_tplus_contract_container_impl,
+    )
+    from tplus.evm.backends._ape_project import (
+        load_tplus_contracts_project as _load_tplus_contracts_project_impl,
+    )
+except ImportError:
+    _load_tplus_contracts_project_impl = None  # type: ignore[assignment]
+    _load_tplus_contract_container_impl = None  # type: ignore[assignment]
+
+
 if TYPE_CHECKING:
-    from ape.api.transactions import ReceiptAPI
-    from ape.contracts.base import ContractContainer, ContractInstance
-    from ape.managers.project import LocalProject
     from eth_pydantic_types.hex.bytes import HexBytes32
 
+    from tplus.evm.backends.base import EVMBackend
     from tplus.model.withdrawal import WithdrawalDelayParameters
     from tplus.utils.user import User
+
+# A checksum-address string (aliased so annotations don't need Ape's AddressType).
+AddressType = str
+
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
 logger = get_logger()
 
@@ -71,6 +91,8 @@ class TplusDeployments:
 
     @cached_property
     def deployments(self) -> dict:
+        import yaml
+
         contracts_path = Path(
             os.environ.get("TPLUS_CONTRACTS_PATH", "~/tplus/tplus-contracts")
         ).expanduser()
@@ -96,13 +118,13 @@ class TplusDeployments:
 
         return result
 
-    def __getitem__(self, chain_id: int | ChainID) -> "ContractInstance":
+    def __getitem__(self, chain_id: "int | ChainID") -> dict:
         if not isinstance(chain_id, int):
             chain_id = chain_id.vm_id
 
         return self.deployments[chain_id]
 
-    def get(self, chain_id: int | ChainID, default=None):
+    def get(self, chain_id: "int | ChainID", default=None):
         if not isinstance(chain_id, int):
             chain_id = chain_id.vm_id
 
@@ -110,6 +132,27 @@ class TplusDeployments:
 
 
 TPLUS_DEPLOYMENTS = TplusDeployments()
+
+
+def load_tplus_contracts_project(version: str | None = None):
+    """Loads the Ape project containing the Solidity contracts for tplus (Ape backend only)."""
+    if _load_tplus_contracts_project_impl is None:
+        raise ImportError('Requires the Ape backend: pip install "tpluspy[evm-ape]".')
+
+    return _load_tplus_contracts_project_impl(version=version)
+
+
+def load_tplus_contract_container(name: str, version: str | None = None):
+    """The Ape ``ContractContainer`` for the named t+ contract (Ape backend only)."""
+    if _load_tplus_contract_container_impl is None:
+        raise ImportError('Requires the Ape backend: pip install "tpluspy[evm-ape]".')
+
+    return _load_tplus_contract_container_impl(name, version=version)
+
+
+def get_dev_default_owner() -> Any:
+    """A funded development account from the active backend (local networks)."""
+    return get_backend().default_test_account()
 
 
 # ---------------------------------------------------------------------------
@@ -180,105 +223,25 @@ def _ce_fetch_indexed_chain_address(endpoint: str, index: int) -> "ChainAddress 
         return None
 
 
-def load_tplus_contracts_project(version: str | None = None) -> "LocalProject":
+class TPlusContract:
     """
-    Loads the Ape project containing the Solidity contracts for tplus.
-    If you are in the tplus-contracts repo, it detects that and loads that way.
-    Else, it checks all Ape installed dependencies. If it is not installed, it will fail.
-    Install the tplus-contracts project by running ``ape pm install tpluslabs/tplus-contracts``.
-    """
-    if path := os.environ.get("TPLUS_CONTRACTS_PATH"):
-        return Project(path)
-
-    elif ManagerAccessMixin.local_project.name == "tplus-contracts":
-        # Working from the t+ contracts repo
-        return ManagerAccessMixin.local_project
-
-    # Load the project from dependencies.
-    try:
-        project = _load_tplus_contracts_from_dependencies(version=version)
-    except Exception:
-        if version:
-            # If specifying a version, this has to have worked or else it is a mistake.
-            raise
-
-        # Use manifest that comes with tpluspy.
-        project = _load_tplus_contracts_from_manifest()
-
-    try:
-        project.load_contracts()  # Ensure is compiled.
-    except Exception:
-        if version:
-            # If specifying a version, this has to have worked or else it is a mistake.
-            raise
-
-        # Compiling failed for some reason. Just use the manifest, which is already compiled.
-        project = _load_tplus_contracts_from_manifest()
-
-    return project
-
-
-def _load_tplus_contracts_from_dependencies(version: str | None = None) -> dict:
-    available_versions = ManagerAccessMixin.local_project.dependencies["tplus-contracts"]
-    if version:
-        return available_versions[version]
-
-    # Select first one.
-    if not (version_key := next(iter(available_versions), None)):
-        raise ProjectError("Please install the t+ contracts project")
-
-    return available_versions[version_key]
-
-
-def _load_tplus_contracts_from_manifest() -> Project:
-    # Use manifest that comes with tpluspy.
-    manifest_path = Path(__file__).parent / "manifests" / "tplus-contracts.json"
-    return Project.from_manifest(manifest_path)
-
-
-def load_tplus_contract_container(name: str, version: str | None = None) -> "ContractContainer":
-    project = load_tplus_contracts_project(version=version)
-    contract = project.contracts.get(name)
-    if contract is None:
-        raise ValueError(f"Missing contract '{name}' from tplus contracts project.")
-
-    return contract
-
-
-def get_dev_default_owner() -> "AccountAPI":
-    return ManagerAccessMixin.account_manager.test_accounts[0]
-
-
-class TPlusMixin(ManagerAccessMixin):
-    """
-    A mixin for access to relevant t+ constructs.
-    """
-
-    @property
-    def tplus_contracts_project(self) -> "Project":
-        """
-        The t+ contacts project. This will fail if Ape is not able to
-        download and cache the contracts project from GitHub. See pyproject.toml
-        Ape config for current specification.
-        """
-        return load_tplus_contracts_project()
-
-
-class TPlusContract(TPlusMixin, ConvertibleAPI):
-    """
-    An abstraction around a t+ contract.
+    An abstraction around a t+ contract, independent of the EVM backend.
     """
 
     NAME: ClassVar[str] = ""
 
     def __init__(
         self,
-        default_deployer: "AccountAPI | None" = None,
-        chain_id: ChainID | None = None,
+        default_deployer: Any | None = None,
+        chain_id: "ChainID | int | None" = None,
         address: str | None = None,
         tplus_contracts_version: str | None = None,
+        *,
+        backend: "EVMBackend | None" = None,
+        rpc_url: str | None = None,
+        web3: Any | None = None,
     ) -> None:
-        self._deployments: dict[str, ContractInstance] = {}
+        self._deployments: dict[str, Any] = {}
         self._default_deployer = default_deployer
 
         if isinstance(chain_id, int):
@@ -290,37 +253,63 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         self._attempted_deploy_dev = False
         self._attempted_ce_adopt = False
 
+        self._backend_arg = backend
+        self._rpc_url = rpc_url
+        self._web3 = web3
+        self._resolved_backend: EVMBackend | None = None
+
         if address is not None and chain_id is not None:
-            self._deployments[f"{chain_id}"] = self._contract_container.at(
-                address, detect_proxy=False, fetch_from_explorer=False
+            self._deployments[f"{chain_id}"] = self.backend.get_contract(self.NAME, address)
+
+    @property
+    def backend(self) -> "EVMBackend":
+        if self._resolved_backend is None:
+            self._resolved_backend = resolve_backend(
+                self._backend_arg, rpc_url=self._rpc_url, web3=self._web3
             )
 
+        return self._resolved_backend
+
+    @property
+    def tplus_contracts_project(self):
+        """The Ape ``tplus-contracts`` project (Ape backend only)."""
+        return load_tplus_contracts_project(version=self._tplus_contracts_version)
+
     @classmethod
-    def at(cls, address: str) -> "TPlusContract":
-        return cls(address=address, chain_id=cls.chain_manager.chain_id)
+    def at(cls, address: str, *, backend: "EVMBackend | None" = None) -> "TPlusContract":
+        backend = backend or get_backend()
+        return cls(address=address, chain_id=backend.chain_id, backend=backend)
 
     @property
     def chain_address(self) -> ChainAddress:
         return ChainAddress.from_str(f"{to_bytes32(self.address).hex()}@{self.chain_id}")
 
     @classmethod
-    def deploy(cls, *args, sender: "AccountAPI", **kwargs) -> "TPlusContract":
+    def deploy(cls, *args, sender: Any, **kwargs) -> "TPlusContract":
         tplus_contracts_version = kwargs.pop("tplus_contracts_version", None)
-        contract_container = load_tplus_contract_container(
-            cls.NAME, version=tplus_contracts_version
+        backend = kwargs.pop("backend", None) or get_backend()
+
+        handle = backend.deploy_contract(
+            cls.NAME, *args, sender=sender, tplus_contracts_version=tplus_contracts_version
         )
-        instance = sender.deploy(contract_container, *args, **kwargs)
-        chain_id = cls.chain_manager.chain_id
+        chain_id = backend.chain_id
 
-        if version := tplus_contracts_version:
-            kwargs["tplus_contracts_version"] = version
+        if tplus_contracts_version:
+            kwargs["tplus_contracts_version"] = tplus_contracts_version
 
-        return cls(default_deployer=sender, chain_id=chain_id, address=instance.address, **kwargs)
+        return cls(
+            default_deployer=sender,
+            chain_id=chain_id,
+            address=handle.address,
+            backend=backend,
+            **kwargs,
+        )
 
     @classmethod
     def deploy_dev(cls, **kwargs):
-        owner = kwargs.get("sender") or get_dev_default_owner()
-        return cls.deploy(owner, sender=owner)
+        backend = kwargs.get("backend") or get_backend()
+        owner = kwargs.get("sender") or backend.default_test_account()
+        return cls.deploy(owner, sender=owner, backend=backend)
 
     @classmethod
     def _fetch_ce_address(cls) -> "ChainAddress | None":
@@ -333,7 +322,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
         Raises ``ValueError`` if the CE is unreachable or has no address registered
         for this contract class. Extra ``**kwargs`` are forwarded to ``__init__``
-        (e.g. ``default_deployer``, ``tplus_contracts_version``).
+        (e.g. ``default_deployer``, ``backend``, ``tplus_contracts_version``).
         """
         chain_addr = cls._fetch_ce_address()
         if chain_addr is None:
@@ -356,7 +345,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
         evm = ce_addr.evm_address
         try:
-            code = self.chain_manager.provider.get_code(evm)
+            code = self.backend.get_code(evm)
         except Exception:
             return None
         if not code or code == b"" or code == "0x":
@@ -366,6 +355,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
             chain_id=self.chain_id,
             address=evm,
             tplus_contracts_version=self._tplus_contracts_version,
+            backend=self.backend,
         )
         self._address = evm
         self._deployments[f"{self.chain_id}"] = instance
@@ -377,7 +367,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         if (adopted := self._adopt_ce_deployment()) is not None:
             return adopted
 
-        instance = self.deploy_dev()
+        instance = self.deploy_dev(backend=self.backend)
         self._address = instance.address
         self._deployments[f"{instance.chain_id}"] = instance
         return instance
@@ -403,7 +393,7 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
     @cached_property
     def chain_id(self) -> ChainID:
-        return self._chain_id or ChainID.evm(self.chain_manager.chain_id)
+        return self._chain_id or ChainID.evm(self.backend.chain_id)
 
     @property
     def address(self) -> str:
@@ -413,19 +403,8 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return self.get_address(chain_id=self.chain_id)
 
     @property
-    def tplus_contracts_project(self) -> "Project":
-        # Overridden.
-        return load_tplus_contracts_project(version=self._tplus_contracts_version)
-
-    @property
-    def _contract_container(self) -> "ContractContainer":
-        return self.tplus_contracts_project.contracts.get(self.name)
-
-    @property
-    def contract(self) -> "ContractInstance":
-        """
-        The contract instance at the currently connected chain.
-        """
+    def contract(self) -> "ContractHandle":
+        """The contract handle on the currently connected chain."""
         try:
             return self.get_contract()
         except ContractNotExists:
@@ -437,15 +416,18 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
 
     @property
     def is_local_network(self) -> bool:
-        return self.chain_manager.provider.network.is_local
+        try:
+            return self.backend.is_local_network
+        except Exception:
+            return False
 
     @property
-    def default_deployer(self) -> "AccountAPI":
+    def default_deployer(self) -> Any:
         if deployer := self._default_deployer:
             return deployer
 
-        elif self._default_deployer is None and self.network_manager.provider.network.is_local:
-            deployer = self.account_manager.test_accounts[0]
+        if self._default_deployer is None and self.is_local_network:
+            deployer = self.backend.default_test_account()
             self._default_deployer = deployer
             return deployer
 
@@ -462,52 +444,45 @@ class TPlusContract(TPlusMixin, ConvertibleAPI):
         return self._get_address(chain_id=chain_id, deploy_on_dev=False) is not None
 
     def is_convertible(self, to_type: type) -> bool:
-        return to_type is AddressType
+        return _ApeAddressType is not None and to_type is _ApeAddressType
 
     def convert_to(self, to_type: type) -> Any:
-        if to_type is AddressType:
+        if _ApeAddressType is None:
+            raise TypeError(f"Cannot convert '{self.name}' (Ape not installed).")
+
+        if to_type is _ApeAddressType:
             return self.address
 
-        raise ConversionError(f"Cannot convert '{self.name}' to '{to_type}'.")
+        err_cls = _ApeConversionError if _ApeConversionError is not None else TypeError
+        raise err_cls(f"Cannot convert '{self.name}' to '{to_type}'.")
 
     def set_chain(self, chain_id: ChainID) -> None:
         self._chain_id = chain_id
 
-    def get_contract(self, chain_id: ChainID | None = None) -> "ContractInstance":
+    def get_contract(self, chain_id: "ChainID | None" = None) -> "ContractHandle":
         """
-        Load a contact instance for the given chain ID. Defaults to currently
+        Load a contract handle for the given chain ID. Defaults to the currently
         connected chain.
-
-        Args:
-            chain_id (ChainID | None): The chain ID. Defaults to currently connected
-              chain.
-
-        Returns:
-            ContractInstance
         """
         chain_id = chain_id or self.chain_id
-        if chain_id in self._deployments:
-            # Get previously cached instance.
-            return self._deployments[chain_id]
+        if f"{chain_id}" in self._deployments:
+            return self._deployments[f"{chain_id}"]
 
         address = self.get_address(chain_id=chain_id)
-        contract_container = self._contract_container.at(
-            address, detect_proxy=False, fetch_from_explorer=False
-        )
+        handle = self.backend.get_contract(self.NAME, address)
 
         # Cache for next time.
-        self._deployments[chain_id] = contract_container
+        self._deployments[f"{chain_id}"] = handle
+        return handle
 
-        return contract_container
-
-    def get_address(self, chain_id: ChainID | None = None, deploy_on_dev: bool = True) -> str:
+    def get_address(self, chain_id: "ChainID | None" = None, deploy_on_dev: bool = True) -> str:
         if address := self._get_address(chain_id=chain_id, deploy_on_dev=deploy_on_dev):
             return address
 
         raise ContractNotExists(f"{self.name} not deployed on chain '{chain_id}'.")
 
     def _get_address(
-        self, chain_id: ChainID | None = None, deploy_on_dev: bool = True
+        self, chain_id: "ChainID | None" = None, deploy_on_dev: bool = True
     ) -> str | None:
         if self._address and self._chain_id and chain_id == self._chain_id:
             return self._address
@@ -534,9 +509,10 @@ class Registry(TPlusContract):
 
     @classmethod
     def deploy_dev(cls, **kwargs):
-        owner = kwargs.get("sender") or get_dev_default_owner()
+        backend = kwargs.get("backend") or get_backend()
+        owner = kwargs.get("sender") or backend.default_test_account()
         risk_param_delay = kwargs.get("risk_param_delay_seconds", 0)
-        return cls.deploy(owner, risk_param_delay, sender=owner)
+        return cls.deploy(owner, risk_param_delay, sender=owner, backend=backend)
 
     @classmethod
     def _fetch_ce_address(cls) -> "ChainAddress | None":
@@ -544,13 +520,13 @@ class Registry(TPlusContract):
 
     def get_assets(
         self,
-        chain_id: ChainID | None = None,
+        chain_id: "ChainID | None" = None,
         start: int = 0,
         end: int = 65535,
-    ) -> list["ContractInstance"]:
-        connected_chain = ChainID.evm(self.chain_manager.chain_id)
-        if connected_chain != chain_id and chain_id == ChainID.evm(11155111):
-            with self.network_manager.ethereum.sepolia.use_default_provider():
+    ) -> list:
+        connected_chain = ChainID.evm(self.backend.chain_id)
+        if chain_id is not None and connected_chain != chain_id:
+            with self.backend.connect_to(chain_id):
                 return self._get_assets(start, end)
 
         return self._get_assets(start, end)
@@ -579,23 +555,15 @@ class Registry(TPlusContract):
             for itm in data
         ]
 
-    def _get_assets(self, start: int, end: int) -> list["ContractInstance"]:
+    def _get_assets(self, start: int, end: int) -> list:
         res = []
         for chain_addr in self.get_asset_addresses(start, end):
-            # Ape only knows about EVM contracts; skip non-EVM entries.
+            # The EVM backends only know about EVM contracts; skip non-EVM entries.
             if chain_addr.chain_id.routing_id != 0:
                 continue
 
             address = chain_addr.evm_address
-            try:
-                contract = self.chain_manager.contracts.instance_at(address)
-            except ContractNotFoundError:
-                contract_type = get_erc20_type()
-                contract = self.chain_manager.contracts.instance_at(
-                    address, contract_type=contract_type
-                )
-
-            res.append(contract)
+            res.append(self.backend.get_erc20(address))
 
         return res
 
@@ -608,7 +576,7 @@ class Registry(TPlusContract):
         max_1hr_deposits: int,
         min_weight: int,
         sender=None,
-    ) -> None:
+    ):
         if isinstance(asset_address, str) and len(asset_address) <= 42:
             # Given EVM style address. Store as right-padded address.
             asset_address = to_bytes32(asset_address, pad="r")
@@ -625,21 +593,19 @@ class Registry(TPlusContract):
 
     def get_risk_parameters(
         self, start_index: int | None = None, end_index: int | None = None
-    ) -> list[RiskParameters]:
+    ) -> list["RiskParameters"]:
         start_index = 0 if start_index is None else start_index
         end_index = 100 if end_index is None else end_index
         result = self.contract.getRiskParameters(start_index, end_index)
         return [RiskParameters.model_validate(item.__dict__) for item in result]
 
-    def set_pending_risk_parameters(
-        self, index: int, params: "RiskParameters | dict", **kwargs
-    ) -> "ReceiptAPI":
+    def set_pending_risk_parameters(self, index: int, params: "RiskParameters | dict", **kwargs):
         if not isinstance(params, dict):
             params = params.model_dump(mode="python", by_alias=True)
 
         return self.contract.setPendingRiskParameters(index, params, **kwargs)
 
-    def apply_pending_risk_parameters(self, index: int, **kwargs) -> "ReceiptAPI":
+    def apply_pending_risk_parameters(self, index: int, **kwargs):
         return self.contract.applyPendingRiskParameters(index, **kwargs)
 
     def validate_risk_parameters(self, params: "RiskParameters | dict") -> None:
@@ -650,13 +616,13 @@ class Registry(TPlusContract):
 
     def set_pending_withdrawal_delay_parameters(
         self, params: "WithdrawalDelayParameters | dict", **kwargs
-    ) -> "ReceiptAPI":
+    ):
         if not isinstance(params, dict):
             params = params.model_dump(mode="python", by_alias=True)
 
         return self.contract.setPendingWithdrawalDelayParameters(params, **kwargs)
 
-    def apply_pending_withdrawal_delay_parameters(self, **kwargs) -> "ReceiptAPI":
+    def apply_pending_withdrawal_delay_parameters(self, **kwargs):
         return self.contract.applyPendingWithdrawalDelayParameters(**kwargs)
 
     def get_withdrawal_delay_parameters(self) -> "WithdrawalDelayParameters":
@@ -665,9 +631,7 @@ class Registry(TPlusContract):
         result = self.contract.getWithdrawalDelayParameters()
         return WithdrawalDelayParameters.model_validate(result.__dict__)
 
-    def set_risk_manager_multisig(
-        self, multisig: "AddressType", *, sender: AccountAPI
-    ) -> "ReceiptAPI":
+    def set_risk_manager_multisig(self, multisig: "AddressType", *, sender: Any) -> Any:
         return self.contract.setRiskManagerMultisig(multisig, sender=sender)
 
 
@@ -697,46 +661,32 @@ class DepositVault(TPlusContract):
         if self._chain_id is None or attr_name in ("address",) or attr_name.startswith("_"):
             return super().__getattr__(attr_name)
 
-        # Verify chain first. Read chain_id straight off the live provider —
-        # chain_manager.chain_id caches by network.name, which collides between
-        # ape-test (local:1337) and ape-foundry (local:31337) and can return a
-        # stale value from a previous activation.
-        active_provider = self.network_manager.active_provider
-        connected_chain = active_provider.chain_id if active_provider else None
-        if connected_chain != self._chain_id.vm_id:
-            # Try to connect.
-            if choice := CHAIN_MAP.get(connected_chain):
-                with self.network_manager.parse_network_choice(choice):
-                    # Run on this network.
-                    return super().__getattribute__(attr_name)
+        # If connected elsewhere, switch to the vault's chain first.
+        try:
+            connected_chain = self.backend.chain_id
+        except Exception:
+            return super().__getattr__(attr_name)
 
-            raise AttributeError(
-                f"Chain mismatch while accessing '{attr_name}' on {self.name} "
-                f"{self._address or '<unset>'}: "
-                f"vault's chain_id={self._chain_id.vm_id}, "
-                f"currently-connected chain_id={connected_chain} "
-                f"(active provider: {active_provider!r}). "
-                f"Run inside `with ape.networks.<ecosystem>.<network>.use_provider(...)`."
-            )
+        if connected_chain != self._chain_id.vm_id:
+            with self.backend.connect_to(self._chain_id):
+                return super().__getattr__(attr_name)
 
         return super().__getattr__(attr_name)
 
     @classmethod
-    def from_chain_address(cls, chain_address: ChainAddress) -> "DepositVault":
-        return cls(chain_id=chain_address.chain_id, address=chain_address.evm_address)
+    def from_chain_address(cls, chain_address: ChainAddress, **kwargs) -> "DepositVault":
+        return cls(chain_id=chain_address.chain_id, address=chain_address.evm_address, **kwargs)
 
     @property
     def domain_separator(self) -> HexBytes:
-        return HexBytes(self.chain_manager.provider.get_storage(self.address, 3))
+        return HexBytes(self.backend.get_storage(self.address, 3))
 
     @property
-    def approved_settlers(self) -> list["AddressType"]:
+    def approved_settlers(self) -> list:
         return self.contract.getApprovedSettlers()
 
-    def add_settler_executor(
-        self, settler: UserPublicKey, executor: AddressType, **kwargs
-    ) -> "ReceiptAPI":
-        return self.addSettlerExecutor(settler, executor, **kwargs)
+    def add_settler_executor(self, settler: UserPublicKey, executor: AddressType, **kwargs):
+        return self.contract.addSettlerExecutor(settler, executor, **kwargs)
 
     def get_settlement_count(self, user: "UserPublicKey | User", account_index: int) -> int:
         if not isinstance(user, UserPublicKey):
@@ -759,10 +709,10 @@ class DepositVault(TPlusContract):
     def deposit(
         self,
         user: UserPublicKey,
-        token: "str | AddressType | ContractInstance",
+        token: "str | AddressType | Any",
         amount: int,
         **tx_kwargs,
-    ) -> "ReceiptAPI":
+    ):
         try:
             return self.contract.deposit(user, token, amount, **tx_kwargs)
         except ContractLogicError as err:
@@ -776,12 +726,12 @@ class DepositVault(TPlusContract):
         self,
         withdrawal: dict,
         user: "bytes | UserPublicKey",
-        target: "AddressType",
+        target: AddressType,
         valid_until: int,
         epoch_hash: "bytes | HexBytes",
         signatures: "list[bytes | HexBytes]",
         **tx_kwargs,
-    ) -> "ReceiptAPI":
+    ):
         return self.contract.withdraw(
             withdrawal,
             user,
@@ -799,7 +749,7 @@ class DepositVault(TPlusContract):
         data: HexBytes,
         signature: HexBytes,
         **tx_kwargs,
-    ) -> "ReceiptAPI":
+    ):
         try:
             return self.contract.executeAtomicSettlement(
                 settlement, settler, data, signature, **tx_kwargs
@@ -812,7 +762,7 @@ class DepositVault(TPlusContract):
             elif err_id == "0x203d82d8":
                 raise ContractLogicError("Signature expired") from err
 
-            elif err_id.startswith("0x06427aeb"):
+            elif isinstance(err_id, str) and err_id.startswith("0x06427aeb"):
                 raise ContractLogicError("Invalid nonce") from err
 
             elif err_id == "0x8baa579f":
@@ -824,42 +774,54 @@ class DepositVault(TPlusContract):
             raise  # Error as-is
 
     @classmethod
-    def deploy(cls, *args, sender: "AccountAPI", **kwargs) -> "DepositVault":
+    def deploy(cls, *args, sender: Any, **kwargs) -> "DepositVault":
         args = list(args)
-        address = sender.get_deployment_address()
-        instance = super().deploy(*args, sender=sender, **kwargs)
+        backend = kwargs.get("backend") or get_backend()
+        sender_account = backend.get_account(sender)
+        try:
+            expected_address = sender_account.get_deployment_address()
+        except Exception:
+            # Some account types may not expose this; skip the check if so.
+            expected_address = None
 
-        if instance.address != address:
+        instance = cast("DepositVault", super().deploy(*args, sender=sender, **kwargs))
+
+        if expected_address is not None and instance.address != expected_address:
             # Shouldn't happen - but just in case, as this will cause hard to detect problems.
             raise ValueError("Invalid address in domain separator")
 
         return instance
 
     @classmethod
-    def deploy_dev(cls, sender: "AccountAPI | None" = None, **kwargs) -> TPlusContract:
+    def deploy_dev(cls, sender: Any | None = None, **kwargs) -> "TPlusContract":
         """
         Deploy and set up a development vault.
         """
+        backend = kwargs.get("backend") or get_backend()
         if not (credman := kwargs.get("credential_manager")):
             credman = credential_manager.address
 
-        sender = sender or cls.account_manager.test_accounts[0]
-        contract = cast(DepositVault, cls.deploy(sender, credman, sender=sender))
+        sender = sender or backend.default_test_account()
+        contract = cast("DepositVault", cls.deploy(sender, credman, sender=sender, backend=backend))
 
         # Set the owner as an admin who can approve settlements/withdrawals.
         # (we only do this in dev mode; irl the roles are different).
-        credman_account = cls.account_manager[credman]
-        credman_account.balance += int(1e18)
+        credman_account = backend.get_account(credman)
+        try:
+            backend.set_balance(credman_account, int(1e18))
+        except NotImplementedError:
+            pass  # dev node can't set balances; the admin tx below needs a funded account
+
         contract.set_administrators([sender], credman_account)
 
         return contract
 
     def set_administrators(
         self,
-        administrators: list["AddressType"],
-        vault_owner: "AccountAPI",
+        administrators: "list[AddressType]",
+        vault_owner: Any,
         withdrawal_quorum: int | None = None,
-    ) -> "ReceiptAPI":
+    ):
         if withdrawal_quorum is None:
             withdrawal_quorum = len(administrators)
 
@@ -867,18 +829,14 @@ class DepositVault(TPlusContract):
             administrators, withdrawal_quorum, sender=vault_owner
         )
 
-    def set_domain_separator(
-        self, domain_separator: bytes, *, sender: "AccountAPI"
-    ) -> "ReceiptAPI":
+    def set_domain_separator(self, domain_separator: bytes, *, sender: Any):
         return self.contract.setDomainSeparator(domain_separator, sender=sender)
 
-    def set_credential_manager(
-        self, new_credential_manager: "AddressType", *, sender: AccountAPI
-    ) -> "ReceiptAPI":
+    def set_credential_manager(self, new_credential_manager: "AddressType", *, sender: Any) -> Any:
         return self.contract.setCredentialManager(new_credential_manager, sender=sender)
 
 
-def _decode_erc20_error(err: str) -> str | None:
+def _decode_erc20_error(err: Any) -> str | None:
     if err == "0x7939f424":
         # The sender likely didn't approve, or they don't have the tokens.
         return "TransferFromFailed()"
@@ -898,9 +856,11 @@ class CredentialManager(TPlusContract):
     NAME = "CredentialManager"
 
     @classmethod
-    def deploy_dev(cls, **kwargs) -> "ReceiptAPI":
-        owner = kwargs.get("sender") or get_dev_default_owner()
-        operators = kwargs.get("operators", [owner.address])
+    def deploy_dev(cls, **kwargs):
+        backend = kwargs.get("backend") or get_backend()
+        owner = kwargs.get("sender") or backend.default_test_account()
+        owner_address = getattr(owner, "address", owner)
+        operators = kwargs.get("operators", [owner_address])
         threshold = kwargs.get("quorum_threshold") or len(operators)
 
         if not (registry_address := kwargs.get("registry")):
@@ -930,6 +890,7 @@ class CredentialManager(TPlusContract):
             signer_rotation_window,
             withdrawal_quorum,
             sender=owner,
+            backend=backend,
         )
 
     @property
@@ -940,7 +901,7 @@ class CredentialManager(TPlusContract):
         self,
         address: ChainAddress,
         config: ChainConfig,
-        signers: list[AddressType],
+        signers: "list[AddressType]",
         signatures: list[bytes],
         **kwargs,
     ):
@@ -955,11 +916,12 @@ class CredentialManager(TPlusContract):
             **kwargs,
         )
 
-    def get_vaults(self) -> list[DepositVault]:
+    def get_vaults(self) -> "list[DepositVault]":
         return [
             DepositVault(
                 address=to_hex(r.vaultAddress[:20]),
                 chain_id=ChainID.from_parts(r.routingId, r.vmId),
+                backend=self.backend,
             )
             for r in self.contract.getVaults(0, 1000)
         ]
@@ -968,3 +930,9 @@ class CredentialManager(TPlusContract):
 registry = Registry()
 vault = DepositVault()
 credential_manager = CredentialManager()
+
+
+# Keep ``ape.convert(<tplus contract>, AddressType)`` working under Ape.
+# (``ContractHandle`` is registered the same way from ``tplus.evm.backends.ape``.)
+if _ApeConvertibleAPI is not None:
+    _ApeConvertibleAPI.register(TPlusContract)

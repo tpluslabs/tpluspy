@@ -191,6 +191,9 @@ Order and user-trade streams are on `OrderBookClient`; market-data streams
 async for event in client.stream_orders():
     ...
 
+async for update in client.stream_user_positions():
+    ...
+
 async for trade in client.stream_user_trade_events():
     ...
 

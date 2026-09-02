@@ -320,14 +320,14 @@ class AdminClient(BaseClearingEngineClient):
             json_data={"fee_account": user},
         )
 
-    async def set_avs_backstop_target(
-        self, user: UserPublicKey | None, account_index: int | None = None
-    ):
-        """Configure the AVS backstop target, or clear it (disabling the
-        post-liquidation transfer) when ``user`` is ``None``."""
+    async def set_avs_backstop_target(self, user: UserPublicKey | None):
+        """Configure the AVS backstop user, or clear it (disabling the
+        post-liquidation transfer) when ``user`` is ``None``.
+
+        Sub-accounts are allocated per transfer, so there is no index to set."""
         await self._post(
             "admin/avs-backstop-target/modify",
-            json_data={"user": user, "account_index": account_index},
+            json_data={"user": user},
         )
 
     async def clear_avs_backstop_target(self):
@@ -343,6 +343,29 @@ class AdminClient(BaseClearingEngineClient):
         await self._post(
             "admin/deposits/reset-1hr",
             json_data={},
+        )
+
+    async def lock_xm_venue(
+        self,
+        user: UserPublicKey,
+        venue: int,
+        locked_at_ns: int,
+        expiry_ns: int,
+    ):
+        """Lock one cross-venue link with an explicit creation time (debug only).
+
+        A venue's netting offset decays toward nothing over the lock's age, so
+        tests backdate ``locked_at_ns`` to observe a partly-decayed offset
+        without waiting hours or days of real downtime.
+        """
+        await self._post(
+            "admin/xm/lock-venue",
+            json_data={
+                "user": user,
+                "venue": venue,
+                "locked_at_ns": locked_at_ns,
+                "expiry_ns": expiry_ns,
+            },
         )
 
     async def expire_xm_venue_locks(self):

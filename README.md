@@ -83,8 +83,8 @@ from ape import accounts
 account = accounts.load("me")
 
 async with OrderBookClient(API_BASE_URL, default_user=account) as client:
-    await client.get_user_inventory()                  # signs as the T+ user behind the account
-    await client.create_limit_order(..., user=account) # per-call override
+    await client.get_user_inventory()  # signs as the T+ user behind the account
+    await client.create_limit_order(..., user=account)  # per-call override
 ```
 
 An `eth_account` signer works the same way, with no `[evm]` extra:
@@ -100,8 +100,8 @@ Use `load_user_from_ape_account` to hold the `User` itself, for example to read 
 ```python
 from tplus.utils.user import load_user_from_ape_account
 
-user = load_user_from_ape_account("me")        # by Ape alias (needs the `evm` extra)
-user = load_user_from_ape_account(account)     # an already-loaded Ape account
+user = load_user_from_ape_account("me")  # by Ape alias (needs the `evm` extra)
+user = load_user_from_ape_account(account)  # an already-loaded Ape account
 ```
 
 The result is a normal T+ `User` and signs every request the same way.
@@ -198,6 +198,19 @@ replace_response, revision = await client.replace_order(
 print(f"Replace Order Response: {replace_response}")
 # `revision` is the replacement's timestamp_ns; a later amend_order must quote it as
 # expected_authorization_revision.
+
+# Replace several open orders in one request (up to 50). Each item is signed on its own;
+# the OMS sends one message per market and returns one status per item, in order.
+batch_replace_response = await client.replace_multiple_orders(
+    [
+        await client.prepare_replace_order_request(
+            original_order_id=oid, asset_id=example_asset, new_quantity=6, new_price=price
+        )
+        for oid, price in [("order-a", 1050), ("order-b", 1040)]
+    ]
+)
+for status in batch_replace_response.batch_order_status:
+    print(f"{status.order_id}: {status.status} {status.reason or ''}")
 ```
 
 See `examples/rest_usage.py` for a runnable demonstration.
@@ -241,66 +254,49 @@ When a bearer token stops working before it actually expires (e.g. from a servic
 
 ### Contracts
 
-To interact with the contracts or sign T+ settlement messages, ensure you have installed the `evm` extra:
+To interact with the on-chain T+ contracts (or sign T+ settlement messages),
+install one of the EVM extras:
 
 ```shell
-pip install tpluspy[evm]
+pip install "tpluspy[evm]"        # web3.py backend (no Ape)
+pip install "tpluspy[evm-ape]"    # adds the Ape backend on top of [evm]
 ```
 
-Use the `tplusp.contracts` module to read data from t+ contracts.
-For example, launch a Sepolia-connected Ape console:
+The Python API is identical either way. With the **web3.py** backend, point it
+at a node via `WEB3_PROVIDER_URI` (read by `web3.auto`) — or call
+`tplus.evm.use_web3(rpc_url=...)`:
+
+```shell
+export WEB3_PROVIDER_URI="https://arb1.arbitrum.io/rpc"
+```
+
+```python
+from tplus.evm.contracts import registry, vault
+
+registry.admin()
+vault.getApprovedSettlers()
+```
+
+With the **Ape** backend, just use `ape console` / `ape run` as usual; it's
+auto-detected whenever Ape is connected to a network:
 
 ```shell
 ape console --network ethereum:sepolia:alchemy
 ```
 
-**Note**: You can use any provider you want or a RPC directly, it doesn't have to be Alchemy.
-
-Then, once in the console, you will already have access to contracts that you can call methods on:
-
 ```python
-In[1]: registry.getAssets()
-Out[1]: [
+In [1]: from tplus.evm.contracts import registry
+In [2]: registry.getAssets()
+Out[2]: [
     getAssets_return(
         assetAddress=HexBytes("0x000000000000000000000000f08a50178dfcde18524640ea6618a1f965821715"),
         chainId=11155111,
         maxDeposits=100,
     )
 ]
-In[2]: registry.admin()
-Out[2]: "0x467a95fC5359edE5d5dDc4f10A1F4B680694858E"
+In [3]: registry.admin()
+Out[3]: '0x467a95fC5359edE5d5dDc4f10A1F4B680694858E'
 ```
 
-#### Settlement signatures
-
-Sign settlement messages using the structured `Order` type from `tplus.utils.domain`.
-
-```python
-from ape import accounts, convert, chain
-from tplus.utils.domain import Order
-from tplus.evm.contracts import vault
-from tplus.utils.user import UserManager
-
-# Load your Ethereum account for t+.
-tplus_user = accounts.load("tplus-account")
-
-# Load your t+ user (public key).
-user_id = UserManager.load("my_user").public_key
-
-# Get the nonce from t+ or the contracts directly.
-nonce = vault.getDepositNonce(tplus_user)
-
-order = Order(
-    tokenOut="0x62622E77D1349Face943C6e7D5c01C61465FE1dc",
-    amountOut=convert("1 ether", int),
-    tokenIn="0x58372ab62269A52fA636aD7F200d93999595DCAF",
-    amountIn=convert("1 ether", int),
-    userId=user_id,
-    nonce=nonce,
-    validUntil=chain.pending_timestamp,
-)
-
-# Use this signature for the settlement.
-signature = tplus_user.sign_message(order).encode_rsv()
-print(signature)
-```
+See [`docs/userguides/contracts.md`](docs/userguides/contracts.md) for the full
+guide, including accounts, settlements, and the higher-level managers.

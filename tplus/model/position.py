@@ -32,8 +32,18 @@ class UserPositionsPage(PageMeta):
     total_positions: int
 
 
+class PositionUpdate(BaseModel):
+    user_id: str
+    positions: list[PositionResponse]
+    timestamp_ns: int
+
+
 def parse_positions(data: list[dict]) -> list[PositionResponse]:
     return [PositionResponse.model_validate(item) for item in data]
+
+
+def parse_position_update(data: dict) -> PositionUpdate:
+    return PositionUpdate.model_validate(data)
 
 
 def parse_positions_page(data: list[dict] | dict) -> UserPositionsPage:

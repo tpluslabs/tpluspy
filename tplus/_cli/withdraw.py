@@ -138,7 +138,7 @@ if _EVM_AVAILABLE:
 
         return WithdrawalManager(
             default_user=cli_ctx.load_user(),
-            ape_account=signer,
+            account=signer,
             withdrawal_client=cli_ctx.withdrawal_client(),
         )
 

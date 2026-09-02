@@ -4,6 +4,26 @@ class ContractNotExists(Exception):
     """
 
 
+class BackendNotAvailable(Exception):
+    """
+    No EVM backend available. Install ``tpluspy[evm]`` or ``tpluspy[evm-ape]``.
+    """
+
+
+class ContractLogicError(Exception):
+    """
+    A contract call/transaction reverted.
+
+    ``message`` carries the revert string or, for custom errors, the 4-byte
+    selector (e.g. ``"0x7939f424"``).
+    """
+
+    def __init__(self, message: str = "", *, data: str | None = None):
+        self.message = message
+        self.data = data
+        super().__init__(message)
+
+
 class SettlementError(Exception):
     """
     Raised when the clearing engine returns a settlement error.

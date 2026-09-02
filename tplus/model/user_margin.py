@@ -16,7 +16,7 @@ matching the solvency check conjunction over both price types.
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PositionSide(str, Enum):
@@ -45,12 +45,23 @@ class PositionMarginInfo(BaseModel):
         side: Position direction (Long or Short)
         size: Position size as a decimal (converted from inventory decimals)
         notional_value: size * mark_price
+        margin: Maintenance-margin requirement for this position.
     """
 
     asset_id: str
     side: PositionSide
     size: Decimal
     notional_value: Decimal
+    margin: Decimal
+
+
+class MarginWarning(BaseModel):
+    """A partial margin-computation warning returned by the OMS."""
+
+    sub_account: int
+    code: str
+    message: str
+    asset: str | None = None
 
 
 class AccountMarginInfo(BaseModel):
@@ -90,9 +101,13 @@ class AccountMarginInfo(BaseModel):
     available_margin: Decimal
     utilized_margin: Decimal
     maintenance_margin_surplus: Decimal
+    mm_requirement: Decimal | None
     account_leverage: Decimal | None
     is_solvent: bool
     is_liquidatable: bool
+    total_upnl: Decimal
+    im_surplus: Decimal | None
+    net_apy: Decimal | None
     positions: list[PositionMarginInfo] | None = None
 
 
@@ -103,9 +118,11 @@ class UserMarginInfo(BaseModel):
     Attributes:
         accounts: Mapping from sub-account index (as int) to margin info.
             Keys are sub-account indices (e.g., 0 for spot, 1 for margin).
+        warnings: Partial-computation warnings. Empty when the response is complete.
     """
 
     accounts: dict[int, AccountMarginInfo]
+    warnings: list[MarginWarning] = Field(default_factory=list)
 
 
 def parse_position_margin_info(data: dict) -> PositionMarginInfo:
@@ -115,6 +132,7 @@ def parse_position_margin_info(data: dict) -> PositionMarginInfo:
         side=PositionSide(data["side"]),
         size=Decimal(data["size"]),
         notional_value=Decimal(data["notional_value"]),
+        margin=Decimal(data["margin"]),
     )
 
 
@@ -128,14 +146,30 @@ def parse_account_margin_info(data: dict) -> AccountMarginInfo:
     if data.get("account_leverage") is not None:
         leverage = Decimal(data["account_leverage"])
 
+    mm_requirement = None
+    if data.get("mm_requirement") is not None:
+        mm_requirement = Decimal(data["mm_requirement"])
+
+    im_surplus = None
+    if data.get("im_surplus") is not None:
+        im_surplus = Decimal(data["im_surplus"])
+
+    net_apy = None
+    if data.get("net_apy") is not None:
+        net_apy = Decimal(data["net_apy"])
+
     return AccountMarginInfo(
         account_equity=Decimal(data["account_equity"]),
         available_margin=Decimal(data["available_margin"]),
         utilized_margin=Decimal(data["utilized_margin"]),
         maintenance_margin_surplus=Decimal(data["maintenance_margin_surplus"]),
+        mm_requirement=mm_requirement,
         account_leverage=leverage,
         is_solvent=data["is_solvent"],
         is_liquidatable=data["is_liquidatable"],
+        total_upnl=Decimal(data["total_upnl"]),
+        im_surplus=im_surplus,
+        net_apy=net_apy,
         positions=positions,
     )
 
@@ -156,4 +190,6 @@ def parse_user_margin_info(data: dict) -> UserMarginInfo:
     for account_id, account_data in data.get("accounts", {}).items():
         accounts[int(account_id)] = parse_account_margin_info(account_data)
 
-    return UserMarginInfo(accounts=accounts)
+    warnings = [MarginWarning.model_validate(warning) for warning in data.get("warnings", [])]
+
+    return UserMarginInfo(accounts=accounts, warnings=warnings)

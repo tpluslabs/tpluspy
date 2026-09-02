@@ -8,7 +8,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tpluspy",
-    version="0.4.0",
+    version="0.5.0",
     description="""tpluspy: Client utilities for interacting with tplus""",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -42,6 +42,10 @@ setup(
             "anyio>=4",
             "pytest-anyio>=0.0.0",
             "trio>=0.24",
+            # In-process EVM backend used by the web3-backend tests. ``py-evm``
+            # is what actually executes the EVM; ``eth-tester`` only ships
+            # pre-releases on PyPI so allow them.
+            "eth-tester[py-evm]>=0.12.0b1",
         ],
         "lint": [
             "ruff>=0.11.7,<0.16",
@@ -53,12 +57,18 @@ setup(
             "twine",
         ],
         "evm": [
-            "ape-tokens",
             "click",
             "eip712>=0.3.1",
             "eth-account>=0.13.0,<0.14",
-            "eth-ape>=0.8.49,<0.9",
+            "eth-keys>=0.6,<0.8",
             "hexbytes>=1.3.1,<2",
+            "pyyaml>=6,<7",
+            "web3>=7.0,<8",
+        ],
+        "evm-ape": [
+            "tpluspy[evm]",
+            "ape-tokens",
+            "eth-ape>=0.8.49,<0.9",
         ],
         "docs": [
             "Sphinx>=7.0,<9",
@@ -74,7 +84,7 @@ setup(
     zip_safe=False,
     keywords="ethereum",
     packages=find_packages(exclude=["tests", "tests.*"]),
-    package_data={"tpluspy": ["py.typed", "evm/manifests/*"]},
+    package_data={"tplus": ["py.typed", "evm/manifests/*"]},
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",

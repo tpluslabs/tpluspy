@@ -15,18 +15,22 @@ from tplus.client.auth import AuthenticatedClient
 from tplus.client.base import page_params
 from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.client.websocket import resolve_rejected_status_code
-from tplus.exceptions import NotFoundError
+from tplus.exceptions import NotFoundError, from_error_body
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import (
     BatchCreateOrderRequest,
     BatchCreateOrderRequestResponse,
+    BatchReplaceOrderRequest,
+    BatchReplaceOrderRequestResponse,
     SingleOrderStatusFromBatch,
     parse_batch_order_response,
+    parse_batch_replace_response,
 )
 from tplus.model.close_all_positions_preview import (
     CloseAllPreviewResponse,
     parse_close_all_preview,
 )
+from tplus.model.control import ControlWSFrame
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, MarketsPage, parse_market
 from tplus.model.market_order import (
@@ -46,9 +50,12 @@ from tplus.model.order_id import validate_order_id
 from tplus.model.order_trigger import OrderTrigger, TriggerAbove, TriggerBelow
 from tplus.model.position import (
     PositionResponse,
+    PositionUpdate,
     UserPositionsPage,
+    parse_position_update,
     parse_positions_page,
 )
+from tplus.model.replace_order import ReplaceOrderRequestPayload
 from tplus.model.settlement import TxSettlementRequest
 from tplus.model.sub_account import RenameSubAccountResponse
 from tplus.model.trades import (
@@ -88,6 +95,12 @@ from tplus.utils.user import DelegatedUser, User, to_user
 CONTROL_WS_MAX_ATTEMPTS = 5
 # The handshake already re-authenticated and retried, so don't let a non-auth 403 burn all attempts.
 CONTROL_WS_MAX_ATTEMPTS_BY_STATUS = {401: 1, 403: 1}
+CONTROL_WS_PROTOCOL = "tplus.ws.v1"
+CONTROL_WS_ERROR_STATUS = {
+    "RATE_LIMITED": 429,
+    "SERVER_BUSY": 503,
+    "UNAUTHORIZED": 401,
+}
 MARKETS_PAGE_LIMIT = 1000
 
 if TYPE_CHECKING:
@@ -131,6 +144,7 @@ class OrderBookClient(AuthenticatedClient):
         self._control_ws_task: asyncio.Task | None = None
         self._control_ws_lock: asyncio.Lock = asyncio.Lock()
         self._pending_control: dict[str, asyncio.Future] = {}
+        self._pending_control_batches: dict[str, list[asyncio.Future]] = {}
         # Optional user callback for control channel state updates
         self._on_control_state: Callable[[str], None] | None = None
         self._last_user_action_nonce_ms: int = 0
@@ -417,6 +431,59 @@ class OrderBookClient(AuthenticatedClient):
             "POST", "/orders/batch-create", json_data=request.model_dump()
         )
         return parse_batch_order_response(batch_order_response_data)
+
+    async def prepare_replace_order_request(
+        self,
+        original_order_id: str,
+        asset_id: AssetIdentifier,
+        new_quantity: int,
+        new_price: int,
+        new_trigger: TriggerAbove | TriggerBelow | None = None,
+        user: "UserLike | None" = None,
+        additional_signers: "list[UserLike] | None" = None,
+    ) -> ReplaceOrderRequestPayload:
+        """Build and sign one replace without sending it, for :meth:`replace_multiple_orders`.
+
+        Takes the same arguments as :meth:`replace_order`; see there for their meaning.
+        """
+        user = self._resolve_user(user=user)
+        validate_order_id(original_order_id)
+        market = await self.get_market(asset_id)
+        return create_replace_order_ob_request_payload(
+            original_order_id=original_order_id,
+            asset_identifier=asset_id,
+            signer=user,
+            new_price=new_price,
+            new_quantity=new_quantity,
+            new_trigger=new_trigger,
+            book_price_decimals=market.book_price_decimals,
+            book_quantity_decimals=market.book_quantity_decimals,
+            additional_signers=additional_signers,
+        )
+
+    async def replace_multiple_orders(
+        self,
+        replace_requests: list[ReplaceOrderRequestPayload],
+        user: "UserLike | None" = None,
+    ) -> BatchReplaceOrderRequestResponse:
+        """Replace up to 50 open orders in one request (``PATCH /orders/batch-replace``).
+
+        Each item is validated and authorized like a single :meth:`replace_order`, so one
+        rejected item never stops the others. The OMS groups the items by market and sends
+        one message per orderbook, so a refresh of many quotes costs one round-trip per
+        market. Results come back one per item, in submission order. A batch naming the
+        same order id twice is rejected as a whole. Over the control WebSocket the server
+        acks once and streams one ``ReplaceOrderResponse`` per item; they are gathered into
+        the same response shape.
+        """
+        request = BatchReplaceOrderRequest(replaces=replace_requests)
+        if self._use_ws_control:
+            return await self._control_ws_send_replace_batch(request)
+
+        response_data = await self._request(
+            "PATCH", "/orders/batch-replace", json_data=request.model_dump(), user=user
+        )
+        return parse_batch_replace_response(response_data)
 
     async def cancel_order(
         self, order_id: str, asset_id: AssetIdentifier, user: "UserLike | None" = None
@@ -766,7 +833,9 @@ class OrderBookClient(AuthenticatedClient):
             delay = 0.5
             while True:
                 try:
-                    websocket_cm = await self._open_ws("/control")
+                    websocket_cm = await self._open_ws(
+                        "/control", ws_kwargs={"subprotocols": [CONTROL_WS_PROTOCOL]}
+                    )
                     self._control_ws = await websocket_cm.__aenter__()  # type: ignore[attr-defined]
                     callback = self._on_control_state
                     if callback is not None:
@@ -798,30 +867,35 @@ class OrderBookClient(AuthenticatedClient):
                 return
             async for message in ws:
                 try:
-                    data = json.loads(message)
-                    if isinstance(data, dict) and data.get("type") in {
-                        "subscriptions",
-                        "ping",
-                        "pong",
-                    }:
+                    frame = ControlWSFrame.parse(message)
+                    if frame.is_heartbeat:
                         continue
-                    key_parts = self._control_response_order_id(data)
-                    if key_parts is None:
-                        continue
-                    variant, asset_id, order_id = key_parts
-                    composite_key = f"{variant}:{asset_id}:{order_id}"
-                    fut = self._pending_control.pop(composite_key, None)
-                    if fut and not fut.done():
-                        fut.set_result(data)
-                except Exception as e:
+
+                    # Admission errors are raised before any order response exists,
+                    # so the request id is the only thing they can be routed on.
+                    if frame.request_id is not None and not frame.is_ack:
+                        if frame.error is not None and self._reject_request(frame):
+                            continue
+
+                        if self._resolve_request(frame):
+                            continue
+
+                    if frame.order_payload is not None:
+                        self._resolve_order(frame.order_payload)
+                except Exception as err:
                     # Ignore malformed messages; futures will timeout
-                    self.logger.debug(f"Control WS reader parse error: {e}")
+                    self.logger.debug(f"Control WS reader parse error: {err}")
         except Exception as e:
             # Fail all pending futures on connection drop
             for _, fut in list(self._pending_control.items()):
                 if not fut.done():
                     fut.set_exception(e)
             self._pending_control.clear()
+            for futures in self._pending_control_batches.values():
+                for fut in futures:
+                    if not fut.done():
+                        fut.set_exception(e)
+            self._pending_control_batches.clear()
         finally:
             try:
                 if self._control_ws and not getattr(self._control_ws, "closed", False):
@@ -836,6 +910,55 @@ class OrderBookClient(AuthenticatedClient):
                     callback("disconnected")
                 except Exception:
                     pass
+
+    def _reject_request(self, frame: ControlWSFrame) -> bool:
+        """Fail whatever awaits *frame*, returning whether anything was awaiting it."""
+        exc = self._control_ws_error(frame.error or {})
+        fut = self._pending_control.pop(f"request:{frame.request_id}", None)
+        if fut is not None and not fut.done():
+            fut.set_exception(exc)
+            return True
+
+        batch = self._pending_control_batches.pop(frame.request_id or "", [])
+        for batch_fut in batch:
+            if not batch_fut.done():
+                batch_fut.set_exception(exc)
+
+        return bool(batch)
+
+    def _resolve_request(self, frame: ControlWSFrame) -> bool:
+        """Complete the future awaiting *frame*, returning whether one was awaiting it."""
+        fut = self._pending_control.pop(f"request:{frame.request_id}", None)
+        if fut is None or fut.done():
+            return False
+
+        if frame.data is None:
+            fut.set_exception(ValueError(f"Control WS response missing data: {frame}"))
+        else:
+            fut.set_result(frame.data)
+
+        return True
+
+    def _resolve_order(self, payload: dict[str, Any]) -> None:
+        """Complete the future keyed by the order named in *payload*.
+
+        Batch responses stay order-keyed because one request id fans out into one
+        terminal response per submitted order.
+        """
+        key_parts = self._control_response_order_id(payload)
+        if key_parts is None:
+            return
+
+        variant, asset_id, order_id = key_parts
+        fut = self._pending_control.pop(f"{variant}:{asset_id}:{order_id}", None)
+        if fut is not None and not fut.done():
+            fut.set_result(payload)
+
+    @staticmethod
+    def _control_ws_error(error: dict[str, Any]) -> Exception:
+        code = str(error.get("code", "UNKNOWN"))
+        status_code = CONTROL_WS_ERROR_STATUS.get(code, 400)
+        return from_error_body(error, status_code)
 
     def _control_response_order_id(self, data: dict[str, Any]) -> tuple[str, str, str] | None:
         if not isinstance(data, dict) or len(data) != 1:
@@ -864,39 +987,12 @@ class OrderBookClient(AuthenticatedClient):
         if not self._control_ws:
             raise RuntimeError("WS control not connected")
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        # Determine expected response variant and asset_id from payload to build key
         if len(payload) != 1:
             raise ValueError("Invalid WS control payload shape")
-        request_variant, content = next(iter(payload.items()))
-        # Map request variant to response variant names sent by server
-        response_variant_map = {
-            "CreateOrderRequest": "CreateOrderResponse",
-            "CancelOrderRequest": "CancelOrderResponse",
-            "ReplaceOrderRequest": "ReplaceOrderResponse",
-            "AmendOrderRequest": "AmendOrderResponse",
-        }
-        response_variant = response_variant_map.get(request_variant, request_variant)
-        asset_id: str | None = None
-        if isinstance(content, dict):
-            if isinstance(content.get("asset_id"), str):
-                asset_id = content["asset_id"]
-            elif isinstance(content.get("cancel"), dict) and isinstance(
-                content["cancel"].get("asset_id"), str
-            ):
-                asset_id = content["cancel"]["asset_id"]
-            elif isinstance(content.get("order"), dict) and isinstance(
-                content["order"].get("base_asset"), str
-            ):
-                asset_id = content["order"]["base_asset"]
-            elif isinstance(content.get("request"), dict) and isinstance(
-                content["request"].get("base_asset"), str
-            ):
-                asset_id = content["request"]["base_asset"]
-        if asset_id is None:
-            raise ValueError("WS control payload missing asset_id")
-        key = f"{response_variant}:{asset_id}:{expected_order_id}"
+        request_id = uuid.uuid4().hex
+        key = f"request:{request_id}"
         self._pending_control[key] = fut
-        await self._control_ws.send(json.dumps(payload))
+        await self._control_ws.send(json.dumps({"request_id": request_id, "data": payload}))
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
         finally:
@@ -913,28 +1009,83 @@ class OrderBookClient(AuthenticatedClient):
         (keyed exactly like a single create) and gather all per-order outcomes into
         the same :class:`BatchCreateOrderRequestResponse` shape the REST path returns.
         """
+        dumped = request.model_dump()
+        statuses = await self._control_ws_send_batch_items(
+            "BatchCreateRequest",
+            dumped,
+            [
+                (order["order"]["base_asset"], order["order"]["order_id"])
+                for order in dumped["orders"]
+            ],
+            "CreateOrderResponse",
+            timeout=timeout,
+        )
+        return BatchCreateOrderRequestResponse(batch_order_status=statuses)
+
+    async def _control_ws_send_replace_batch(
+        self, request: BatchReplaceOrderRequest, *, timeout: float = 15.0
+    ) -> BatchReplaceOrderRequestResponse:
+        """Send a batch-replace over the ``/control`` WebSocket.
+
+        Same ack-then-stream shape as :meth:`_control_ws_send_batch`, with one
+        ``ReplaceOrderResponse`` event per item.
+        """
+        dumped = request.model_dump()
+        statuses = await self._control_ws_send_batch_items(
+            "BatchReplaceRequest",
+            dumped,
+            [
+                (replace["request"]["base_asset"], replace["request"]["order_id"])
+                for replace in dumped["replaces"]
+            ],
+            "ReplaceOrderResponse",
+            timeout=timeout,
+        )
+        return BatchReplaceOrderRequestResponse(batch_order_status=statuses)
+
+    async def _control_ws_send_batch_items(
+        self,
+        wire_tag: str,
+        dumped: dict[str, Any],
+        items: list[tuple[str, str]],
+        response_variant: str,
+        *,
+        timeout: float,
+    ) -> list[SingleOrderStatusFromBatch]:
+        """Send ``{wire_tag: dumped}`` and gather one ``response_variant`` per item.
+
+        ``items`` lists each item's ``(asset_id, order_id)``; a future is registered per
+        item, keyed exactly like the corresponding single request, and the per-item
+        outcomes are returned in submission order.
+        """
         await self._ensure_control_ws()
         if not self._control_ws:
             raise RuntimeError("WS control not connected")
 
         loop = asyncio.get_running_loop()
-        dumped = request.model_dump()
+        request_id = uuid.uuid4().hex
         pending: list[tuple[str, asyncio.Future]] = []
-        for order_request in dumped["orders"]:
-            order = order_request["order"]
-            asset_id = order["base_asset"]
-            order_id = order["order_id"]
-            key = f"CreateOrderResponse:{asset_id}:{order_id}"
+        for asset_id, order_id in items:
+            key = f"{response_variant}:{asset_id}:{order_id}"
             fut: asyncio.Future = loop.create_future()
             self._pending_control[key] = fut
             pending.append((key, fut))
 
-        await self._control_ws.send(json.dumps({"BatchCreateRequest": dumped}))
+        self._pending_control_batches[request_id] = [fut for _, fut in pending]
+        await self._control_ws.send(
+            json.dumps(
+                {
+                    "request_id": request_id,
+                    "data": {wire_tag: dumped},
+                }
+            )
+        )
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*(fut for _, fut in pending)), timeout=timeout
             )
         finally:
+            self._pending_control_batches.pop(request_id, None)
             for key, _ in pending:
                 self._pending_control.pop(key, None)
 
@@ -949,7 +1100,7 @@ class OrderBookClient(AuthenticatedClient):
                     reason=response.get("reason"),
                 )
             )
-        return BatchCreateOrderRequestResponse(batch_order_status=statuses)
+        return statuses
 
     def _extract_operation_response(self, data: dict[str, Any]) -> OrderOperationResponse:
         if not isinstance(data, dict) or len(data) != 1:
@@ -1079,6 +1230,15 @@ class OrderBookClient(AuthenticatedClient):
         async for event in self._stream_ws("/orders", parse_order_event, user=user):
             yield event
 
+    async def stream_user_positions(
+        self, user: UserType | None = None
+    ) -> AsyncIterator[PositionUpdate]:
+        """Stream complete position snapshots for the authenticated user."""
+        user_id = self._validate_user_public_key(user=user)
+        path = f"/positions/ws/{user_id}"
+        async for update in self._stream_ws(path, parse_position_update, user=user):
+            yield update
+
     async def stream_user_trade_events(
         self, user: UserType | None = None
     ) -> AsyncIterator[UserTrade]:
@@ -1190,9 +1350,12 @@ class OrderBookClient(AuthenticatedClient):
 
     async def get_user_margin_info(
         self,
-        sub_accounts: list[int] | None = None,
+        sub_account: int | None = None,
         include_positions: bool = False,
         user: UserType | None = None,
+        now_ns: int | None = None,
+        *,
+        sub_accounts: list[int] | None = None,
     ) -> UserMarginInfo:
         """
         Get detailed margin breakdown for the authenticated user (async).
@@ -1209,11 +1372,17 @@ class OrderBookClient(AuthenticatedClient):
         matching the solvency check conjunction over both price types.
 
         Args:
-            sub_accounts: Optional list of sub-account indices to include.
-                If None or empty, returns info for all sub-accounts.
+            sub_account: Optional sub-account index to include. If None, returns
+                info for all sub-accounts.
             include_positions: If True, includes per-position breakdown
                 with size and notional value for each position.
             user: Optional User or public key. Falls back to the default user.
+            sub_accounts: Deprecated compatibility alias. It may contain at
+                most one index because the OMS endpoint accepts one filter.
+            now_ns: Debug-only clock override. Margin has time-dependent terms
+                (a locked venue's netting offset decays with the lock's age), so
+                tests pin "now" to assert exact numbers. Ignored by release
+                binaries.
 
         Returns:
             UserMarginInfo containing margin breakdown per sub-account.
@@ -1224,23 +1393,29 @@ class OrderBookClient(AuthenticatedClient):
         public_key = self._validate_user_public_key(user=user)
         endpoint = f"/margin/user/{public_key}"
 
+        if sub_account is not None and sub_accounts is not None:
+            raise ValueError("Specify either sub_account or sub_accounts, not both")
+        if sub_accounts is not None:
+            if len(sub_accounts) > 1:
+                raise ValueError("GET /margin/user accepts at most one sub-account filter")
+            sub_account = sub_accounts[0] if sub_accounts else None
+
         params: dict[str, Any] = {}
-        if sub_accounts:
-            params["sub_account"] = sub_accounts
+        if sub_account is not None:
+            params["sub_account"] = sub_account
         if include_positions:
             params["include_positions"] = include_positions
+        if now_ns is not None:
+            params["now_ns"] = now_ns
 
         self.logger.debug(
             f"Getting Margin Info for user {public_key}, "
-            f"sub_accounts={sub_accounts}, include_positions={include_positions}"
+            f"sub_account={sub_account}, include_positions={include_positions}"
         )
-        try:
-            response_data = await self._get(endpoint, params=params if params else None, user=user)
-        except NotFoundError:
-            response_data = {"accounts": {}}
+        response_data = await self._get(endpoint, params=params if params else None, user=user)
 
         if not isinstance(response_data, dict):
-            raise Exception("Invalid response from get_user_margin_info.")
+            raise ValueError("Invalid response from get_user_margin_info")
 
         parsed_data: UserMarginInfo = parse_user_margin_info(response_data)
         return parsed_data

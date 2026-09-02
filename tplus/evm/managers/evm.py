@@ -1,58 +1,68 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-try:
-    from ape.utils.basemodel import ManagerAccessMixin
-except ImportError:
-    raise ImportError("Must have [evm] extras to use this manager.")
-
+from tplus.evm.backends import resolve_backend
 from tplus.managers.base import BaseManager
-from tplus.utils.user import is_ape_account, is_evm_account, to_user
+from tplus.utils.user import is_evm_account, to_user
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ape.api.accounts import AccountAPI
-
     from tplus.client.base import BaseClient
+    from tplus.evm.backends.base import AccountLike, EVMBackend
     from tplus.types import UserLike
     from tplus.utils.user import EvmAccount, User
 
 
-class ChainConnectedManager(BaseManager, ManagerAccessMixin):
-    """
-    A base manager with access to Ape managers.
-    """
+class ChainConnectedManager(BaseManager):
+    """A base manager with access to the active EVM backend (``self.backend``)."""
+
+    def _set_backend(self, backend: "EVMBackend | None" = None) -> None:
+        self._backend_arg = backend
+        self._resolved_backend: EVMBackend | None = None
+
+    @property
+    def backend(self) -> "EVMBackend":
+        resolved = getattr(self, "_resolved_backend", None)
+        if resolved is None:
+            resolved = resolve_backend(getattr(self, "_backend_arg", None))
+            self._resolved_backend = resolved
+
+        return resolved
 
 
 class ChainSigningManager(ChainConnectedManager):
     """
     A chain-connected manager that signs T+ requests as ``default_user`` and on-chain
-    transactions as ``ape_account``.
+    transactions as ``account``.
 
-    Pass an Ape account as ``default_user`` to use it for both. ``default_user`` then starts
+    Pass a signer as ``default_user`` to use it for both. ``default_user`` then starts
     as the identity derived from that account, which is a guess at which T+ account the
     wallet uses; :meth:`resolve_default_user` replaces it with the real one.
     """
 
     default_user: "User"
-    ape_account: "AccountAPI"
+    account: Any
     _derived_from: "EvmAccount | None" = None
     """The wallet ``default_user`` was derived from, and so the one to resolve against.
 
-    Not necessarily ``ape_account``: that one may only be paying gas.
+    Not necessarily ``account``: that one may only be paying gas.
     """
 
-    def __init__(self, default_user: "UserLike", ape_account: "AccountAPI | None" = None):
-        if ape_account is None:
-            if not is_ape_account(default_user):
-                raise ValueError(
-                    "`ape_account` is required unless `default_user` is an Ape account."
-                )
+    def __init__(
+        self,
+        default_user: "UserLike",
+        account: "AccountLike | None" = None,
+        backend: "EVMBackend | None" = None,
+    ):
+        self._set_backend(backend)
+        if account is None:
+            if not is_evm_account(default_user):
+                raise ValueError("`account` is required unless `default_user` can sign.")
 
-            ape_account = default_user
+            account = default_user
 
         self.default_user = to_user(default_user)
-        self.ape_account = ape_account
+        self.account = self.backend.get_account(account)
         self._derived_from = default_user if is_evm_account(default_user) else None
 
     def _user_clients(self) -> "Iterable[BaseClient]":

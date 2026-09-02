@@ -4,6 +4,9 @@ import httpx
 import pytest
 from eth_account import Account
 
+# These cover Ape/T+ account interop specifically, so they need the `evm-ape` extra.
+pytest.importorskip("ape")
+
 from tests.client.user_argument import (
     check_read_call_uses_derived_user,
     check_read_call_with_per_call_user,
@@ -54,12 +57,12 @@ async def test_cancel_order_ape_account_as_default_user(signer, build_client):
 def test_chain_signing_manager_derives_user_from_ape_account(signer):
     manager = ChainSigningManager(signer)
 
-    assert manager.ape_account is signer
+    assert manager.account is signer
     assert manager.default_user.public_key == User.from_ape_account(signer).public_key
 
 
-def test_chain_signing_manager_requires_ape_account():
-    with pytest.raises(ValueError, match="`ape_account` is required"):
+def test_chain_signing_manager_requires_an_account():
+    with pytest.raises(ValueError, match="`account` is required"):
         ChainSigningManager(User())
 
 
@@ -68,10 +71,10 @@ def test_chain_signing_manager_keeps_separate_default_user(accounts, signer):
     gas_payer = accounts[1]
     alice = User()
 
-    manager = ChainSigningManager(default_user=alice, ape_account=gas_payer)
+    manager = ChainSigningManager(default_user=alice, account=gas_payer)
 
     assert manager.default_user is alice
-    assert manager.ape_account is gas_payer
+    assert manager.account is gas_payer
     assert manager.default_user.public_key != User.from_ape_account(gas_payer).public_key
 
 

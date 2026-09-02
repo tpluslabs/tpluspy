@@ -1,18 +1,16 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from tplus.evm.contracts import Registry
+from tplus.evm.contracts import AddressType, Registry
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import ChainID
 from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:
-    from ape.api.accounts import AccountAPI
-    from ape.api.transactions import ReceiptAPI
-    from ape.types.address import AddressType
     from eth_pydantic_types.hex.bytes import HexBytes32
 
     from tplus.client import AssetRegistryClient
     from tplus.client.clearingengine import ClearingEngineClient
+    from tplus.evm.backends.base import EVMBackend
     from tplus.model.risk_parameters import RiskParameters
 
 
@@ -23,22 +21,25 @@ class RegistryOwner(ChainConnectedManager):
 
     def __init__(
         self,
-        owner: "AccountAPI",
+        owner: Any,
         registry: Registry | None = None,
         chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
         asset_registry_client: "AssetRegistryClient | None" = None,
+        *,
+        backend: "EVMBackend | None" = None,
     ):
-        self.owner = owner
-        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
+        self._set_backend(backend)
+        self.owner = self.backend.get_account(owner)
+        self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
 
         if registry is not None:
             self.registry = registry
         else:
             try:
-                self.registry = Registry.from_ce_address()
+                self.registry = Registry.from_ce_address(backend=self.backend)
             except ValueError:
-                self.registry = Registry(chain_id=self.chain_id)
+                self.registry = Registry(chain_id=self.chain_id, backend=self.backend)
 
         self.ce = clearing_engine
         self.asset_registry = asset_registry_client
@@ -86,11 +87,11 @@ class RegistryOwner(ChainConnectedManager):
 
     def set_pending_risk_parameters(
         self, index: int, params: "RiskParameters | dict", **tx_kwargs
-    ) -> "ReceiptAPI":
+    ) -> Any:
         tx_kwargs.setdefault("sender", self.owner)
         return self.registry.set_pending_risk_parameters(index, params, **tx_kwargs)
 
-    def apply_pending_risk_parameters(self, index: int, **tx_kwargs) -> "ReceiptAPI":
+    def apply_pending_risk_parameters(self, index: int, **tx_kwargs) -> Any:
         tx_kwargs.setdefault("sender", self.owner)
         return self.registry.apply_pending_risk_parameters(index, **tx_kwargs)
 

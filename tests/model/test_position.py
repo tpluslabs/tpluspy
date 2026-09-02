@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from tplus.model.position import PositionResponse, parse_positions_page
+from tplus.model.position import PositionResponse, parse_position_update, parse_positions_page
 
 
 def _position(sub_account_index: int, name: str) -> dict:
@@ -66,3 +66,17 @@ def test_parse_positions_page_tolerates_bare_list():
     assert page.total_positions == 1
     assert page.has_next_page is False
     assert page.next_page is None
+
+
+def test_parse_position_update():
+    update = parse_position_update(
+        {
+            "user_id": "a" * 64,
+            "positions": [_position(1, "Margin")],
+            "timestamp_ns": 123,
+        }
+    )
+
+    assert update.user_id == "a" * 64
+    assert update.positions[0].size == Decimal("1.5")
+    assert update.timestamp_ns == 123

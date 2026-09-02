@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainSigningManager
@@ -9,40 +9,34 @@ from tplus.utils.user import to_user_public_key
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ape.api.accounts import AccountAPI
-    from ape.contracts.base import ContractInstance
-    from ape.types.address import AddressType
-
     from tplus.client.base import BaseClient
     from tplus.client.clearingengine import ClearingEngineClient
+    from tplus.evm.backends.base import AccountLike, EVMBackend
     from tplus.types import UserLike, UserType
 
 
 class DepositManager(ChainSigningManager):
     def __init__(
         self,
-        account: "AccountAPI",
+        account: "AccountLike",
         default_user: "UserLike | None" = None,
         vault: DepositVault | None = None,
         chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
+        *,
+        backend: "EVMBackend | None" = None,
     ):
-        super().__init__(default_user if default_user is not None else account, account)
-        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
+        super().__init__(default_user if default_user is not None else account, account, backend)
+        self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
         self.ce = clearing_engine
-        self.vault = vault if vault else DepositVault(chain_id=self.chain_id)
-
-    @property
-    def account(self) -> "AccountAPI":
-        """The EVM account that pays for and sends the deposit."""
-        return self.ape_account
+        self.vault = vault if vault else DepositVault(chain_id=self.chain_id, backend=self.backend)
 
     def _user_clients(self) -> "Iterable[BaseClient]":
         return (self.ce,) if self.ce is not None else ()
 
     async def deposit(
         self,
-        token: "str | AddressType | ContractInstance",
+        token: Any,
         amount: int,
         wait: bool = False,
         user: "UserType | None" = None,

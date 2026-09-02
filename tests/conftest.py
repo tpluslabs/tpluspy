@@ -1,9 +1,19 @@
+import importlib.util
+
 import pytest
 from eth_account import Account
 
 from tplus.client.orderbook import OrderBookClient
 from tplus.model.types import UserPublicKey
 from tplus.utils.user import User
+
+# Parametrize ``@pytest.mark.anyio`` tests over the backends that are actually
+# installed. Without this override, pytest-anyio's default fixture also runs
+# the ``trio`` variant -- which fails with ``ModuleNotFoundError: trio`` when
+# trio isn't on the path (e.g. running tests without the ``[test]`` extra).
+_BACKENDS = ["asyncio"]
+if importlib.util.find_spec("trio") is not None:
+    _BACKENDS.append("trio")
 
 # Signature vector cross-checked against the T+ frontend (viem `signMessage`) for this key.
 # The frontend does not turn it into a user_id, so ETH_USER_ID pins tpluspy's own derivation.
@@ -108,3 +118,8 @@ def client_build(build_client):
 def client(client_build):
     """The default client, for tests that never inspect the request."""
     return client_build[0]
+
+
+@pytest.fixture(params=_BACKENDS)
+def anyio_backend(request):
+    return request.param

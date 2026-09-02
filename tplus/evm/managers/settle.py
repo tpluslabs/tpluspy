@@ -1,9 +1,10 @@
+import asyncio
 import json
 import os
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from hexbytes import HexBytes
 
@@ -25,12 +26,8 @@ from tplus.utils.user.decrypt import decrypt_ed25519_sealed
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from ape.api.accounts import AccountAPI
-    from ape.api.transactions import ReceiptAPI
-    from ape.contracts.base import ContractInstance
-    from ape.types.address import AddressType
-
     from tplus.client.base import BaseClient
+    from tplus.evm.backends.base import AccountLike, EVMBackend
     from tplus.model.asset_identifier import Address32, AssetAddress
     from tplus.types import UserLike, UserType
 
@@ -58,21 +55,23 @@ class SettlementInfo:
 
 class SettlementManager(ChainSigningManager):
     """
-    Integrates the clearing-engine client with the vault contract via Ape to
-    abstract away full operations like settlements.
+    Integrates the clearing-engine client with the vault contract to abstract
+    away full operations like settlements.
     """
 
     def __init__(
         self,
         default_user: "UserLike",
-        ape_account: "AccountAPI | None" = None,
+        account: "AccountLike | None" = None,
         clearing_engine: ClearingEngineClient | None = None,
         oms_client: OrderBookClient | None = None,
         chain_id: ChainID | None = None,
         vault: DepositVault | None = None,
         settlement_vault: DepositVault | None = None,
+        *,
+        backend: "EVMBackend | None" = None,
     ):
-        super().__init__(default_user, ape_account)
+        super().__init__(default_user, account, backend)
         self.ce: ClearingEngineClient = clearing_engine or ClearingEngineClient.from_local(
             self.default_user
         )
@@ -86,14 +85,34 @@ class SettlementManager(ChainSigningManager):
                 base_url=oms_base_url,
                 insecure_ssl=oms_insecure_ssl,
             )
-        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
-        self.vault = vault or DepositVault(chain_id=self.chain_id)
+        self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
+        self.vault = vault or DepositVault(chain_id=self.chain_id, backend=self.backend)
 
         # NOTE: The user may want to use a different 'vault' instance for settling,
         #       like if following the demo-algo settler service which uses a proxy
         #       for the actual `.executeAtomicSettlement()` call because of the cb.
         self.settlement_vault = settlement_vault or self.vault
         self.logger = get_logger()
+
+        self._approval_handling_tasks = {}
+
+    async def cleanup_tasks(self):
+        """Cancel all pending approval-handling tasks and await their completion."""
+        all_tasks = [
+            task
+            for user_tasks in self._approval_handling_tasks.values()
+            for task in user_tasks.values()
+        ]
+        for task in all_tasks:
+            task.cancel()
+
+        for task in all_tasks:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        self._approval_handling_tasks.clear()
 
     def _user_clients(self) -> "Iterable[BaseClient]":
         # OMS first: it is the signer registry the T+ frontend resolves accounts against.
@@ -102,13 +121,14 @@ class SettlementManager(ChainSigningManager):
     @cached_property
     def deposits(self) -> DepositManager:
         return DepositManager(
-            self.ape_account,
+            self.account,
             # Hand over an unresolved user as "none given", so the child looks it up too
             # rather than inheriting the guess.
             None if self._derived_from is not None else self.default_user,
             vault=self.vault,
             chain_id=self.chain_id,
             clearing_engine=self.ce,
+            backend=self.backend,
         )
 
     @cached_property
@@ -117,11 +137,10 @@ class SettlementManager(ChainSigningManager):
             self.default_user,
             self.ce,
             self.chain_id,
+            backend=self.backend,
         )
 
-    async def deposit(
-        self, token: "str | AddressType | ContractInstance", amount: int, wait: bool = False
-    ):
+    async def deposit(self, token: Any, amount: int, wait: bool = False):
         # Resolve before `deposits` is built, so the child manager inherits the real account.
         await self.resolve_default_user()
         await self.deposits.deposit(token, amount, wait=wait)
@@ -290,7 +309,7 @@ class SettlementManager(ChainSigningManager):
         approval: SettlementApproval,
         user: "UserLike | None" = None,
         **kwargs,
-    ) -> "ReceiptAPI":
+    ) -> Any:
         """
         Execute a settlement on-chain using the provided approval.
 
@@ -311,7 +330,13 @@ class SettlementManager(ChainSigningManager):
         token_in_address = kwargs.pop("token_in", None)
         token_out_address = kwargs.pop("token_out", None)
 
-        kwargs.setdefault("sender", self.ape_account)
+        # Validate that the approval matches the expected nonce
+        if nonce != settlement_info.nonce:
+            raise ValueError(
+                f"Approval nonce {nonce} does not match expected nonce {settlement_info.nonce}"
+            )
+
+        kwargs.setdefault("sender", self.account)
         kwargs.setdefault("required_confirmations", 0)
 
         if token_in_address is None:

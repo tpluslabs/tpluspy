@@ -78,7 +78,7 @@ def _build_manager(
     vault = cast("DepositVault", DepositVault.at(vault_address)) if vault_address else None
     return SettlementManager(
         default_user=cli_ctx.load_user(),
-        ape_account=signer,
+        account=signer,
         oms_client=cli_ctx.orderbook_client(),
         vault=vault,
     )

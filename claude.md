@@ -5,20 +5,23 @@ Python client library for the T+ ecosystem. Provides:
 - Async REST + WebSocket clients for `tplus-core`'s order-management system, orderbook, and clearing engine.
 - Pydantic v2 models for the t+ wire protocol.
 - Ed25519 user-key signing (load/create/manage local keyfiles).
-- Optional Ape-based EVM contract layer for on-chain interactions (vaults, registry, deposits, approvals).
+- Optional EVM contract layer for on-chain interactions (vaults, registry, deposits, approvals) — runs on either web3.py or Ape.
 
 The Rust workspace it talks to lives at <https://github.com/tpluslabs/tplus-core> (currently vendored one directory up at `../` while the two trees still cohabit a single repo; eventually `tpluspy` will split into its own repo).
 
-## ⚠ The `[evm]` extras boundary — read this first
+## ⚠ The EVM extras boundary — read this first
 
-`tpluspy` ships in two tiers, and the split matters for **both users and contributors**:
+`tpluspy` ships in tiers, and the split matters for **both users and contributors**:
 
-- **Core install (`pip install tpluspy`)** — only the httpx-based REST/WS clients, Pydantic models, and Ed25519 user signing. `ape`, `eth-ape`, `ape-tokens`, `hexbytes` are **not** installed. Anything under `tplus/evm/` and any on-chain / contract code path will fail to import.
-- **EVM install (`pip install "tpluspy[evm]"`)** — adds the Ape framework and the typed-message helper deps. Required for: reading or writing t+ contracts (`tplus.evm.contracts`), vault / registry / deposit-vault interactions, anything that needs an Ethereum account.
+- **Core install (`pip install tpluspy`)** — only the httpx-based REST/WS clients, Pydantic models, and Ed25519 user signing. No `web3`, `eth-account`, `eip712`, `hexbytes`, `ape`, `eth-ape`, `ape-tokens`. Using anything in `tplus.evm` that actually touches a chain raises a clear "install `tpluspy[evm]`" error (the modules now *import* fine — backend resolution is lazy — but calling a contract needs a backend).
+- **`pip install "tpluspy[evm]"`** — adds **web3.py** (`web3`, `eth-account`, `eip712`, `eth-keys`, `hexbytes`) plus `click`. This is the web3-only backend; enough for everything in `tplus.evm` against a plain JSON-RPC node (set `WEB3_PROVIDER_URI`, read by `web3.auto`).
+- **`pip install "tpluspy[evm-ape]"`** — `tpluspy[evm]` **plus Ape** (`eth-ape`, `ape-tokens`). When Ape is installed and connected to a network, `tplus.evm` auto-detects it and uses it as the backend, so `ape console` / `ape run` work exactly as before.
 
-If the user's task only involves talking to a running `tplus-core` (placing orders, reading inventory, streaming trades, signing requests with their T+ key), the **core install is enough** — don't suggest `[evm]` and don't reach for `ape` imports. If the task touches chain state, require `[evm]`.
+`tplus.evm.contracts` (`Registry`/`DepositVault`/`CredentialManager`, the `registry`/`vault`/`credential_manager` singletons) and `tplus.evm.managers` are backend-neutral — the *same* API on either backend; only the chain I/O library differs. The backend lives behind `tplus.evm.backends` (`EVMBackend` ABC, `Web3Backend`, `ApeBackend`); resolve it with `tplus.evm.get_backend()` and override with `tplus.evm.use_web3(...)` / `tplus.evm.use_ape()`.
 
-When developing the library, treat `tplus/evm/` (and anything that imports `ape`/`hexbytes`) as optional. Never import those at module top-level from non-EVM code paths — guard with local imports inside the EVM-only branches, or keep the dependency contained inside `tplus/evm/`. Adding an unconditional `import ape` to a core module silently breaks every core-install user.
+If the user's task only involves talking to a running `tplus-core` (placing orders, reading inventory, streaming trades, signing requests with their T+ key), the **core install is enough** — don't suggest an EVM extra and don't reach for `web3`/`ape` imports. If the task touches chain state, require `[evm]` (or `[evm-ape]` if they want Ape).
+
+When developing the library, treat `tplus/evm/` (and anything that imports `web3`/`eth_account`/`ape`/`hexbytes`/`eip712`) as optional. Never import those at module top-level from non-EVM code paths — guard with local imports inside the EVM-only branches, or keep the dependency contained inside `tplus/evm/`. Inside `tplus/evm/`, only `tplus.evm.backends.web3` may import `web3` and only `tplus.evm.backends.ape` / `tplus.evm.backends._ape_project` may import `ape` — both lazily, inside functions, so `import tplus.evm.contracts` works with neither library installed.
 
 ______________________________________________________________________
 
@@ -66,7 +69,7 @@ Before answering anything non-trivial, prefer the user guides in `docs/userguide
 | Placing / replacing / cancelling / streaming orders  | [`docs/userguides/orders.md`](docs/userguides/orders.md)                       |
 | Clearing engine (deposits, settlements, etc.)        | [`docs/userguides/clearing-engine.md`](docs/userguides/clearing-engine.md)     |
 | Withdrawals                                          | [`docs/userguides/withdrawals.md`](docs/userguides/withdrawals.md)             |
-| EVM contracts (requires `[evm]`)                     | [`docs/userguides/contracts.md`](docs/userguides/contracts.md)                 |
+| EVM contracts (`[evm]` web3.py / `[evm-ape]` Ape)    | [`docs/userguides/contracts.md`](docs/userguides/contracts.md)                 |
 | Exception hierarchy                                  | [`docs/userguides/exceptions.md`](docs/userguides/exceptions.md)               |
 
 API reference pages live in `docs/methoddocs/` (autodoc'd from the source).
@@ -75,10 +78,11 @@ API reference pages live in `docs/methoddocs/` (autodoc'd from the source).
 
 ```shell
 pip install tpluspy              # core: REST/WS clients + Ed25519 signing only
-pip install "tpluspy[evm]"       # adds Ape + hexbytes for on-chain work
+pip install "tpluspy[evm]"       # adds web3.py for on-chain work
+pip install "tpluspy[evm-ape]"   # adds Ape on top of [evm]
 ```
 
-Pick the core install for pure tplus API work. Pick `[evm]` whenever the task involves t+ contracts, vaults, the asset registry, or deposits/withdrawals that touch chain. Without `[evm]` installed, importing anything from `tplus.evm` will fail with `ModuleNotFoundError` on `ape`.
+Pick the core install for pure tplus API work. Pick `[evm]` (web3.py) whenever the task involves t+ contracts, vaults, the asset registry, or deposits/withdrawals that touch chain; pick `[evm-ape]` instead if the user works in Ape. Both expose the same `tplus.evm` API. The web3.py backend reads its node URL from `WEB3_PROVIDER_URI` (or `tplus.evm.use_web3(rpc_url=...)`); the Ape backend is auto-detected when Ape is connected.
 
 ## The anchor objects
 
@@ -129,6 +133,7 @@ async with OrderBookClient(base_url="http://127.0.0.1:8000", default_user=user) 
 | Preview "close all positions" | `await client.get_close_all_positions_preview(sub_account_index=1)`                                            |
 | Transfer between sub-accounts | `await client.request_transfer_to_subaccount(source_index, target_index, asset, amount)`                       |
 | Stream order events           | `async for ev in client.stream_orders(): ...`                                                                  |
+| Stream my positions           | `async for update in client.stream_user_positions(): ...`                                                      |
 | Stream finalized trades       | `async for t in md_client.stream_finalized_trades(): ...` *(MarketDataClient)*                                  |
 | Stream depth diffs            | `async for d in md_client.stream_depth(asset_id): ...` *(MarketDataClient)*                                     |
 | Stream klines                 | `async for k in md_client.stream_klines(asset_id): ...` *(MarketDataClient)*                                    |
@@ -185,18 +190,20 @@ All on-the-wire quantities and prices are **integers in the book's native units*
 
 T+ uses its own **contract-defined signing scheme** across the board: Ed25519 over compact JSON (no spaces, sorted keys), produced by `User.sign()`. Every order, cancel, replace, transfer, approval, and settlement request carries this signature. On-chain payloads use a t+-specific structured-message variant of the same idea, also defined by the t+ contracts. There is no separate "wallet signing" path: an EVM-derived user signs requests with Ed25519 like any other — the wallet signature is only the seed the Ed25519 key is derived from.
 
-## Ape / EVM extra
+## EVM extra (web3.py or Ape)
 
-**Requires `pip install "tpluspy[evm]"`.** Without that extra, `tplus.evm` is unimportable and the library is effectively "httpx clients for tplus only".
+**Requires `pip install "tpluspy[evm]"`** (web3.py) **or `pip install "tpluspy[evm-ape]"`** (Ape). Without an EVM extra, calling into `tplus.evm` against a chain raises a clear "install `tpluspy[evm]`" error.
+
+web3.py backend — point it at a node via `WEB3_PROVIDER_URI` (or `tplus.evm.use_web3(rpc_url=...)`):
 
 ```python
-# Requires `pip install "tpluspy[evm]"` and an active Ape network.
 from tplus.evm.contracts import vault, registry
-
+registry.admin()
 registry.getAssets()
+vault.getApprovedSettlers()
 ```
 
-Use Ape's network chooser, e.g. `ape console --network ethereum:sepolia:alchemy`. Any flow that loads an Ethereum account, reads/writes a vault, or interacts with the asset registry also requires this extra.
+Ape backend — auto-detected when Ape is connected; use Ape's network chooser, e.g. `ape console --network ethereum:sepolia:alchemy`. Any flow that loads an Ethereum account, reads/writes a vault, or hits the asset registry needs an EVM extra. Accounts passed to contract methods (`sender=`) and managers (`account=`) can be a hex private key, an `eth_account.LocalAccount`, or an Ape account.
 
 ## Examples to point users at
 
@@ -235,7 +242,7 @@ ______________________________________________________________________
   - `oms/` — OMS-admin endpoints.
 - `tplus/model/` — Pydantic v2 models mirroring the Rust wire types in `../messages/`. When adding a new one, mirror field names, order, and optionality exactly.
 - `tplus/utils/` — `signing.py`, `user/` (keyfile manager, Ed25519 model), `amount.py`, `decimals.py`, `domain.py` (t+ structured-message types used by on-chain payloads), order-payload builders (`limit_order.py`, `market_order.py`, `replace_order.py`).
-- `tplus/evm/` — Ape integration: contract wrappers, manifests, address helpers. Mypy is intentionally disabled here (`pyproject.toml` overrides).
+- `tplus/evm/` — EVM integration: backend-neutral contract wrappers (`contracts.py`), managers (`managers/`), the bundled `manifests/`/`abis/`, address helpers, and `backends/` (`base.py` ABC, `web3.py`, `ape.py`, `_ape_project.py`). Mypy is intentionally disabled here (`pyproject.toml` overrides).
 - `tplus/managers/` — manager base classes used by higher-level orchestration.
 - `tplus/_cli/`, `tplus/cli_tools/` — CLI entry points.
 - `tests/` — `pytest` suite mirroring the package layout. `tests/integration/` hits live services.
@@ -244,7 +251,7 @@ ______________________________________________________________________
 ## Dev workflow
 
 ```shell
-uv pip install -e ".[test,lint,evm,docs]"
+uv pip install -e ".[test,lint,evm-ape,docs]"   # 'evm-ape' includes 'evm'; use '[evm]' for the web3-only path
 ruff check tplus tests
 ruff format --check tplus tests
 mypy tplus
@@ -271,7 +278,7 @@ The user runs tests; **don't invoke `pytest` from agent sessions** unless explic
 - **Ruff** config in `pyproject.toml`: `line-length = 100`, double quotes, Google-style docstrings. Many `B/SIM/C/RET/TC` rules are intentionally off — don't reintroduce them.
 - **Imports**: `tplus` is first-party for isort.
 - **Errors**: raise the specific exception from `tplus.exceptions`. Don't swallow into generic `Exception`.
-- **`evm` extra is optional and load-bearing** — `ape`, `eth-ape`, `ape-tokens`, `hexbytes` are **not** installed for core users. Never import them at module top-level outside `tplus/evm/`. If a non-EVM module needs to *optionally* invoke EVM code, do a local import inside the function and either let the `ImportError` propagate with a clear message, or surface a check that tells the caller to `pip install "tpluspy[evm]"`. Adding an unconditional EVM import to `tplus/client/`, `tplus/model/`, or `tplus/utils/` silently breaks the core install.
+- **EVM extras are optional and load-bearing** — `web3`, `eth-account`, `eip712`, `eth-keys`, `hexbytes` (`[evm]`) and `eth-ape`, `ape-tokens` (`[evm-ape]`) are **not** installed for core users. Never import them at module top-level outside `tplus/evm/`. Inside `tplus/evm/`, keep `web3` confined to `backends/web3.py` and `ape` confined to `backends/ape.py` + `backends/_ape_project.py`, and import them lazily (inside functions) so `import tplus.evm.contracts` works with neither installed. If a non-EVM module needs to *optionally* invoke EVM code, do a local import inside the function and either let the `ImportError` propagate with a clear message, or surface a check that tells the caller to `pip install "tpluspy[evm]"`.
 - **Naming**: prefer `err` over `e` in `except` clauses.
 
 ## Style

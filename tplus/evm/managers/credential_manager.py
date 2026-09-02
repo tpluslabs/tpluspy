@@ -1,30 +1,28 @@
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from ape.utils.basemodel import ManagerAccessMixin
 from eip712 import EIP712Domain, EIP712Message
 from eth_abi import encode
 from eth_pydantic_types.abi import bytes32, uint256
 from eth_utils import keccak
 
-from tplus.evm.contracts import CredentialManager, DepositVault
+from tplus.evm.contracts import AddressType, CredentialManager, DepositVault
+from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.config import ChainConfig
 from tplus.model.types import ChainID
 from tplus.utils.timeout import wait_for_condition
 
 if TYPE_CHECKING:
-    from ape.api.accounts import AccountAPI
-    from ape.types.address import AddressType
-
     from tplus.client.clearingengine import ClearingEngineClient
     from tplus.client.oms.assetregistry import AssetRegistryClient
+    from tplus.evm.backends.base import EVMBackend
 
 
 OP_ADD_VAULT = keccak(b"OP_ADD_VAULT")
 
 
-def create_domain(credential_manager: "AddressType", chain_id: int | ChainID) -> EIP712Domain:
+def create_domain(credential_manager: AddressType, chain_id: int | ChainID) -> EIP712Domain:
     if isinstance(chain_id, ChainID):
         chain_id = chain_id.vm_id
 
@@ -49,27 +47,30 @@ def create_action(
     return Action(opType=op_type, paramsHash=params_hash, nonce=nonce)
 
 
-def sort_accounts(accounts: list["AccountAPI"]) -> list["AccountAPI"]:
-    return sorted(accounts, key=lambda a: int(a.address, 16))
+def sort_accounts(accounts: list) -> list:
+    return sorted(accounts, key=lambda a: int(getattr(a, "address", a), 16))
 
 
-class CredentialManagerOwner(ManagerAccessMixin):
+class CredentialManagerOwner(ChainConnectedManager):
     """
     Owner utilities for the credential manager
     """
 
     def __init__(
         self,
-        admin: "AddressType",
-        signers: list["AccountAPI"],
+        admin: AddressType,
+        signers: list,
         credential_manager: CredentialManager | None = None,
         chain_id: ChainID | None = None,
         clearing_engine: "ClearingEngineClient | None" = None,
         asset_registry_client: "AssetRegistryClient | None" = None,
+        *,
+        backend: "EVMBackend | None" = None,
     ):
+        self._set_backend(backend)
         self.admin = admin
-        self.signers = signers
-        self.chain_id = chain_id or ChainID.evm(self.chain_manager.chain_id)
+        self.signers = [self.backend.get_account(s) for s in signers]
+        self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
 
         if credential_manager is not None:
             self.credential_manager = credential_manager
@@ -77,9 +78,11 @@ class CredentialManagerOwner(ManagerAccessMixin):
             # Prefer the CE-registered deployment so we don't accidentally trip
             # the local-network auto-redeploy path.
             try:
-                self.credential_manager = CredentialManager.from_ce_address()
+                self.credential_manager = CredentialManager.from_ce_address(backend=self.backend)
             except ValueError:
-                self.credential_manager = CredentialManager(chain_id=self.chain_id)
+                self.credential_manager = CredentialManager(
+                    chain_id=self.chain_id, backend=self.backend
+                )
 
         self.ce = clearing_engine
         self.asset_registry = asset_registry_client
@@ -109,15 +112,15 @@ class CredentialManagerOwner(ManagerAccessMixin):
             tx_kwargs: Additional tx kwargs.
 
         Returns:
-            ReceiptAPI
+            The transaction receipt.
         """
         if isinstance(vault, DepositVault):
             vault = vault.chain_address
 
         sender = tx_kwargs["sender"]
-        if sender == self.admin:
-            signers = []
-            signatures = []
+        if self._is_admin(sender):
+            signers: list = []
+            signatures: list = []
         else:
             params_hash = self._encode_add_vault_params(vault, chain_config)
             signers = sort_accounts(self.signers)
@@ -150,6 +153,12 @@ class CredentialManagerOwner(ManagerAccessMixin):
 
         return tx
 
+    def _is_admin(self, sender: Any) -> bool:
+        try:
+            return self.backend.convert_address(sender) == self.backend.convert_address(self.admin)
+        except Exception:
+            return getattr(sender, "address", sender) == self.admin
+
     def _encode_add_vault_params(self, vault: ChainAddress, chain_config: ChainConfig) -> bytes:
         encoded = encode(
             ["uint256", "uint256", "address", "(" + ",".join(chain_config.abi_types) + ")"],
@@ -175,8 +184,8 @@ class CredentialManagerOwner(ManagerAccessMixin):
 
         signatures = []
         for acct in signers[:count]:
-            if signature := acct.sign_message(action):
-                signatures.append(signature.encode_rsv())
+            if signature := self.backend.sign_message(acct, action):
+                signatures.append(signature)
 
         return signatures
 
