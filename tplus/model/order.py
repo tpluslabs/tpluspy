@@ -209,15 +209,29 @@ class BaseOrderEvent(BaseModel):
 
 
 class OrderCreatedEvent(BaseOrderEvent):
+    """``OrderEvent::Created`` -- the OMS sends the full book ``Order``."""
+
     event_type: Literal["CREATED"]
     user_order: Order
     signature: list[int]
     book_timestamp_ns: int
     limit_overrides: Any | None = None
     limit_overrides_signature: Any | None = None
+    amend_overrides: Any | None = None
+    trigger_touched: bool | None = None
+    is_liquidation: bool = False
+    is_auto_deleverage: bool = False
+
+    @property
+    def order_id(self) -> str:
+        return self.user_order.order_id
 
 
 class OrderUpdatedEvent(BaseOrderEvent):
+    """Legacy ``{"type": "updated", ...}`` shape. The OMS ``/orders`` stream never
+    emits it (fills are reported on ``/trades/user/events``); kept for callers that
+    constructed it themselves."""
+
     event_type: Literal["UPDATED"]
     order_id: str
     status: str
@@ -227,15 +241,25 @@ class OrderUpdatedEvent(BaseOrderEvent):
 
 
 class OrderCancelledEvent(BaseOrderEvent):
+    """``OrderEvent::Canceled`` (``orderbook_messages::events::OrderCanceled``)."""
+
     event_type: Literal["CANCELED"]
     order_id: str
     asset_id: AssetIdentifier
     user_id: str
     timestamp_ns: int
+    operator_pubkey: str | None = None
+    initial_receive_timestamp_ns: int | None = None
     reason: str | None = None
 
 
 class OrderRemovedEvent(BaseOrderEvent):
+    """``OrderEvent::Removed`` (``orderbook_messages::events::OrderRemoved``).
+
+    ``reason`` is one of ``Completed``, ``Canceled``, ``Expired``, ``Rejected``,
+    ``SelfTradePrevented``.
+    """
+
     event_type: Literal["REMOVED"]
     order_id: str
     asset_id: AssetIdentifier
@@ -248,15 +272,50 @@ class OrderRemovedEvent(BaseOrderEvent):
     filled_amount: int = 0
     confirmed_amount: int = 0
     book_quantity_decimals: int = 0
+    initial_receive_timestamp_ns: int | None = None
 
 
 class OrderReplacedEvent(BaseOrderEvent):
+    """``OrderEvent::Replaced`` (``orderbook_messages::events::OrderUpdated``)."""
+
     event_type: Literal["REPLACED"]
     order_id: str
     asset_id: AssetIdentifier
     user_id: str
     new_quantity: int
     new_price: int
+    timestamp_ns: int | None = None
+    authorization_revision: int = 0
+    operator_pubkey: str | None = None
+    initial_receive_timestamp_ns: int | None = None
+
+
+class OrderAmendedEvent(BaseOrderEvent):
+    """``OrderEvent::Amended`` (``orderbook_messages::events::OrderAmended``)."""
+
+    event_type: Literal["AMENDED"]
+    order_id: str
+    asset_id: AssetIdentifier
+    user_id: str
+    new_quantity: int
+    remaining_quantity: int
+    authorization_revision: int = 0
+    book_quantity_decimals: int = 0
+    timestamp_ns: int | None = None
+    operator_pubkey: str | None = None
+
+
+class OrderTriggeredEvent(BaseOrderEvent):
+    """``OrderEvent::Triggered`` (``orderbook_messages::events::OrderTriggered``)."""
+
+    event_type: Literal["TRIGGERED"]
+    order_id: str
+    asset_id: AssetIdentifier
+    user_id: str
+    timestamp_ns: int
+    quantity: int
+    trigger_touched: bool
+    operator_pubkey: str | None = None
 
 
 class OrderCreateFailedEvent(BaseOrderEvent):
@@ -268,6 +327,13 @@ class OrderCreateFailedEvent(BaseOrderEvent):
 
 class OrderReplaceFailedEvent(BaseOrderEvent):
     event_type: Literal["REPLACEFAILED"]
+    order_id: str
+    user_id: str
+    reason: str | None = None
+
+
+class OrderAmendFailedEvent(BaseOrderEvent):
+    event_type: Literal["AMENDFAILED"]
     order_id: str
     user_id: str
     reason: str | None = None
@@ -286,8 +352,11 @@ OrderEvent = (
     | OrderCancelledEvent
     | OrderRemovedEvent
     | OrderReplacedEvent
+    | OrderAmendedEvent
+    | OrderTriggeredEvent
     | OrderCreateFailedEvent
     | OrderReplaceFailedEvent
+    | OrderAmendFailedEvent
     | OrderCancelFailedEvent
 )
 
@@ -298,28 +367,64 @@ _EVENT_TYPE_MODEL_MAP: dict[str, type[BaseOrderEvent]] = {
     "CANCELED": OrderCancelledEvent,
     "REMOVED": OrderRemovedEvent,
     "REPLACED": OrderReplacedEvent,
+    "AMENDED": OrderAmendedEvent,
+    "TRIGGERED": OrderTriggeredEvent,
     "CREATEFAILED": OrderCreateFailedEvent,
     "REPLACEFAILED": OrderReplaceFailedEvent,
+    "AMENDFAILED": OrderAmendFailedEvent,
     "CANCELFAILED": OrderCancelFailedEvent,
 }
 
 
-def parse_order_event(data: dict[str, Any]) -> OrderEvent:
-    type_key = data.get("type") if isinstance(data, dict) else None
-    if not isinstance(type_key, str):
-        logger.error("Invalid order event structure: missing 'type' field. Data: %s", data)
-        raise ValueError(f"Invalid order event structure: missing 'type' field, got {data}")
+def _normalise_event_type(raw: str) -> str:
+    return raw.replace("_", "").upper()
 
-    event_type_upper = type_key.replace("_", "").upper()
+
+def _split_order_event(data: Any) -> tuple[str, dict[str, Any]]:
+    """Return ``(event_type, fields)`` for either wire shape of an order event.
+
+    The OMS ``/orders`` stream serializes the Rust ``tplus_client::OrderEvent`` enum
+    with serde's default *external* tagging -- one key naming the variant, whose
+    value holds the fields: ``{"Removed": {"order_id": ..., ...}}``. The older
+    internally tagged form ``{"type": "removed", "order_id": ...}`` is still accepted.
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid order event structure: expected an object, got {data!r}")
+
+    type_key = data.get("type")
+    if isinstance(type_key, str):
+        return _normalise_event_type(type_key), {k: v for k, v in data.items() if k != "type"}
+
+    if len(data) == 1:
+        (variant, fields), *_ = data.items()
+        if isinstance(variant, str) and _normalise_event_type(variant) in _EVENT_TYPE_MODEL_MAP:
+            if not isinstance(fields, dict):
+                raise ValueError(
+                    f"Invalid order event structure: variant {variant!r} payload is not an "
+                    f"object, got {fields!r}"
+                )
+            return _normalise_event_type(variant), fields
+
+    raise ValueError(
+        "Invalid order event structure: expected {'type': ...} or a single-variant "
+        f"object such as {{'Removed': {{...}}}}, got {data!r}"
+    )
+
+
+def parse_order_event(data: Any) -> OrderEvent:
+    try:
+        event_type_upper, fields = _split_order_event(data)
+    except ValueError:
+        logger.error("Invalid order event structure. Data: %s", data)
+        raise
+
     model_cls = _EVENT_TYPE_MODEL_MAP.get(event_type_upper)
     if model_cls is None:
-        logger.error("Unrecognised order event type '%s'", type_key)
-        raise ValueError(f"Unknown order event type: {type_key}")
-
-    model_input = {"event_type": event_type_upper, **{k: v for k, v in data.items() if k != "type"}}
+        logger.error("Unrecognised order event type '%s'", event_type_upper)
+        raise ValueError(f"Unknown order event type: {event_type_upper}")
 
     try:
-        return model_cls(**model_input)  # type: ignore[return-value]
+        return model_cls(event_type=event_type_upper, **fields)  # type: ignore[return-value]
     except ValidationError as ve:
         logger.error(
             "Validation error while parsing order event %s with model %s: %s. Payload: %s",
