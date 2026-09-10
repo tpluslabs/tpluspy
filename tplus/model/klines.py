@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from tplus.model.pagination import PageContinuation
+
 
 class Interval(str, Enum):
     """Kline bucket width, mirroring `orderbook_messages::interval::Interval`.
@@ -65,16 +67,10 @@ class Timebar(BaseModel):
         )
 
 
-class KlinesPage(BaseModel):
-    """One page of klines plus pagination metadata."""
+class KlinesPage(PageContinuation):
+    """One page of klines plus continuation metadata."""
 
     items: list[Timebar]
-    page: int
-    limit: int
-    total_pages: int
-    cursor_size: int
-    has_next_page: bool
-    next_page: int | None = None
     truncated_before_ns: int | None = None
 
 
@@ -102,22 +98,10 @@ def parse_klines_page(data: dict[str, Any] | list[dict[str, Any]]) -> KlinesPage
     """Parse the `/klines` page envelope, tolerating a bare list from older servers."""
     if isinstance(data, list):
         items = parse_timebars(data)
-        count = len(items)
-        return KlinesPage(
-            items=items,
-            page=0,
-            limit=count,
-            total_pages=1 if count else 0,
-            cursor_size=count,
-            has_next_page=False,
-        )
+        return KlinesPage(items=items)
 
     return KlinesPage(
         items=parse_timebars(data.get("items", [])),
-        page=int(data.get("page", 0)),
-        limit=int(data.get("limit", 0)),
-        total_pages=int(data.get("total_pages", 0)),
-        cursor_size=int(data.get("cursor_size", 0)),
         has_next_page=bool(data.get("has_next_page", False)),
         next_page=data.get("next_page"),
         truncated_before_ns=data.get("truncated_before_ns"),

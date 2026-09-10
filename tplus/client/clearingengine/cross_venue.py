@@ -15,11 +15,16 @@ class CrossVenueClient(BaseClearingEngineClient):
 
         User-authenticated: the query is signed with ``user``'s key, so a user
         can only read their own venue state. Returns
-        ``{venue_present, allocation_bps, assigned_to, locked, usd_balance}`` —
-        ``venue_present`` flips true once the adapter binding reaches the CE,
-        ``allocation_bps`` is non-zero once the credit line is applied, and
-        ``assigned_to`` is its sub-account index under ``user`` (or ``None``
+        ``{venue_present, allocation_bps, assigned_to, locked, usd_balance,
+        limit}`` — ``venue_present`` flips true once the adapter binding reaches
+        the CE, ``allocation_bps`` is non-zero once the credit line is applied,
+        and ``assigned_to`` is its sub-account index under ``user`` (or ``None``
         before a credit line exists).
+
+        ``limit`` is the operator cap this pair's margin is charged against, a
+        base-10 string in 1e18 decimals. It is never absent: an unconfigured
+        pair reports the default it will be created with, so the answer is
+        always "what will margin charge against", not "has anyone set one".
         """
         user = self._resolve_user(user)
         ts = time.time_ns()

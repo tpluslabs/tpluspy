@@ -26,10 +26,6 @@ def _bar(open_ns: int) -> dict[str, Any]:
 def _page(opens: list[int], has_next: bool, truncated: int | None = None) -> dict[str, Any]:
     page: dict[str, Any] = {
         "items": [_bar(open_ns) for open_ns in opens],
-        "page": 0,
-        "limit": 2,
-        "total_pages": 1,
-        "cursor_size": len(opens),
         "has_next_page": has_next,
     }
     if truncated is not None:

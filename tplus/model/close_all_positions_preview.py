@@ -39,7 +39,13 @@ def parse_unsigned_close_order(data: dict) -> UnsignedCloseOrder:
             if data.get("suggested_max_sellable_amount") is not None
             else None
         ),
-        oracle_price=Decimal(data["oracle_price"]),
+        # The OMS omits the oracle price for assets without a live oracle
+        # reading (null on prod for several close orders); the field is
+        # optional and Decimal(None) raises TypeError, which aborted every
+        # close-all caller (tplus_hl_mm auto-flatten, 2026-09-03).
+        oracle_price=(
+            Decimal(data["oracle_price"]) if data.get("oracle_price") is not None else None
+        ),
         book_price_decimals=int(data["book_price_decimals"]),
         book_quantity_decimals=int(data["book_quantity_decimals"]),
         sub_account_index=int(data["sub_account_index"]),

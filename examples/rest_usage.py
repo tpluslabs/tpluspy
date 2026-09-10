@@ -96,10 +96,9 @@ async def main() -> None:
 
         klines = await md_client.get_klines(EXAMPLE_ASSET, limit=20)
         logger.info(
-            "Got %d klines (page %d of %d)",
+            "Got %d klines%s",
             len(klines.items),
-            klines.page,
-            klines.total_pages,
+            " with another page" if klines.has_next_page else "",
         )
 
         # ---------------- cancel the resting limit order ----------------

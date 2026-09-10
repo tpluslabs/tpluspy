@@ -1,6 +1,20 @@
+from collections.abc import Sequence
+
 from tplus.client.auth import AuthenticatedClient
 from tplus.model.asset_identifier import AssetAddress
 from tplus.model.chain_address import ChainAddress
+
+
+def _prep_request(assets: Sequence[str | AssetAddress]) -> dict:
+    payload_assets: list[dict] = []
+    for asset in assets:
+        if isinstance(asset, AssetAddress):
+            # Already validated.
+            payload_assets.append(asset.model_dump())
+        else:
+            payload_assets.append(AssetAddress.model_validate(asset).model_dump())
+
+    return {"assets": payload_assets}
 
 
 class AssetRegistryClient(AuthenticatedClient):
@@ -35,38 +49,24 @@ class AssetRegistryClient(AuthenticatedClient):
             raise TypeError(f"Expected list response for netting parameters, got: {type(response)}")
         return response
 
-    async def get_asset_decimals(self, assets: list[str | AssetAddress | ChainAddress]) -> dict:
+    async def get_asset_decimals(self, assets: list[str | AssetAddress]) -> dict:
         """
         Get cached decimals for the given assets (`POST /registry/decimals`).
         """
-        payload_assets: list[dict] = []
-        for asset in assets:
-            if isinstance(asset, ChainAddress):
-                payload_assets.append(asset.model_dump())
-            else:
-                payload_assets.append(AssetAddress.model_validate(asset).model_dump())
-
         return await self._post(
             "registry/decimals",
-            json_data={"assets": payload_assets},
+            json_data=_prep_request(assets),
             requires_auth=False,
         )
 
-    async def update_asset_decimals(self, assets: list[str | AssetAddress | ChainAddress]) -> None:
+    async def update_asset_decimals(self, assets: list[str | AssetAddress]) -> None:
         """
         Trigger decimals refresh (`POST /registry/decimals/update`).
         Note: max asset count per request is 100
         """
-        payload_assets: list[dict] = []
-        for asset in assets:
-            if isinstance(asset, ChainAddress):
-                payload_assets.append(asset.model_dump())
-            else:
-                payload_assets.append(AssetAddress.model_validate(asset).model_dump())
-
         await self._post(
             "registry/decimals/update",
-            json_data={"assets": payload_assets},
+            json_data=_prep_request(assets),
             requires_auth=True,
         )
 

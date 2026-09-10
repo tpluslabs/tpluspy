@@ -1,3 +1,4 @@
+import struct
 from functools import cached_property
 from typing import Any
 
@@ -85,6 +86,10 @@ def validate_chain_address(chain_address: str) -> str:
     raise ValueError("Invalid ChainAddress")
 
 
+def _bincode_hex_field(value: str) -> bytes:
+    return struct.pack("<Q", len(value)) + value.encode("ascii")
+
+
 class ChainAddress(RootModel[str]):
     """
     Identifies an address on a chain in format hex_address@hex_chain.
@@ -112,6 +117,10 @@ class ChainAddress(RootModel[str]):
     def __str__(self) -> str:
         return str(self.root)
 
+    def __bytes__(self) -> bytes:
+        """The bincode form: each half as a length-prefixed hex string."""
+        return _bincode_hex_field(self.address) + _bincode_hex_field(self.chain_hex)
+
     def __contains__(self, key: Any) -> bool:
         if isinstance(key, str):
             return self._contains_address_str(key)
@@ -123,6 +132,9 @@ class ChainAddress(RootModel[str]):
 
     def __eq__(self, other: Any) -> bool:
         return f"{other}" == f"{self}"
+
+    def __hash__(self) -> int:
+        return hash(str(self))
 
     def _contains_address_str(self, value: str) -> bool:
         key_str = value.removeprefix("0x")
@@ -166,8 +178,12 @@ class ChainAddress(RootModel[str]):
             raise ValueError(f"Invalid address '{address}'") from err
 
     @cached_property
+    def chain_hex(self) -> str:
+        return self.root.split("@", 1)[1]
+
+    @cached_property
     def chain_id(self) -> ChainID:
-        return ChainID(self.root.split("@")[-1])
+        return ChainID(self.chain_hex)
 
     @property
     def address_bytes(self) -> HexBytes32:

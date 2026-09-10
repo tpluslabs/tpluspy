@@ -19,6 +19,8 @@ class TestChainAddress:
             chain_address.address
             == "62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000"
         )
+        assert chain_address.chain_hex == "000000000000aa36a7"
+        assert f"{chain_address.address}@{chain_address.chain_hex}" == str(chain_address)
 
     def test_evm_address(self, chain_address):
         """
@@ -42,6 +44,7 @@ class TestChainAddress:
         )
         assert chain_address.chain_id.vm_id == 42161
         assert chain_address.chain_id.routing_id == 0
+        assert chain_address.chain_hex == "00000000000000a4b1"
 
     def test_model_validate_vault_entry_dict_non_evm(self):
         entry = {"chainId": 101, "routingId": 1, "address": f"0x{'ab' * 32}"}
@@ -49,3 +52,5 @@ class TestChainAddress:
         assert str(chain_address) == f"{'ab' * 32}@010000000000000065"
         assert chain_address.chain_id.vm_id == 101
         assert chain_address.chain_id.routing_id == 1
+        assert chain_address.address == "ab" * 32
+        assert chain_address.chain_hex == "010000000000000065"

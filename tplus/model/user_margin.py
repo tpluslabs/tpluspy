@@ -64,6 +64,47 @@ class MarginWarning(BaseModel):
     asset: str | None = None
 
 
+class AssetNettingInfo(BaseModel):
+    """
+    Per-asset netting picture from the engine's liquidation decomposition.
+
+    Present only for assets with a netting row in effect or an offset consumed.
+    Quantities are decimals in asset units; ``closeout`` is the quote value
+    charged; the rates are ppm as configured on the native row.
+    """
+
+    asset_id: str
+    gross_long: Decimal
+    gross_short: Decimal
+    offset_long: Decimal
+    offset_short: Decimal
+    residual_long: Decimal
+    residual_short: Decimal
+    closeout: Decimal
+    residual_ppm: int | None = None
+    cost_ppm: int | None = None
+
+
+class MarginCallInfo(BaseModel):
+    """
+    An open margin call on one venue's offsets.
+
+    The sub-account is below maintenance margin with nothing it can close --
+    every position is paired against a venue -- so it has until ``deadline_ns``
+    to post collateral. Past that the venue stops granting offsets and ordinary
+    liquidation applies.
+
+    Attributes:
+        venue: Venue whose offsets are called.
+        started_at_ns: When the call was first recorded.
+        deadline_ns: When the venue's offsets lapse.
+    """
+
+    venue: int
+    started_at_ns: int
+    deadline_ns: int
+
+
 class AccountMarginInfo(BaseModel):
     """
     Margin breakdown for a single sub-account.
@@ -93,6 +134,9 @@ class AccountMarginInfo(BaseModel):
 
         is_liquidatable: Whether the account can be liquidated.
 
+        margin_calls: Open margin calls, one per called venue. Empty for a
+            healthy account.
+
         positions: Per-position breakdown (only present if include_positions=True).
             Contains size and notional value for each position.
     """
@@ -108,6 +152,8 @@ class AccountMarginInfo(BaseModel):
     total_upnl: Decimal
     im_surplus: Decimal | None
     net_apy: Decimal | None
+    margin_calls: list[MarginCallInfo] = []
+    netting: list[AssetNettingInfo] | None = None
     positions: list[PositionMarginInfo] | None = None
 
 
@@ -170,6 +216,12 @@ def parse_account_margin_info(data: dict) -> AccountMarginInfo:
         total_upnl=Decimal(data["total_upnl"]),
         im_surplus=im_surplus,
         net_apy=net_apy,
+        margin_calls=[MarginCallInfo(**c) for c in data.get("margin_calls", [])],
+        netting=(
+            [AssetNettingInfo(**n) for n in data["netting"]]
+            if data.get("netting") is not None
+            else None
+        ),
         positions=positions,
     )
 

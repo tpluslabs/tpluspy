@@ -17,8 +17,7 @@ from tplus.model.trades import (
 def _user_trade(trade_id: int, timestamp_ns: int) -> dict:
     return {
         "asset_id": "1",
-        "trade_id": trade_id,
-        "order_id": "oid",
+        "order_id": f"oid-{trade_id}",
         "price": "100",
         "quantity": "1",
         "timestamp_ns": timestamp_ns,
@@ -26,6 +25,10 @@ def _user_trade(trade_id: int, timestamp_ns: int) -> dict:
         "is_buyer": True,
         "status": "Confirmed",
         "rollback_reason": None,
+        "is_liquidation": False,
+        "is_auto_deleverage": False,
+        "sub_account": 1,
+        "trading_fee": "0.1",
     }
 
 
@@ -33,24 +36,17 @@ def test_parse_user_trades_page_parses_envelope():
     page = parse_user_trades_page(
         {
             "trades": [_user_trade(2, 300), _user_trade(1, 100)],
-            "page": 0,
-            "limit": 2,
-            "total_trades": 5,
-            "total_pages": 3,
-            "cursor_size": 2,
             "has_next_page": True,
             "next_page": 1,
         }
     )
-    assert [t.trade_id for t in page.trades] == [2, 1]
-    assert page.total_trades == 5
+    assert [t.order_id for t in page.trades] == ["oid-2", "oid-1"]
     assert page.has_next_page is True
     assert page.next_page == 1
 
 
 def test_parse_user_trades_page_tolerates_bare_list():
     page = parse_user_trades_page([_user_trade(1, 100)])
-    assert page.total_trades == 1
     assert page.has_next_page is False
     assert page.next_page is None
 
@@ -58,8 +54,8 @@ def test_parse_user_trades_page_tolerates_bare_list():
 def test_user_trades_page_is_list_like():
     page = parse_user_trades_page([_user_trade(2, 300), _user_trade(1, 100)])
     assert len(page) == 2
-    assert [t.trade_id for t in page] == [2, 1]
-    assert page[0].trade_id == 2
+    assert [t.order_id for t in page] == ["oid-2", "oid-1"]
+    assert page[0].order_id == "oid-2"
     assert page == page.trades
     assert bool(page)
 

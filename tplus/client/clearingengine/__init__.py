@@ -6,7 +6,6 @@ from tplus.client.clearingengine.admin_settlement import AdminSettlementClient
 from tplus.client.clearingengine.assetregistry import AdminAssetRegistryClient
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.client.clearingengine.cross_venue import CrossVenueClient
-from tplus.client.clearingengine.decimal import DecimalClient
 from tplus.client.clearingengine.vault import VaultClient
 
 if TYPE_CHECKING:
@@ -36,13 +35,6 @@ class ClearingEngineClient(BaseClearingEngineClient):
         Admin APIs related to registered assets.
         """
         return AdminAssetRegistryClient.from_client(self)
-
-    @cached_property
-    def decimals(self) -> DecimalClient:
-        """
-        APIs related to decimals.
-        """
-        return DecimalClient.from_client(self)
 
     @cached_property
     def vaults(self) -> VaultClient:

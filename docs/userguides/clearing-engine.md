@@ -25,7 +25,6 @@ The CE client groups its API into sub-clients exposed as cached properties:
 | `ce.deposits`    | {py:class}`tplus.client.clearingengine.deposit.DepositClient`             | Triggering deposit-vault rescans.                                        |
 | `ce.withdrawals` | {py:class}`tplus.client.clearingengine.withdrawal.WithdrawalClient`       | Cancel / queue / signatures.                                             |
 | `ce.assets`      | {py:class}`tplus.client.clearingengine.assetregistry.AssetRegistryClient` | Asset registry queries.                                                  |
-| `ce.decimals`    | {py:class}`tplus.client.clearingengine.decimal.DecimalClient`             | Decimal normalization helpers.                                           |
 | `ce.vaults`      | {py:class}`tplus.client.clearingengine.vault.VaultClient`                 | Vault registration + balance refresh.                                    |
 | `ce.admin`       | {py:class}`tplus.client.clearingengine.admin.AdminClient`                 | Admin/test-only endpoints.                                               |
 

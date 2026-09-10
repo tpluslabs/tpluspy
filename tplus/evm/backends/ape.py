@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ape.api.convert import ConvertibleAPI
+from ape.contracts.base import ContractContainer, ContractInstance
 from ape.exceptions import ContractLogicError as ApeContractLogicError
 from ape.types.address import AddressType
 from ape.utils.basemodel import ManagerAccessMixin
-from ethpm_types import ContractType
+from ethpm_types import Bytecode, ContractType
 
 from tplus.evm.abi import get_erc20_abi
 from tplus.evm.backends._ape_project import load_tplus_contracts_project
 from tplus.evm.backends.base import ContractHandle, EVMBackend, _vm_id
 from tplus.evm.exceptions import ContractLogicError, ContractNotExists
-
-if TYPE_CHECKING:
-    from ape.contracts.base import ContractInstance
 
 # EVM chain id -> Ape network choice (used by ``connect_to``).
 CHAIN_MAP = {
@@ -136,9 +134,12 @@ class ApeBackend(EVMBackend):
         self, name: str, address: str, *, abi: list[dict[str, Any]] | None = None
     ) -> ApeContractHandle:
         if abi is not None:
-            contract_type = ContractType(contractName=name, abi=abi)  # type: ignore[arg-type]
-            instance = ManagerAccessMixin.chain_manager.contracts.instance_at(
-                address, contract_type=contract_type
+            # Built directly rather than through `instance_at`, which treats the type it is handed
+            # as a default and lets a cached one for this address win.
+            contract_type = ContractType(contractName=name, abi=abi)
+            instance = ContractInstance(
+                ManagerAccessMixin.conversion_manager.convert(address, AddressType),
+                contract_type,
             )
             return ApeContractHandle(self, name, instance)
 
@@ -169,10 +170,19 @@ class ApeBackend(EVMBackend):
         if sender is None:
             sender = self.default_test_account()
 
-        version = kwargs.get("tplus_contracts_version")
-        container = self._tplus_project(version=version).contracts.get(name)
-        if container is None:
-            raise ContractNotExists(f"Missing contract '{name}' from tplus contracts project.")
+        if abi is not None and bytecode is not None:
+            container = ContractContainer(
+                ContractType(
+                    contractName=name,
+                    abi=abi,
+                    deploymentBytecode=Bytecode(bytecode=bytecode.hex()),
+                )
+            )
+        else:
+            version = kwargs.get("tplus_contracts_version")
+            container = self._tplus_project(version=version).contracts.get(name)
+            if container is None:
+                raise ContractNotExists(f"Missing contract '{name}' from tplus contracts project.")
 
         instance = sender.deploy(container, *constructor_args)
         return ApeContractHandle(self, name, instance)

@@ -5,11 +5,13 @@ import contextlib
 import json
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
+from decimal import Decimal
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from pydantic import BaseModel
 
 from tplus.client.auth import AuthenticatedClient
 from tplus.client.base import page_params
@@ -31,6 +33,11 @@ from tplus.model.close_all_positions_preview import (
     parse_close_all_preview,
 )
 from tplus.model.control import ControlWSFrame
+from tplus.model.intent import (
+    IntentAggregateUpdate,
+    IntentReport,
+    parse_intent_aggregate_update,
+)
 from tplus.model.limit_order import GTC, GTD, IOC
 from tplus.model.market import Market, MarketsPage, parse_market
 from tplus.model.market_order import (
@@ -115,6 +122,23 @@ def compute_remaining(order: OrderResponse) -> int:
     pending = int(order.pending_filled_quantity or 0)
     total_qty = int(order.quantity or 0)
     return max(0, total_qty - confirmed - pending)
+
+
+def encode_control_frame(
+    request_id: str, payload: "Mapping[str, Any]", *, exclude_none: bool = False
+) -> str:
+    """One ``/control`` frame, serializing the request model straight to JSON.
+
+    Going through ``model_dump()`` and then ``json.dumps()`` walks the whole request
+    twice; pydantic renders it once.
+    """
+    ((variant, request),) = payload.items()
+    body = (
+        request.model_dump_json(exclude_none=exclude_none)
+        if isinstance(request, BaseModel)
+        else json.dumps(request)
+    )
+    return f'{{"request_id":{json.dumps(request_id)},"data":{{{json.dumps(variant)}:{body}}}}}'
 
 
 class OrderBookClient(AuthenticatedClient):
@@ -313,7 +337,7 @@ class OrderBookClient(AuthenticatedClient):
             f"Sending Market Order (Asset {asset_id}): BaseQty={base_quantity}, QuoteQty={quote_quantity}, Side={side}, FOK={fill_or_kill}, OrderID={order_id}"
         )
         if self._use_ws_control:
-            payload = {"CreateOrderRequest": ob_request_payload.model_dump()}
+            payload = {"CreateOrderRequest": ob_request_payload}
             ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=15.0)
             return self._extract_operation_response(ws_resp)
         resp = await self._post(
@@ -379,7 +403,7 @@ class OrderBookClient(AuthenticatedClient):
             f"Sending Limit Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
         )
         if self._use_ws_control:
-            payload = {"CreateOrderRequest": signed_message.model_dump()}
+            payload = {"CreateOrderRequest": signed_message}
             ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=15.0)
             return self._extract_operation_response(ws_resp)
         resp = await self._post("/orders/create", json_data=signed_message.model_dump(), user=user)
@@ -504,7 +528,7 @@ class OrderBookClient(AuthenticatedClient):
         )
         self.logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
         if self._use_ws_control:
-            payload = {"CancelOrderRequest": signed_message.model_dump()}
+            payload = {"CancelOrderRequest": signed_message}
             ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=10.0)
             return self._extract_operation_response(ws_resp)
         resp = await self._delete(
@@ -564,9 +588,12 @@ class OrderBookClient(AuthenticatedClient):
             f"New Qty={new_quantity}, New Price={new_price}"
         )
         if self._use_ws_control:
-            payload = {"ReplaceOrderRequest": signed_message.model_dump(exclude_none=True)}
+            payload = {"ReplaceOrderRequest": signed_message}
             ws_resp = await self._control_ws_send(
-                payload, expected_order_id=original_order_id, timeout=15.0
+                payload,
+                expected_order_id=original_order_id,
+                timeout=15.0,
+                exclude_none=True,
             )
             result = self._extract_operation_response(ws_resp)
         else:
@@ -980,7 +1007,12 @@ class OrderBookClient(AuthenticatedClient):
         return str(variant), str(asset_id), str(oid)
 
     async def _control_ws_send(
-        self, payload: dict[str, Any], *, expected_order_id: str, timeout: float = 5.0
+        self,
+        payload: dict[str, Any],
+        *,
+        expected_order_id: str,
+        timeout: float = 5.0,
+        exclude_none: bool = False,
     ) -> dict[str, Any]:
         await self._ensure_control_ws()
         # If connection couldn't be established, fallback
@@ -992,12 +1024,16 @@ class OrderBookClient(AuthenticatedClient):
         request_id = uuid.uuid4().hex
         key = f"request:{request_id}"
         self._pending_control[key] = fut
-        await self._control_ws.send(json.dumps({"request_id": request_id, "data": payload}))
         try:
+            await self._control_ws.send(
+                encode_control_frame(request_id, payload, exclude_none=exclude_none)
+            )
             return await asyncio.wait_for(fut, timeout=timeout)
         finally:
-            # Ensure cleanup if timed out
+            # Ensure cleanup if the send raised or the wait timed out.
             self._pending_control.pop(key, None)
+            if not fut.done():
+                fut.cancel()
 
     async def _control_ws_send_batch(
         self, request: BatchCreateOrderRequest, *, timeout: float = 15.0
@@ -1285,9 +1321,9 @@ class OrderBookClient(AuthenticatedClient):
         """Stream typed user-activity events on `/account/events/{user_id}`.
 
         Each event is a `DepositLanded`, `WithdrawalCompleted`,
-        `PositionCleared`, or `SubAccountAssetTransferred` model carrying the
-        amount/chain/asset context the FE needs to render notifications
-        without diffing balance state. Liquidation fills surface as
+        `PositionCleared`, `SubAccountAssetTransferred`, or `MarginCallUpdated`
+        model carrying the context the FE needs to render notifications without
+        diffing balance state. Liquidation fills surface as
         `is_liquidation=True` on the user-trades stream rather than here.
 
         Args:
@@ -1419,6 +1455,58 @@ class OrderBookClient(AuthenticatedClient):
 
         parsed_data: UserMarginInfo = parse_user_margin_info(response_data)
         return parsed_data
+
+    async def report_intent(
+        self,
+        asset_id: AssetIdentifier,
+        *,
+        watching: bool,
+        quantity: Decimal | str | int = 0,
+        user: UserType | None = None,
+    ) -> dict[str, Any]:
+        """Report pre-trade intent for an asset (``POST /intent``).
+
+        Tells the OMS what this user is looking at and how much of it they are
+        contemplating, feeding the anonymous per-asset aggregate market makers
+        subscribe to via :meth:`stream_intent`.
+
+        Replace, not accumulate: this supersedes the user's previous report for
+        the same asset, so going from 5 to 10 moves the aggregate by +5. Pass
+        ``watching=False, quantity=0`` to withdraw.
+
+        Reports lapse after 60s server-side — call again to stay counted.
+
+        Not an order: nothing is matched, reserved, or margin-checked.
+        """
+        report = IntentReport(asset_id=asset_id, watching=watching, quantity=Decimal(str(quantity)))
+        self.logger.debug(f"Reporting intent: {report}")
+        return await self._post(
+            "/intent",
+            json_data={
+                "asset_id": str(report.asset_id),
+                "watching": report.watching,
+                "quantity": str(report.quantity),
+            },
+            user=user,
+        )
+
+    async def stream_intent(
+        self, user: UserType | None = None
+    ) -> AsyncIterator[IntentAggregateUpdate]:
+        """Stream the aggregated pre-trade intent feed (``GET /intent/ws``).
+
+        Market makers only: the OMS refuses the upgrade with 403 unless the
+        authenticated user is flagged ``is_mm``.
+
+        One update per asset that moved, once per 100ms window; an asset that
+        did not move is not sent. Each update carries running totals alongside
+        the window's delta, so there is no snapshot to fetch on connect.
+
+        The payload is market-wide and anonymous — it says demand exists, not
+        whose it is.
+        """
+        async for update in self._stream_ws("/intent/ws", parse_intent_aggregate_update, user=user):
+            yield update
 
     async def set_mds_export(self, enabled: bool, user: UserType | None = None) -> dict[str, Any]:
         """Set whether the user's trade history is exported to the market-data service.

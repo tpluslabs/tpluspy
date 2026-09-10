@@ -1,8 +1,9 @@
 import asyncio
+import json
 
 import pytest
 
-from tplus.client.orderbook import CONTROL_WS_PROTOCOL
+from tplus.client.orderbook import CONTROL_WS_PROTOCOL, encode_control_frame
 from tplus.exceptions import RateLimitError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import BatchCreateOrderRequest, BatchReplaceOrderRequest
@@ -256,3 +257,60 @@ async def test_control_ws_send_rate_limit_is_correlated_without_timeout(
 
     assert exc_info.value.status_code == 429
     assert exc_info.value.retryable is True
+
+
+@pytest.mark.anyio
+async def test_control_ws_send_cleans_pending_future_when_send_fails(
+    mocker, control_ws_client, control_ws
+):
+    mocker.patch.object(
+        control_ws, "send", new=mocker.AsyncMock(side_effect=RuntimeError("closed"))
+    )
+
+    with pytest.raises(RuntimeError, match="closed"):
+        await control_ws_client._control_ws_send(
+            {"CancelOrderRequest": {}}, expected_order_id="quote-1"
+        )
+
+    assert control_ws_client._pending_control == {}
+
+
+def test_encode_control_frame_matches_the_dict_it_replaces(control_user):
+    request = create_limit_order_ob_request_payload(
+        quantity=1_000,
+        price=10_500,
+        side="Buy",
+        signer=control_user,
+        book_quantity_decimals=3,
+        book_price_decimals=2,
+        asset_identifier=ASSET_ID,
+        order_id="frame-order",
+    )
+
+    frame = encode_control_frame("rid", {"CreateOrderRequest": request})
+
+    assert json.loads(frame) == {
+        "request_id": "rid",
+        "data": {"CreateOrderRequest": request.model_dump()},
+    }
+    # Pydantic renders without the padding `json.dumps` adds, so the frame is smaller too.
+    assert ", " not in frame
+
+
+def test_encode_control_frame_passes_exclude_none_to_the_model(control_user):
+    request = create_replace_order_ob_request_payload(
+        original_order_id="frame-order",
+        asset_identifier=ASSET_ID,
+        signer=control_user,
+        new_quantity=2_000,
+        new_price=10_600,
+        book_quantity_decimals=3,
+        book_price_decimals=2,
+    )
+
+    frame = encode_control_frame("rid", {"ReplaceOrderRequest": request}, exclude_none=True)
+
+    assert json.loads(frame) == {
+        "request_id": "rid",
+        "data": {"ReplaceOrderRequest": request.model_dump(exclude_none=True)},
+    }

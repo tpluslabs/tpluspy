@@ -22,3 +22,10 @@ class PageMeta(BaseModel):
             cursor_size=count,
             has_next_page=False,
         )
+
+
+class PageContinuation(BaseModel):
+    """Minimal metadata for endpoints that only promise a next page."""
+
+    has_next_page: bool = False
+    next_page: int | None = None

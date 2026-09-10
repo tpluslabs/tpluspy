@@ -11,7 +11,7 @@ from tplus.model.market_order import MarketOrderDetails
 from tplus.model.multisig import AdditionalSigner
 from tplus.model.order_id import UserOrderId
 from tplus.model.order_trigger import OrderTrigger
-from tplus.model.pagination import PageMeta
+from tplus.model.pagination import PageContinuation
 from tplus.model.types import UserPublicKey
 
 logger = logging.getLogger(__name__)
@@ -124,6 +124,37 @@ class OrderResponse(BaseModel):
     trigger_enabled_quantity: Decimal | None = None
 
 
+class HistoricalUserOrder(BaseModel):
+    """Compact order-history row returned by MDS."""
+
+    order_id: str
+    base_asset: AssetIdentifier
+    account_index: int
+    is_spot: bool
+    side: Side
+    limit_price: Decimal | None
+    quantity: Decimal | None
+    amount: Decimal | None
+    confirmed_filled_quantity: Decimal
+    confirmed_filled_amount: Decimal
+    confirmed_trading_fees_amount: Decimal
+    good_until_timestamp_ns: int | None
+    timestamp_ns: int
+    is_immediate_or_cancel: bool
+    is_fill_or_kill: bool
+    is_liquidation: bool
+    is_auto_deleverage: bool
+    is_reduce_only: bool
+    canceled: bool
+    status: str
+    trigger_above_price: Decimal | None
+    trigger_below_price: Decimal | None
+    trigger_touched: bool | None
+    trigger_enabled_quantity: Decimal | None
+    parent_id: str | None
+    last_update_timestamp_ns: int
+
+
 def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
     parsed_orders = []
     if not isinstance(orders_data, list):
@@ -144,15 +175,14 @@ def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
     return parsed_orders
 
 
-class UserOrdersPage(PageMeta):
-    """One page of user orders plus pagination metadata (`has_next_page`, etc.).
+class UserOrdersPage(PageContinuation):
+    """One page of user orders plus continuation metadata.
 
-    Behaves like a sequence of `OrderResponse` for existing list-style callers
+    Behaves like a sequence of `HistoricalUserOrder` for existing list-style callers
     (`for order in page`, `len(page)`, `page[i]`).
     """
 
-    orders: list[OrderResponse]
-    total_orders: int
+    orders: list[HistoricalUserOrder]
 
     def __iter__(self):
         return iter(self.orders)
@@ -161,12 +191,12 @@ class UserOrdersPage(PageMeta):
         return len(self.orders)
 
     @overload
-    def __getitem__(self, index: int) -> OrderResponse: ...
+    def __getitem__(self, index: int) -> HistoricalUserOrder: ...
 
     @overload
-    def __getitem__(self, index: slice) -> list[OrderResponse]: ...
+    def __getitem__(self, index: slice) -> list[HistoricalUserOrder]: ...
 
-    def __getitem__(self, index: int | slice) -> OrderResponse | list[OrderResponse]:
+    def __getitem__(self, index: int | slice) -> HistoricalUserOrder | list[HistoricalUserOrder]:
         return self.orders[index]
 
     def __bool__(self) -> bool:
@@ -183,24 +213,14 @@ class UserOrdersPage(PageMeta):
 
 def parse_user_orders_page(data: list[dict] | dict) -> UserOrdersPage:
     if isinstance(data, list):
-        orders = parse_orders(data)
-        count = len(orders)
-        return UserOrdersPage(
-            orders=orders,
-            total_orders=count,
-            **PageMeta.single_page(count).model_dump(),
-        )
+        orders = [HistoricalUserOrder.model_validate(item) for item in data]
+        return UserOrdersPage(orders=orders)
 
-    orders = parse_orders(data.get("orders", []))
-    count = len(orders)
-    meta = {
-        **PageMeta.single_page(count).model_dump(),
-        **{key: data[key] for key in PageMeta.model_fields if key in data},
-    }
+    orders = [HistoricalUserOrder.model_validate(item) for item in data.get("orders", [])]
     return UserOrdersPage(
         orders=orders,
-        total_orders=int(data.get("total_orders", count)),
-        **meta,
+        has_next_page=bool(data.get("has_next_page", False)),
+        next_page=data.get("next_page"),
     )
 
 

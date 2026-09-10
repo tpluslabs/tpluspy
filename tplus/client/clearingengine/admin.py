@@ -1,11 +1,12 @@
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.interest_rates import InterestRates
+from tplus.model.representation_rate import SetRepresentationRateMappingRequest
 from tplus.model.types import UserPublicKey
 from tplus.utils.operator import load_operator_sk, sign_operator_payload
 from tplus.utils.serializers import to_u256_str
@@ -171,6 +172,12 @@ class AdminClient(BaseClearingEngineClient):
             },
         )
 
+    async def set_representation_rate_mapping(self, request: SetRepresentationRateMappingRequest):
+        """Rotate the representation-rate mapping. A request with no mapping clears it."""
+        await self._post(
+            "representation-rate-mapping/set", json_data=request.model_dump(mode="json")
+        )
+
     async def set_withdrawal_delay_params(
         self,
         min_delay: int,
@@ -312,6 +319,37 @@ class AdminClient(BaseClearingEngineClient):
         await self._post(
             "admin/interest/inject",
             json_data={"request_id": 1, "rates": [r.model_dump(mode="json") for r in rates]},
+        )
+
+    async def request_interest_rates(self):
+        """Fire the hourly CE -> interest engine rate request now (debug builds)."""
+        await self._post("admin/interest/request", json_data={})
+
+    async def get_average_open_interest(
+        self, user: "UserPublicKey", after_last_update_ns: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Per-market 14-day average and current notional OI (USD, 18 decimals).
+        ``after_last_update_ns`` reads each average that long after the market's
+        last position change instead of now."""
+        if not isinstance(user, UserPublicKey):
+            user = UserPublicKey.__validate_user__(user)
+        params = (
+            {} if after_last_update_ns is None else {"after_last_update_ns": after_last_update_ns}
+        )
+        windows = await self._get(f"admin/average-oi/{user}", params=params)
+        return cast(list[dict[str, Any]], windows)
+
+    async def set_average_open_interest(
+        self, user: "UserPublicKey", asset: "AssetIdentifier", notional_usd: str
+    ):
+        """Seed a flat 14-day average notional OI (USD, 18 decimals) for a user and market."""
+        if not isinstance(user, UserPublicKey):
+            user = UserPublicKey.__validate_user__(user)
+        if not isinstance(asset, AssetIdentifier):
+            asset = AssetIdentifier.model_validate(asset)
+        await self._post(
+            "admin/average-oi/modify",
+            json_data={"user": user, "asset": asset.model_dump(), "notional_usd": notional_usd},
         )
 
     async def set_fee_account(self, user: UserPublicKey):

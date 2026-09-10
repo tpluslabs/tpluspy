@@ -41,10 +41,3 @@
    :show-inheritance:
 ```
 
-## DecimalClient
-
-```{eval-rst}
-.. autoclass:: tplus.client.clearingengine.decimal.DecimalClient
-   :members:
-   :show-inheritance:
-```

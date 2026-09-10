@@ -242,7 +242,6 @@ async for trade in client.stream_finalized_trades():
 
 # Other available streams:
 # client.stream_orders() -> OrderEvent
-# client.stream_all_trades() -> TradeEvent
 # client.stream_klines(asset_id) -> Timebar
 ```
 

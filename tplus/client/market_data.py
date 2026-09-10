@@ -23,10 +23,8 @@ from tplus.model.sub_account import SubAccountNamesResponse
 from tplus.model.ticker import Ticker, parse_tickers
 from tplus.model.trades import (
     Trade,
-    TradeEvent,
     UserTradesPage,
     parse_single_trade,
-    parse_trade_event,
     parse_trades,
     parse_user_trades_page,
 )
@@ -436,13 +434,6 @@ class MarketDataClient(AuthenticatedClient):
         async for trade in self._stream_ws("/trades", parse_single_trade, requires_auth=False):
             yield trade
 
-    async def stream_all_trades(self) -> AsyncIterator[TradeEvent]:
-        """Every trade event, including pending and rolled-back states."""
-        async for event in self._stream_ws(
-            "/trades/events", parse_trade_event, requires_auth=False
-        ):
-            yield event
-
     async def stream_depth(self, asset_id: AssetIdentifier) -> AsyncIterator[OrderBookDiff]:
         """Order-book diff updates for `asset_id`."""
         path = f"/marketdepth/diff/{asset_id}"
@@ -455,3 +446,19 @@ class MarketDataClient(AuthenticatedClient):
             f"/klines/diff/{asset_id}", parse_timebars, requires_auth=False
         ):
             yield kline
+
+    async def stream_ticker(self, asset_id: AssetIdentifier) -> AsyncIterator[Ticker]:
+        """24h ticker updates for `asset_id`, one per aggregator tick that changed it."""
+        async for ticker in self._stream_ws(
+            f"/ticker/ws/{asset_id}", Ticker.model_validate, requires_auth=False
+        ):
+            yield ticker
+
+    async def stream_tickers(self) -> AsyncIterator[list[Ticker]]:
+        """Every market's 24h ticker, pushed as one list per aggregator tick.
+
+        A tick carries only the markets that changed, so a list is not a snapshot
+        of every listed market.
+        """
+        async for tickers in self._stream_ws("/tickers/ws", parse_tickers, requires_auth=False):
+            yield tickers

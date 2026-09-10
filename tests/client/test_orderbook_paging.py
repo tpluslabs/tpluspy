@@ -14,8 +14,7 @@ class _DummyUser:
 def _trade(trade_id: int, timestamp_ns: int, asset_id: str = "1") -> dict[str, Any]:
     return {
         "asset_id": asset_id,
-        "trade_id": trade_id,
-        "order_id": "oid",
+        "order_id": f"oid-{trade_id}",
         "price": "100",
         "quantity": "1",
         "timestamp_ns": timestamp_ns,
@@ -23,6 +22,10 @@ def _trade(trade_id: int, timestamp_ns: int, asset_id: str = "1") -> dict[str, A
         "is_buyer": True,
         "status": "Confirmed",
         "rollback_reason": None,
+        "is_liquidation": False,
+        "is_auto_deleverage": False,
+        "sub_account": 1,
+        "trading_fee": "0.1",
     }
 
 
@@ -64,18 +67,12 @@ def _client_returning(
 async def test_get_user_trades_parses_envelope():
     envelope = {
         "trades": [_trade(2, 300), _trade(1, 100)],
-        "page": 0,
-        "limit": 2,
-        "total_trades": 5,
-        "total_pages": 3,
-        "cursor_size": 2,
         "has_next_page": True,
         "next_page": 1,
     }
     client, captured = _client_returning(envelope, MarketDataClient)
     page = await client.get_user_trades(page=0, limit=2)
     assert [t.timestamp_ns for t in page.trades] == [300, 100]
-    assert page.total_trades == 5
     assert page.has_next_page is True
     assert page.next_page == 1
     assert captured == [{"page": 0, "limit": 2}]
@@ -85,26 +82,19 @@ async def test_get_user_trades_parses_envelope():
 async def test_get_user_trades_is_list_like():
     envelope = {
         "trades": [_trade(2, 300), _trade(1, 100)],
-        "page": 0,
-        "limit": 100,
-        "total_trades": 2,
-        "total_pages": 1,
-        "cursor_size": 2,
         "has_next_page": False,
         "next_page": None,
     }
     client, _ = _client_returning(envelope, MarketDataClient)
     trades = await client.get_user_trades()
-    assert [t.trade_id for t in trades] == [2, 1]
+    assert [t.order_id for t in trades] == ["oid-2", "oid-1"]
     assert len(trades) == 2
-    assert trades.total_trades == 2
 
 
 @pytest.mark.anyio
 async def test_get_user_trades_tolerates_bare_list():
     client, _ = _client_returning([_trade(1, 100)], MarketDataClient)
     page = await client.get_user_trades()
-    assert page.total_trades == 1
     assert page.has_next_page is False
 
 

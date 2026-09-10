@@ -4,7 +4,7 @@ from typing import Any, Literal, overload
 from pydantic import BaseModel, Field
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.pagination import PageMeta
+from tplus.model.pagination import PageContinuation
 
 
 class Trade(BaseModel):
@@ -47,6 +47,32 @@ class UserTrade(BaseModel):
         return self.is_buyer and self.is_maker
 
 
+class HistoricalUserTrade(BaseModel):
+    """A user-trade history row returned by MDS.
+
+    One row may aggregate several fills for the same user, asset, and order
+    within one database flush, so it deliberately has no individual trade ID.
+    """
+
+    asset_id: AssetIdentifier
+    order_id: str
+    price: Decimal
+    quantity: Decimal
+    timestamp_ns: int
+    is_maker: bool
+    is_buyer: bool
+    status: Literal["Pending", "Confirmed", "Rollbacked"]
+    rollback_reason: str | None = None
+    is_liquidation: bool
+    is_auto_deleverage: bool
+    sub_account: int
+    trading_fee: Decimal
+
+    @property
+    def buyer_is_maker(self) -> bool:
+        return self.is_buyer and self.is_maker
+
+
 def parse_trades(data: list[dict]) -> list[Trade]:
     return [
         Trade(
@@ -63,15 +89,14 @@ def parse_trades(data: list[dict]) -> list[Trade]:
     ]
 
 
-class UserTradesPage(PageMeta):
-    """One page of user trades plus pagination metadata (`has_next_page`, etc.).
+class UserTradesPage(PageContinuation):
+    """One page of user trades plus continuation metadata.
 
-    Behaves like a sequence of `UserTrade` for existing list-style callers
+    Behaves like a sequence of `HistoricalUserTrade` for existing list-style callers
     (`for trade in page`, `len(page)`, `page[i]`).
     """
 
-    trades: list[UserTrade]
-    total_trades: int
+    trades: list[HistoricalUserTrade]
 
     def __iter__(self):
         return iter(self.trades)
@@ -80,12 +105,12 @@ class UserTradesPage(PageMeta):
         return len(self.trades)
 
     @overload
-    def __getitem__(self, index: int) -> UserTrade: ...
+    def __getitem__(self, index: int) -> HistoricalUserTrade: ...
 
     @overload
-    def __getitem__(self, index: slice) -> list[UserTrade]: ...
+    def __getitem__(self, index: slice) -> list[HistoricalUserTrade]: ...
 
-    def __getitem__(self, index: int | slice) -> UserTrade | list[UserTrade]:
+    def __getitem__(self, index: int | slice) -> HistoricalUserTrade | list[HistoricalUserTrade]:
         return self.trades[index]
 
     def __bool__(self) -> bool:
@@ -101,20 +126,24 @@ class UserTradesPage(PageMeta):
 
 
 def parse_user_trades(data: list[dict]) -> list[UserTrade]:
-    """Parse user trade data into UserTrade objects."""
+    """Parse live or OMS user trades."""
     return [UserTrade.model_validate(item) for item in data]
+
+
+def parse_historical_user_trades(data: list[dict]) -> list[HistoricalUserTrade]:
+    """Parse MDS user history into durable trade records."""
+    return [HistoricalUserTrade.model_validate(item) for item in data]
 
 
 def parse_user_trades_page(data: list[dict] | dict) -> UserTradesPage:
     if isinstance(data, list):
-        trades = parse_user_trades(data)
-        count = len(trades)
-        return UserTradesPage(
-            trades=trades,
-            total_trades=count,
-            **PageMeta.single_page(count).model_dump(),
-        )
-    return UserTradesPage.model_validate(data)
+        trades = parse_historical_user_trades(data)
+        return UserTradesPage(trades=trades)
+    return UserTradesPage(
+        trades=parse_historical_user_trades(data.get("trades", [])),
+        has_next_page=bool(data.get("has_next_page", False)),
+        next_page=data.get("next_page"),
+    )
 
 
 class BaseTradeEvent(BaseModel):

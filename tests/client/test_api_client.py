@@ -58,12 +58,8 @@ class FakeGateway:
                 200,
                 json={
                     "trades": [],
-                    "total_trades": 0,
-                    "page": 0,
-                    "limit": 0,
-                    "total_pages": 0,
-                    "cursor_size": 0,
                     "has_next_page": False,
+                    "next_page": None,
                 },
             )
 

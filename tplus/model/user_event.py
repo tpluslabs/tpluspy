@@ -73,8 +73,46 @@ class SubAccountAssetTransferred(BaseModel):
     timestamp_ns: int
 
 
+class CalledVenue(BaseModel):
+    """One called venue and the moment its own offsets lapse.
+
+    Deadlines are per venue: each venue's grace period comes from its own
+    `margin_call_timeout_ns` in the netting table, and a venue called later
+    than another keeps its own later deadline while the first keeps its
+    original. There is no account-level deadline — take `min` over these if you
+    want a single "act by".
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    venue: int
+    deadline_ns: int
+
+
+class MarginCallUpdated(BaseModel):
+    """A sub-account's margin-call state changed.
+
+    Emitted when the clearing engine opens, keeps, or clears a margin call:
+    `called_venues` lists the called venues with their own deadlines, and is
+    empty when the call cleared. See the `margin_calls` field on the margin
+    endpoint for the current state; this event is the notification that it
+    moved.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    user: str
+    sub_account_index: int
+    called_venues: list[CalledVenue] = []
+    timestamp_ns: int
+
+
 UserActivityEvent = (
-    DepositLanded | WithdrawalCompleted | PositionCleared | SubAccountAssetTransferred
+    DepositLanded
+    | WithdrawalCompleted
+    | PositionCleared
+    | SubAccountAssetTransferred
+    | MarginCallUpdated
 )
 
 
@@ -83,6 +121,7 @@ _VARIANTS: dict[str, type[BaseModel]] = {
     "WithdrawalCompleted": WithdrawalCompleted,
     "PositionCleared": PositionCleared,
     "SubAccountAssetTransferred": SubAccountAssetTransferred,
+    "MarginCallUpdated": MarginCallUpdated,
 }
 
 

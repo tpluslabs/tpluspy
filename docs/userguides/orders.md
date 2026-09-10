@@ -205,9 +205,6 @@ async for trade in client.stream_user_trade_events():
 async for trade in md.stream_finalized_trades():
     ...
 
-async for trade_event in md.stream_all_trades():
-    ...
-
 async for diff in md.stream_depth(asset):
     ...
 
