@@ -12,7 +12,20 @@ from tplus.utils.user import User
 
 def _approval(nonce: int) -> SettlementApproval:
     return SettlementApproval.model_validate(
-        {"inner": {"nonce": nonce, "signature": "00"}, "expiry": 1}
+        {
+            "inner": {"nonce": nonce, "signature": "00"},
+            "expiry": 1,
+            "amount_in": "1000000",
+            "amount_out": "500000",
+            "conversion": {
+                "canonical_per_representation": "1000000000000000000",
+                "state_id": "0x00",
+                "canonical_amount": "500000",
+                "representation_amount": "500000",
+                "chain_amount": "500000",
+                "representation_remainder": "0",
+            },
+        }
     )
 
 

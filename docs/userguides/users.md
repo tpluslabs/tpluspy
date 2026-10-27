@@ -100,6 +100,18 @@ async with OrderBookClient(base_url=..., default_user=trader) as client:
     await client.create_limit_order(...)
 ```
 
+A signer can be capped at a maximum permission level. Pass `max_multisig_permission_level="low"`
+(orders, position closes, sub-account transfers) or `"medium"` (also settlements) and the
+clearing engine ignores the signer's signature on any action above the cap, so it adds no
+weight there: a signer capped below `"high"` can trade but never withdraw, replace the
+multisig config, or change a signer already on the account on its own. It can add further signers, capped at or below its own
+level. Omit the argument for an uncapped signer:
+
+```{code-block} python
+demo = User()
+await client.add_multisig_signer(demo, max_multisig_permission_level="low", user=user)
+```
+
 If the wallet controls no T+ account yet, `resolve_evm_user` returns the derived user
 described next: the account tpluspy would create for it. If it controls several, pass
 `account_public_key=` to pick one.

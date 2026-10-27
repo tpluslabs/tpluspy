@@ -18,16 +18,21 @@ from tplus.client.base import page_params
 from tplus.client.oms.assetregistry import AssetRegistryClient
 from tplus.client.websocket import resolve_rejected_status_code
 from tplus.exceptions import NotFoundError, from_error_body
-from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
 from tplus.model.batch_order import (
+    BatchAmendOrderRequest,
+    BatchAmendOrderRequestResponse,
+    BatchCancelResponse,
     BatchCreateOrderRequest,
     BatchCreateOrderRequestResponse,
     BatchReplaceOrderRequest,
     BatchReplaceOrderRequestResponse,
     SingleOrderStatusFromBatch,
+    parse_batch_amend_response,
     parse_batch_order_response,
     parse_batch_replace_response,
 )
+from tplus.model.chain_address import ChainAddress
 from tplus.model.close_all_positions_preview import (
     CloseAllPreviewResponse,
     parse_close_all_preview,
@@ -39,7 +44,7 @@ from tplus.model.intent import (
     parse_intent_aggregate_update,
 )
 from tplus.model.limit_order import GTC, GTD, IOC
-from tplus.model.market import Market, MarketsPage, parse_market
+from tplus.model.market import Market, MarketsPage, MarketTypeFilter, parse_market
 from tplus.model.market_order import (
     MarketBaseQuantity,
     MarketQuoteQuantity,
@@ -63,14 +68,17 @@ from tplus.model.position import (
     parse_positions_page,
 )
 from tplus.model.replace_order import ReplaceOrderRequestPayload
+from tplus.model.representation_rate import RepresentationPreviewResponse
 from tplus.model.settlement import TxSettlementRequest
-from tplus.model.sub_account import RenameSubAccountResponse
+from tplus.model.sub_account import RenameSubAccountResponse, SubAccountType
+from tplus.model.sync_order import SyncTimeInForce
+from tplus.model.sync_settlement import SyncSettlementEvent, parse_sync_settlement_event
 from tplus.model.trades import (
     UserTrade,
     parse_single_user_trade,
     parse_user_trades,
 )
-from tplus.model.types import U64_MAX
+from tplus.model.types import MULTISIG_PERMISSION_LEVELS, U64_MAX, MultisigPermissionLevel
 from tplus.model.user_event import UserActivityEvent, parse_user_event
 from tplus.model.user_margin import (
     UserMarginInfo,
@@ -85,8 +93,11 @@ from tplus.model.user_solvency import (
     parse_user_solvency,
 )
 from tplus.types import UserType
+from tplus.utils.amend_order import create_amend_order_ob_request_payload
 from tplus.utils.limit_order import (
     create_limit_order_ob_request_payload,
+    create_sync_maker_order_ob_request_payload,
+    create_sync_taker_order_ob_request_payload,
 )
 from tplus.utils.market_order import (
     create_market_order_ob_request_payload,
@@ -230,6 +241,7 @@ class OrderBookClient(AuthenticatedClient):
         *,
         page: int | None = None,
         limit: int | None = None,
+        market_type: MarketTypeFilter | str | None = None,
     ) -> MarketsPage:
         """Fetch one page of markets, and the canonical asset table when asked for it.
 
@@ -237,14 +249,20 @@ class OrderBookClient(AuthenticatedClient):
             include_symbol_map: Also return the asset index -> :class:`Asset` map.
             page: Zero-based page to fetch. Defaults to the first page.
             limit: Markets per page. Defaults to a page big enough to hold them all.
+            market_type: Keep only ``spot`` or ``margin`` markets; the server filters
+                before paging. Defaults to every market.
 
         Returns:
             The :class:`MarketsPage` of active markets.
+
+        Raises:
+            ValueError: If ``market_type`` is neither ``spot`` nor ``margin``, in any case.
         """
         params = page_params(
             page if page is not None else 0,
             limit if limit is not None else MARKETS_PAGE_LIMIT,
             include_symbol_map="true" if include_symbol_map else None,
+            market_type=MarketTypeFilter(market_type).value if market_type is not None else None,
         )
         response = await self._get("/markets", params=params, requires_auth=False)
         return MarketsPage.model_validate(response)
@@ -446,6 +464,114 @@ class OrderBookClient(AuthenticatedClient):
         )
         return order_id, signed_message
 
+    async def create_sync_taker_order(
+        self,
+        quantity: int,
+        price: int,
+        side: str,
+        base_token: AssetAddress,
+        nonce: int,
+        asset_id: AssetIdentifier,
+        order_id: str | None = None,
+        target: TradeTarget | None = None,
+        user: "UserLike | None" = None,
+    ) -> OrderOperationResponse:
+        """Create a sync taker: an IOC limit order routed across one sync book and the main book.
+
+        The orderbook picks the sync book that would fill the most of the order, then walks
+        that book and the main book together by price, the main book winning equal-price ties;
+        sync liquidity is not taken first, and execution can run main, then sync, then main
+        again. The sync-book leg is never settled in the CE inventory: the clearing engine
+        derives a settlement from it, with that market maker as settler, locks the caller's
+        inventory and approves it; the maker receives the approval on
+        ``/sync/pending_settlements`` and executes it through its registered executor. The
+        main-book share fills as regular fills.
+
+        Args:
+            quantity: Order quantity in the book's base-asset units.
+            price: Limit price in the book's quote-asset units.
+            side: ``"Buy"`` or ``"Sell"``.
+            base_token: Token of the market's base asset that moves on chain, with its
+                chain (the quote leg is always USD, chosen by the CE).
+            nonce: Vault settlement nonce of the caller's sub-account on that chain.
+            asset_id: Asset to trade.
+            order_id: Optional caller-supplied order id.
+            target: Trade target; defaults to a spot trade from the main account, the only
+                sub-account a sync taker may trade from.
+        """
+        user = self._resolve_user(user=user)
+        order_id = validate_order_id(
+            order_id or str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
+        )
+        market = await self.get_market(asset_id)
+        signed_message = create_sync_taker_order_ob_request_payload(
+            quantity=quantity,
+            price=price,
+            side=side,
+            signer=user,
+            book_quantity_decimals=market.book_quantity_decimals,
+            book_price_decimals=market.book_price_decimals,
+            asset_identifier=asset_id,
+            order_id=order_id,
+            base_token=base_token,
+            nonce=nonce,
+            target=target,
+        )
+        self.logger.debug(
+            f"Sending Sync Taker Order (Asset {asset_id}): Qty={quantity}, Price={price}, Side={side}, OrderID={order_id}"
+        )
+        resp = await self._post("/orders/create", json_data=signed_message.model_dump(), user=user)
+        return OrderOperationResponse.model_validate(resp)
+
+    async def create_sync_book(
+        self, asset_id: AssetIdentifier, user: "UserLike | None" = None
+    ) -> dict[str, Any]:
+        """Create the caller's sync book on one market (``POST /sync_book/create``).
+
+        The caller must be registered as a market maker. Quotes posted afterwards with
+        :meth:`create_sync_maker_order` rest in this book only.
+        """
+        user = self._resolve_user(user=user)
+        return await self._post(
+            "/sync_book/create", json_data={"asset_id": str(asset_id)}, user=user
+        )
+
+    async def create_sync_maker_order(
+        self,
+        quantity: int,
+        price: int,
+        side: str,
+        asset_id: AssetIdentifier,
+        order_id: str | None = None,
+        target: TradeTarget | None = None,
+        time_in_force: SyncTimeInForce | None = None,
+        user: "UserLike | None" = None,
+    ) -> OrderOperationResponse:
+        """Post a market maker's quote in its own sync book (see :meth:`create_sync_book`).
+
+        ``time_in_force`` is :class:`~tplus.model.sync_order.SyncGTC` (the default) or
+        :class:`~tplus.model.sync_order.SyncGTD`.
+        """
+        user = self._resolve_user(user=user)
+        order_id = validate_order_id(
+            order_id or str(base64.b64encode(uuid.uuid4().bytes).decode("ascii"))
+        )
+        market = await self.get_market(asset_id)
+        signed_message = create_sync_maker_order_ob_request_payload(
+            quantity=quantity,
+            price=price,
+            side=side,
+            signer=user,
+            book_quantity_decimals=market.book_quantity_decimals,
+            book_price_decimals=market.book_price_decimals,
+            asset_identifier=asset_id,
+            order_id=order_id,
+            target=target,
+            time_in_force=time_in_force,
+        )
+        resp = await self._post("/orders/create", json_data=signed_message.model_dump(), user=user)
+        return OrderOperationResponse.model_validate(resp)
+
     async def send_multiple_orders(self, create_order_requests: list[CreateOrderRequest]):
         request = BatchCreateOrderRequest(orders=create_order_requests)
         if self._use_ws_control:
@@ -535,6 +661,24 @@ class OrderBookClient(AuthenticatedClient):
             "/orders/cancel", json_data=signed_message.model_dump(), user=user
         )
         return OrderOperationResponse.model_validate(resp)
+
+    async def get_order(self, order_id: str, user: "UserLike | None" = None) -> OrderResponse:
+        """Look up one of the user's orders by ID (``GET /orders/lookup``)."""
+        validate_order_id(order_id)
+        response = await self._get("/orders/lookup", params={"order_id": order_id}, user=user)
+        return OrderResponse.model_validate(response)
+
+    async def cancel_orders(
+        self, order_ids: list[str], user: "UserLike | None" = None
+    ) -> BatchCancelResponse:
+        """Cancel several orders in one request (``DELETE /orders/cancel-batch``)."""
+        for order_id in order_ids:
+            validate_order_id(order_id)
+
+        response = await self._delete(
+            "/orders/cancel-batch", json_data={"order_ids": order_ids}, user=user
+        )
+        return BatchCancelResponse.model_validate(response)
 
     async def replace_order(
         self,
@@ -634,25 +778,13 @@ class OrderBookClient(AuthenticatedClient):
             The :class:`OrderOperationResponse` from the OMS.
         """
         user = self._resolve_user(user=user)
-        validate_order_id(order_id)
-        market = await self.get_market(asset_id)
-        payload = {
-            "request": {
-                "order_id": order_id,
-                "base_asset": asset_id.model_dump()
-                if hasattr(asset_id, "model_dump")
-                else asset_id,
-                "new_quantity": new_quantity,
-                "book_quantity_decimals": market.book_quantity_decimals,
-                "expected_authorization_revision": expected_authorization_revision,
-                "timestamp_ns": time.time_ns(),
-                "source": "User",
-            },
-            "user_id": user.public_key,
-            "target": {"account": 0, "is_spot": False},
-            "oms_operator_pubkey": "",
-            "receive_timestamp_ns": None,
-        }
+        payload = await self.prepare_amend_order_request(
+            order_id,
+            asset_id,
+            new_quantity,
+            expected_authorization_revision=expected_authorization_revision,
+            user=user,
+        )
         self.logger.debug(
             f"Sending Amend Order for OrderID {order_id} (Asset {asset_id}): New Qty={new_quantity}"
         )
@@ -663,6 +795,54 @@ class OrderBookClient(AuthenticatedClient):
             return self._extract_operation_response(ws_resp)
         resp = await self._patch("/orders/amend", json_data=payload, user=user)
         return OrderOperationResponse.model_validate(resp)
+
+    async def prepare_amend_order_request(
+        self,
+        order_id: str,
+        asset_id: AssetIdentifier,
+        new_quantity: int,
+        expected_authorization_revision: int | None = None,
+        user: "User | None" = None,
+    ) -> dict[str, Any]:
+        """Build one amend without sending it, for :meth:`amend_multiple_orders`.
+
+        Takes the same arguments as :meth:`amend_order`; see there for their meaning.
+        """
+        user = self._resolve_user(user=user)
+        validate_order_id(order_id)
+        market = await self.get_market(asset_id)
+        return create_amend_order_ob_request_payload(
+            order_id=order_id,
+            asset_identifier=asset_id,
+            user_id=user.public_key,
+            new_quantity=new_quantity,
+            book_quantity_decimals=market.book_quantity_decimals,
+            expected_authorization_revision=expected_authorization_revision,
+        )
+
+    async def amend_multiple_orders(
+        self,
+        amend_requests: list[dict[str, Any]],
+        user: "UserLike | None" = None,
+    ) -> BatchAmendOrderRequestResponse:
+        """Lower the quantity of up to 50 open orders in one request (``PATCH /orders/batch-amend``).
+
+        Each item is validated and authorized like a single :meth:`amend_order`, so one
+        rejected item never stops the others. The OMS groups the items by market and sends
+        one message per orderbook, so shrinking many quotes costs one round-trip per
+        market. Results come back one per item, in submission order. A batch naming the
+        same order id twice is rejected as a whole. Over the control WebSocket the server
+        acks once and streams one ``AmendOrderResponse`` per item; they are gathered into
+        the same response shape. Build the items with :meth:`prepare_amend_order_request`.
+        """
+        request = BatchAmendOrderRequest(amends=amend_requests)
+        if self._use_ws_control:
+            return await self._control_ws_send_amend_batch(request)
+
+        response_data = await self._request(
+            "PATCH", "/orders/batch-amend", json_data=request.model_dump(), user=user
+        )
+        return parse_batch_amend_response(response_data)
 
     def parse_user_trades(self, trades_data: list[dict[str, Any]]) -> list[UserTrade]:
         """Parse user trade data into UserTrade objects."""
@@ -1079,6 +1259,27 @@ class OrderBookClient(AuthenticatedClient):
         )
         return BatchReplaceOrderRequestResponse(batch_order_status=statuses)
 
+    async def _control_ws_send_amend_batch(
+        self, request: BatchAmendOrderRequest, *, timeout: float = 15.0
+    ) -> BatchAmendOrderRequestResponse:
+        """Send a batch-amend over the ``/control`` WebSocket.
+
+        Same ack-then-stream shape as :meth:`_control_ws_send_batch`, with one
+        ``AmendOrderResponse`` event per item.
+        """
+        dumped = request.model_dump()
+        statuses = await self._control_ws_send_batch_items(
+            "BatchAmendRequest",
+            dumped,
+            [
+                (amend["request"]["base_asset"], amend["request"]["order_id"])
+                for amend in dumped["amends"]
+            ],
+            "AmendOrderResponse",
+            timeout=timeout,
+        )
+        return BatchAmendOrderRequestResponse(batch_order_status=statuses)
+
     async def _control_ws_send_batch_items(
         self,
         wire_tag: str,
@@ -1200,11 +1401,22 @@ class OrderBookClient(AuthenticatedClient):
         *,
         weight: int = 1,
         session_duration_ns: int = U64_MAX,
+        max_multisig_permission_level: MultisigPermissionLevel | None = None,
         user: "UserLike | None" = None,
     ) -> dict[str, Any]:
         """Register an Ed25519 additional signer on an account.
 
-        The resolved ``user`` authorizes the high-tier config mutation.
+        The resolved ``user`` authorizes the config mutation, which requires
+        the permission level requested for the new signer: high unless
+        ``max_multisig_permission_level`` says otherwise. ``max_multisig_permission_level`` caps
+        the signer at ``"low"`` (orders, position closes, sub-account
+        transfers), ``"medium"`` (also settlements) or ``"high"``; the clearing
+        engine rejects any action above the cap that carries the signer's
+        signature. A capped ``user`` can only add signers capped at or below
+        its own level, and only signers not already on the account. When
+        omitted the field is left out of the signed request and the signer is
+        uncapped.
+
         ``signer`` is the key that will subsequently co-sign requests for that
         account. ``session_duration_ns`` becomes the signer's maximum signing
         window, measured from registration: the clearing engine rejects orders
@@ -1222,6 +1434,13 @@ class OrderBookClient(AuthenticatedClient):
             raise ValueError("weight must be greater than zero")
         if not 1 <= session_duration_ns <= U64_MAX:
             raise ValueError(f"session_duration_ns must be between 1 and {U64_MAX}")
+        if (
+            max_multisig_permission_level is not None
+            and max_multisig_permission_level not in MULTISIG_PERMISSION_LEVELS
+        ):
+            raise ValueError(
+                f"max_multisig_permission_level must be one of {', '.join(MULTISIG_PERMISSION_LEVELS)}"
+            )
 
         # Authentication consumes a nonce, so complete it before fetching the
         # nonce embedded in and signed over the add-signer request.
@@ -1239,6 +1458,10 @@ class OrderBookClient(AuthenticatedClient):
             "weight": weight,
             "session_duration_ns": session_duration_ns,
         }
+        # Last, and only when set: the clearing engine verifies the signature
+        # against the fields in this order, and omits an unset level.
+        if max_multisig_permission_level is not None:
+            inner["max_multisig_permission_level"] = max_multisig_permission_level
         signing_payload = json.dumps(inner, separators=(",", ":"))
         signature, additional_signers = user.signing_parts(signing_payload)
         payload = {
@@ -1315,15 +1538,36 @@ class OrderBookClient(AuthenticatedClient):
         async for trade in self.stream_user_finalized_trades(user=user):
             yield trade
 
+    async def stream_sync_settlements(
+        self, user: UserType | None = None
+    ) -> AsyncIterator[SyncSettlementEvent]:
+        """Stream the outcome of sync taker fills on ``/sync/pending_settlements``.
+
+        A settler (maker) receives :class:`SyncSettlementApproved` for every sync fill against
+        its resting orders and executes it on chain. A fill the CE refuses, or whose approval
+        expires unexecuted, reaches **both** parties as :class:`SyncSettlementFailure`, each
+        seeing only its own orders. A successful settlement is not on this stream: the taker
+        gets :class:`SettlementCompleted` on :meth:`stream_user_events`, like any settlement. A
+        sync leg emits no trade and carries no trading fee. A fill the CE never applies (dropped
+        on arrival during a failover, a freeze or a reconciliation) gets no event: past the
+        10 s approval window, no approval and no on-chain execution means it did not settle.
+        Messages are one-shot broadcasts: subscribe before quoting.
+        """
+        async for event in self._stream_ws(
+            "/sync/pending_settlements", parse_sync_settlement_event, user=user
+        ):
+            yield event
+
     async def stream_user_events(
         self, user: UserType | None = None
     ) -> AsyncIterator[UserActivityEvent]:
         """Stream typed user-activity events on `/account/events/{user_id}`.
 
         Each event is a `DepositLanded`, `WithdrawalCompleted`,
-        `PositionCleared`, `SubAccountAssetTransferred`, or `MarginCallUpdated`
-        model carrying the context the FE needs to render notifications without
-        diffing balance state. Liquidation fills surface as
+        `SettlementCompleted`, `PositionCleared`, `SubAccountAssetTransferred`,
+        `MarginCallUpdated`, or `InterestEpochOccurred` model carrying the context
+        the FE needs to render notifications without diffing balance state.
+        Liquidation fills surface as
         `is_liquidation=True` on the user-trades stream rather than here.
 
         Args:
@@ -1525,9 +1769,8 @@ class OrderBookClient(AuthenticatedClient):
     ) -> RenameSubAccountResponse:
         """Give a sub-account a human-readable name.
 
-        The main (``0``) and margin (``1``) sub-accounts are reserved and cannot be
-        renamed. Unless the user has opted out of market-data export, the name is
-        also served back by :meth:`MarketDataClient.get_sub_account_names`.
+        Unless the user has opted out of market-data export, the name is also served
+        back by :meth:`MarketDataClient.get_sub_account_names`.
         """
         public_key = self._validate_user_public_key(user=user)
         response_data = await self._patch(
@@ -1598,7 +1841,7 @@ class OrderBookClient(AuthenticatedClient):
         target_index: int,
         transfer_asset: AssetIdentifier,
         transfer_amount: int,
-        target_account_type: None = None,
+        target_account_type: SubAccountType | None = None,
         nonce: int | None = None,
         user: "UserLike | None" = None,
     ) -> dict[str, Any]:
@@ -1627,7 +1870,7 @@ class OrderBookClient(AuthenticatedClient):
         target_index,
         transfer_asset,
         transfer_amount,
-        target_account_type=None,
+        target_account_type: SubAccountType | None = None,
         nonce: int | None = None,
         user: "UserLike | None" = None,
     ):
@@ -1638,7 +1881,9 @@ class OrderBookClient(AuthenticatedClient):
             "target_index": target_index,
             "transfer_asset": str(transfer_asset),
             "transfer_amount": str(transfer_amount),
-            "target_account_type": target_account_type,
+            "target_account_type": (
+                None if target_account_type is None else target_account_type.model_dump()
+            ),
             "nonce": self._next_user_action_nonce() if nonce is None else nonce,
         }
         self.logger.debug(f"Transfer request: {inner}")
@@ -1658,6 +1903,16 @@ class OrderBookClient(AuthenticatedClient):
         nonce: int | None = None,
         user: "UserLike | None" = None,
     ) -> dict[str, Any]:
+        """Close a margin position via the OMS.
+
+        Spot of ``transfer_asset`` is first squashed into the position's base
+        liabilities (any asset, not only USD; a partial squash is accepted),
+        but only while the quote leg is exactly zero: a short with a quote leg
+        is closed by trading, and the close is rejected with ``spot repays a
+        base liability only while the quote leg is 0``.
+        Once the base leg is flat, spot USD repays a quote loss and a quote
+        profit is moved to spot USD.
+        """
         user = self._resolve_user(user=user)
         payload = self._build_close_position_request(
             account, transfer_asset, nonce=nonce, user=user
@@ -1730,6 +1985,17 @@ class OrderBookClient(AuthenticatedClient):
                 return approval
 
         raise RuntimeError("Settlement initialization succeeded but no approval was returned")
+
+    async def preview_settlement_representation(
+        self, asset: str | ChainAddress, canonical_amount: int
+    ) -> RepresentationPreviewResponse:
+        """
+        Preview the token amount a canonical settlement would pay out
+        (`POST /settlement/representation-preview`). Non-binding: approval re-resolves CE state.
+        """
+        json_data = {"asset": str(asset), "canonical_amount": str(canonical_amount)}
+        response = await self._post("settlement/representation-preview", json_data=json_data)
+        return RepresentationPreviewResponse.model_validate(response)
 
     async def get_settlement_signatures(self, user: str) -> list[dict]:
         """Get CE-approved settlement signatures for ``user``.

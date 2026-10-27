@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from tplus.client.auth import AuthenticatedClient
 from tplus.model.asset_identifier import AssetAddress
 from tplus.model.chain_address import ChainAddress
+from tplus.model.representation_rate import RepresentationRatesResponse
 
 
 def _prep_request(assets: Sequence[str | AssetAddress]) -> dict:
@@ -27,6 +28,14 @@ class AssetRegistryClient(AuthenticatedClient):
         Get the current asset config map (`GET /registry/assets`).
         """
         return await self._get("registry/assets", requires_auth=False)
+
+    async def get_representation_rates(self) -> RepresentationRatesResponse:
+        """
+        Get the rates the CE is converting representation tokens at
+        (`GET /registry/representation-rates`).
+        """
+        response = await self._get("registry/representation-rates", requires_auth=False)
+        return RepresentationRatesResponse.model_validate(response)
 
     async def get_risk_parameters(self) -> dict:
         """

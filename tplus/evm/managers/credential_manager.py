@@ -147,7 +147,6 @@ class CredentialManagerOwner(ChainConnectedManager):
                 # cond: checks if the vault address is part any of the ChainAddress returned.
                 check_fn=lambda vaults: vault in vaults,
                 timeout=10,
-                interval=1,
                 error_msg=f"Vault registration failed (vault={vault}).",
             )
 

@@ -17,7 +17,7 @@ from tplus.evm.managers.deposit import DepositManager
 from tplus.evm.managers.evm import ChainSigningManager
 from tplus.logger import get_logger
 from tplus.model.approval import SettlementApproval
-from tplus.model.settlement import MakerOrderAttachment, SettlementMode, TxSettlementRequest
+from tplus.model.settlement import SettlementMode, TxSettlementRequest
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.amount import Amount
 from tplus.utils.user import to_user, to_user_public_key
@@ -206,7 +206,6 @@ class SettlementManager(ChainSigningManager):
         amount_out: Amount,
         user: "UserLike | None" = None,
         settler: "UserPublicKey | None" = None,
-        maker_order: MakerOrderAttachment | None = None,
         account_index: int | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
         then_execute: bool = False,
@@ -222,7 +221,6 @@ class SettlementManager(ChainSigningManager):
             amount_out: Both the normalized and atomic amounts for the amount leaving the protocol.
             user: Specify the tplus user. Defaults to the default tplus user.
             settler: The settler account executing the settlement. Defaults to the user's public key.
-            maker_order: Optional maker order attachment for delegated settlements.
             account_index: Specify the index of the tplus account for this settlement approval. Defaults to the
               selected user's account index.
             then_execute: Set to ``True`` to wait for the approval and then execute the settlement on-chain.
@@ -261,15 +259,10 @@ class SettlementManager(ChainSigningManager):
             "sub_account_index": account_index,
             "nonce": expected_nonce,
         }
-        if settler is not None:
-            request_data["settler"] = settler
-        elif maker_order is None:
-            # Non-delegated: sign over an explicit settler, not null.
-            request_data["settler"] = user.public_key
+        # Sign over an explicit settler, not null.
+        request_data["settler"] = settler if settler is not None else user.public_key
 
         request = TxSettlementRequest.create_signed(request_data, user)
-        if maker_order is not None:
-            request.maker_order = maker_order
 
         approval_data = await self._init_settlement(request)
         approval = SettlementApproval.model_validate(approval_data)
@@ -349,9 +342,9 @@ class SettlementManager(ChainSigningManager):
         tx = self.settlement_vault.execute_atomic_settlement(
             {
                 "tokenIn": token_in_address,
-                "amountIn": settlement_info.amount_in.amount,
+                "amountIn": approval.amount_in,
                 "tokenOut": token_out_address,
-                "amountOut": settlement_info.amount_out.amount,
+                "amountOut": approval.amount_out,
                 "mode": settlement_mode_to_contract(settlement_info.mode),
                 "user": HexBytes(user.public_key),
                 "account": settlement_info.account_index

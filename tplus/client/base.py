@@ -6,6 +6,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+import anyio
 import httpx
 import websockets
 from pydantic import BaseModel, Field
@@ -338,7 +339,21 @@ class BaseClient:
             req_kwargs["timeout"] = request_timeout
 
         try:
-            return await self._client.request(**req_kwargs)
+            for attempt in range(4):
+                response = await self._client.request(**req_kwargs)
+                if response.status_code != 503 or attempt == 3:
+                    return response
+                # SERVER_BUSY is an admission rejection before side effects, so
+                # even writes are safe to retry. Other errors/timeouts are not.
+                try:
+                    busy = response.json()["error"]["code"] == "SERVER_BUSY"
+                    delay = float(response.headers["Retry-After"])
+                except (ValueError, KeyError, TypeError):
+                    return response
+                if not busy or not 0 <= delay <= 5:
+                    return response
+                await anyio.sleep(delay)
+            raise AssertionError("bounded retry loop must return")
         except httpx.TimeoutException as err:
             self.logger.error(f"Request timed out to {err.request.url!r}: {err}")
             raise

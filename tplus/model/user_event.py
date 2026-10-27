@@ -10,6 +10,7 @@ Note: liquidation fills are surfaced via the `is_liquidation` flag on
 here, to avoid double-counting.
 """
 
+from decimal import Decimal
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,6 +40,29 @@ class WithdrawalCompleted(BaseModel):
     chain_id: str = Field(alias="chain_id")
     withdrawal_nonce: int = Field(alias="withdrawal_nonce")
     timestamp_ns: int = Field(alias="timestamp_ns")
+
+
+class SettlementCompleted(BaseModel):
+    """An on-chain settlement has been ingested into the user's sub-account.
+
+    Any settlement, sync or not: `amount_out` of `asset_out` left the
+    sub-account and `amount_in` of `asset_in` came in, both in
+    `INVENTORY_DECIMALS` (1e18) as base-10 strings.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    user: str
+    sub_account_index: int
+    settler: str
+    mode: str
+    asset_in: str
+    amount_in: str
+    asset_out: str
+    amount_out: str
+    chain_id: str
+    settlement_nonce: int
+    timestamp_ns: int
 
 
 class PositionCleared(BaseModel):
@@ -107,21 +131,59 @@ class MarginCallUpdated(BaseModel):
     timestamp_ns: int
 
 
+class InterestPayment(BaseModel):
+    """One market's interest flows on one sub-account for an epoch.
+
+    Amounts are USD decimals: negative when the account paid, positive when it
+    earned. Each rate is the market's rate for the epoch that its amount comes
+    from, as a fraction (`0.0001` is 0.01%); the funding rate is positive when
+    longs pay shorts, negative when shorts pay longs.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    funding_amount: Decimal
+    utilization_amount: Decimal
+    quote_utilization_amount: Decimal
+    funding_rate: Decimal
+    utilization_rate: Decimal
+    quote_utilization_rate: Decimal
+
+
+class InterestEpochOccurred(BaseModel):
+    """The clearing engine applied an interest epoch that moved this user's balances.
+
+    `payments` is keyed by market asset identifier, then by sub-account index;
+    only sub-accounts the epoch touched appear. Accounts the epoch left alone
+    get no event.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    user: str
+    payments: dict[str, dict[int, InterestPayment]]
+    timestamp_ns: int
+
+
 UserActivityEvent = (
     DepositLanded
     | WithdrawalCompleted
+    | SettlementCompleted
     | PositionCleared
     | SubAccountAssetTransferred
     | MarginCallUpdated
+    | InterestEpochOccurred
 )
 
 
 _VARIANTS: dict[str, type[BaseModel]] = {
     "DepositLanded": DepositLanded,
     "WithdrawalCompleted": WithdrawalCompleted,
+    "SettlementCompleted": SettlementCompleted,
     "PositionCleared": PositionCleared,
     "SubAccountAssetTransferred": SubAccountAssetTransferred,
     "MarginCallUpdated": MarginCallUpdated,
+    "InterestEpochOccurred": InterestEpochOccurred,
 }
 
 

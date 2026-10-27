@@ -13,6 +13,7 @@ from tplus.evm.managers.withdraw import (
     WithdrawalManager,
 )
 from tplus.logger import get_logger
+from tplus.model.approval import WithdrawalApproval
 from tplus.model.asset_identifier import Address32, AssetAddress
 from tplus.model.types import ChainID
 from tplus.utils.amount import Amount
@@ -61,34 +62,6 @@ def _signed_request(manager: WithdrawalManager):
 
 
 @pytest.mark.anyio
-async def test_init_withdrawal_normalizes_chain_amount(manager):
-    info = await manager.init_withdrawal(USDC, ONE_THOUSAND_INVENTORY, target=TARGET)
-
-    # The CE request keeps 1e18 units; the vault call needs the asset's native decimals.
-    assert _signed_request(manager).inner.amount == ONE_THOUSAND_INVENTORY
-    assert info.amount == ONE_THOUSAND_INVENTORY
-    assert info.chain_amount == ONE_THOUSAND_USDC
-
-
-@pytest.mark.anyio
-async def test_init_withdrawal_rounds_chain_amount_down(manager):
-    # Dust below the asset's precision is dropped, matching the CE's round-down.
-    info = await manager.init_withdrawal(USDC, ONE_THOUSAND_INVENTORY + 1, target=TARGET)
-
-    assert info.chain_amount == ONE_THOUSAND_USDC
-
-
-@pytest.mark.anyio
-async def test_init_withdrawal_looks_up_decimals_by_asset_key(manager):
-    await manager.init_withdrawal(USDC, ONE_THOUSAND_INVENTORY, target=TARGET)
-
-    # The CE keys its decimals response by "<address>@<chain>", so the lookup has to
-    # send the asset in the form the response comes back under.
-    assert manager.registry_client.get_asset_decimals.await_args.args[0] == [USDC]
-    assert str(USDC) in manager._decimals_cache
-
-
-@pytest.mark.anyio
 async def test_init_withdrawal_amount_with_decimals(manager):
     amount = Amount(amount=ONE_THOUSAND_USDC, decimals=6)
 
@@ -96,15 +69,15 @@ async def test_init_withdrawal_amount_with_decimals(manager):
 
     assert _signed_request(manager).inner.amount == ONE_THOUSAND_INVENTORY
     assert info.amount == ONE_THOUSAND_INVENTORY
-    assert info.chain_amount == ONE_THOUSAND_USDC
-    manager.registry_client.get_asset_decimals.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_init_withdrawal_caches_decimals(manager):
-    await manager.init_withdrawal(USDC, ONE_THOUSAND_INVENTORY, target=TARGET)
-    await manager.init_withdrawal(USDC, ONE_THOUSAND_INVENTORY, target=TARGET)
+async def test_get_asset_decimals_caches_by_asset_key(manager):
+    await manager.get_asset_decimals(USDC)
+    await manager.get_asset_decimals(USDC)
 
+    # The CE keys its decimals response by "<address>@<chain>".
+    assert manager.registry_client.get_asset_decimals.await_args.args[0] == [USDC]
     assert manager.registry_client.get_asset_decimals.await_count == 1
 
 
@@ -173,19 +146,36 @@ def test_get_erc20_decimals_non_evm_asset(manager):
 
 
 @pytest.mark.anyio
-async def test_execute_withdrawal_uses_chain_amount(manager):
+async def test_execute_withdrawal_uses_approval_amount(manager):
     info = WithdrawalInfo(
         asset=USDC,
         amount=ONE_THOUSAND_INVENTORY,
-        chain_amount=ONE_THOUSAND_USDC,
         nonce=4,
         target=TARGET,
         chain_id=CHAIN_ID,
     )
-    approvals = [{"inner": {"signature": "00"}, "expiry": 1, "epoch_hash": bytes(32)}]
+    approvals = [
+        WithdrawalApproval.model_validate(
+            {
+                "inner": {"nonce": 4, "signature": "00"},
+                "expiry": 1,
+                "epoch_hash": [3] * 32,
+                "amount": str(ONE_THOUSAND_USDC),
+                "conversion": {
+                    "canonical_per_representation": "1000000000000000000",
+                    "state_id": "0x00",
+                    "canonical_amount": str(ONE_THOUSAND_INVENTORY),
+                    "representation_amount": str(ONE_THOUSAND_INVENTORY),
+                    "chain_amount": str(ONE_THOUSAND_USDC),
+                    "representation_remainder": "0",
+                },
+            }
+        )
+    ]
 
     await manager.execute_withdrawal(info, approvals)
 
-    withdrawal = manager.vault.withdraw.call_args.args[0]
+    withdrawal, _, _, _, epoch_hash, _ = manager.vault.withdraw.call_args.args
     assert withdrawal["amount"] == ONE_THOUSAND_USDC
+    assert epoch_hash == bytes([3] * 32)
     assert withdrawal["nonce"] == 4

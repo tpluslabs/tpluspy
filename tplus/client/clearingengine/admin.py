@@ -8,6 +8,7 @@ from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.interest_rates import InterestRates
 from tplus.model.representation_rate import SetRepresentationRateMappingRequest
 from tplus.model.types import UserPublicKey
+from tplus.model.vault import VaultBalance
 from tplus.utils.operator import load_operator_sk, sign_operator_payload
 from tplus.utils.serializers import to_u256_str
 from tplus.utils.user import to_user_public_key
@@ -81,14 +82,76 @@ class AdminClient(BaseClearingEngineClient):
             },
         )
 
-    async def get_user_inventory(self, user: "UserPublicKey"):
+    async def freeze_clock(self, now_ns: int | None = None) -> dict[str, Any]:
+        """
+        Admin-only API for testing: pin the clearing engine's clock to ``now_ns``,
+        or release it back to wall time when ``now_ns`` is None.
+
+        Both of the engine's clocks move together, including the one that stamps
+        applied logs — so a balance change made while pinned is recorded at that
+        instant, which is what makes a time-weighted average reproducible.
+
+        While pinned, nothing the engine measures against this clock advances:
+        lock and approval expiry, queue delays, price staleness, retry cadences.
+        Release it before any scenario that depends on those.
+        """
+        return cast(dict[str, Any], await self._post("admin/clock", json_data={"now_ns": now_ns}))
+
+    async def get_clock(self) -> dict[str, Any]:
+        """Admin-only API: what the clearing engine's clock reads, and whether it is pinned."""
+        return cast(dict[str, Any], await self._get("admin/clock"))
+
+    async def set_interest_schedule(self, enabled: bool) -> dict:
+        """Turn the clearing engine's periodic interest rate request on or off (debug only).
+
+        On-demand triggers and rates injected directly still apply. Every rate
+        application reseeds each user's average spot balance, so a scenario asserting
+        an average has to be the only thing applying rates.
+        """
+        return await self._post("admin/interest/schedule", json_data={"enabled": enabled})
+
+    async def get_user_inventory(self, user: "UserPublicKey", now_ns: int | None = None):
         """
         Admin-only API for checking a user inventory.
+
+        Carries ``average_spot_deposits`` beside ``accounts``: per sub-account
+        index, each tracked asset's time-weighted average spot balance and the
+        balance it converges to. ``now_ns`` reads those averages at that instant
+        instead of the clearing engine's clock, so a window can be read as it
+        will stand later without waiting; the instant used comes back as
+        ``computed_at_ns``.
+
+        An average only reaches forward from the last balance change, so an
+        instant before one is answered with ``INVALID_REQUEST`` naming where that
+        asset's window starts — never with a zero, which is a real average.
         """
         if not isinstance(user, UserPublicKey):
             user = UserPublicKey.__validate_user__(user)
 
-        return await self._get(f"admin/inventory/{user}")
+        params = {} if now_ns is None else {"now_ns": now_ns}
+        return await self._get(f"admin/inventory/{user}", params=params)
+
+    async def get_representation_rate(self, token: str) -> int | None:
+        """
+        Admin-only API for the rate a representation token converts at now, or None without one.
+        """
+        response = await self._get(f"admin/representation-rate/{token}")
+        rate = response.get("rate")
+        return None if rate is None else int(rate, 0)
+
+    async def read_representation_rates(self):
+        """
+        Admin-only API asking every mapped provider for its rate now (debug builds). It returns
+        once the reads are sent, so the new rates land after it.
+        """
+        await self._post("admin/representation-rates/read", json_data={})
+
+    async def get_vault_balance(self, token: str) -> VaultBalance:
+        """
+        Admin-only API for a token's free and locked vault balance at 18 decimals.
+        """
+        response = await self._get(f"admin/vault/{token}")
+        return VaultBalance.model_validate(response)
 
     async def set_asset_config(
         self,
@@ -231,6 +294,31 @@ class AdminClient(BaseClearingEngineClient):
 
         await self._post("admin/last-trade-prices/modify", json_data={"prices": prices})
 
+    async def set_mark_price(
+        self,
+        asset_id: AssetIdentifier,
+        asset_mark_price: str | None,
+        asset_mark_price_decimals: int,
+    ):
+        """Force the mark price of an asset on the CE (debug only).
+
+        Bypasses the last-trade EMA: the CE (and the OMS/MDS it propagates to)
+        report exactly this mark until the next trade nudges it again. Pass
+        ``asset_mark_price=None`` to clear the mark.
+        """
+        prices: dict[str, Any]
+        if asset_mark_price:
+            prices = {
+                str(asset_id): {
+                    "price": to_u256_str(asset_mark_price),
+                    "decimals": asset_mark_price_decimals,
+                }
+            }
+        else:
+            prices = {str(asset_id): None}
+
+        await self._post("admin/mark-prices/modify", json_data={"prices": prices})
+
     async def set_impact_prices(
         self,
         asset_id: AssetIdentifier,
@@ -318,7 +406,11 @@ class AdminClient(BaseClearingEngineClient):
     async def set_interest_rates(self, rates: list[InterestRates]):
         await self._post(
             "admin/interest/inject",
-            json_data={"request_id": 1, "rates": [r.model_dump(mode="json") for r in rates]},
+            # Separate debug applications must not look like duplicate deliveries.
+            json_data={
+                "request_id": time.time_ns(),
+                "rates": [r.model_dump(mode="json") for r in rates],
+            },
         )
 
     async def request_interest_rates(self):
@@ -357,6 +449,75 @@ class AdminClient(BaseClearingEngineClient):
             "admin/fee-account/modify",
             json_data={"fee_account": user},
         )
+
+    async def set_withdrawal_suspension(self, user: UserPublicKey, suspended: bool):
+        """Debug-only: suspend or resume ``user``'s withdrawals directly."""
+        await self._post(
+            "admin/withdrawal-suspension/modify",
+            json_data={"user": user, "suspended": suspended},
+        )
+
+    async def inject_withdrew(
+        self,
+        user: UserPublicKey,
+        nonce: int,
+        asset_address: str,
+        amount: int,
+        block_number: int | None = None,
+    ) -> None:
+        """Debug-only: propose a ``Withdrew`` event the vault never emitted, as if it had.
+
+        ``amount`` is the chain amount, in the token's own decimals. The vault signs what it
+        pays, so this is the only way to ingest a payout that differs from its approval.
+
+        ``block_number`` dates the event. A vault balance read at or after it already counts
+        the payout, so an event left at height zero never leaves the tracked vault balance
+        once any read landed."""
+        json_data: dict[str, Any] = {
+            "user": user,
+            "nonce": nonce,
+            "asset_address": asset_address,
+            "amount": str(amount),
+        }
+        if block_number is not None:
+            json_data["block_number"] = block_number
+        await self._post("admin/chain-event/withdrew", json_data=json_data)
+
+    async def inject_settled(
+        self,
+        user: UserPublicKey,
+        sub_account_index: int,
+        nonce: int,
+        token_out: str,
+        amount_out: int,
+        token_in: str,
+        amount_in: int,
+        mode: str,
+        settler: UserPublicKey,
+        block_number: int | None = None,
+    ) -> None:
+        """Debug-only: propose a ``Settled`` event the vault never emitted, as if it had.
+
+        Amounts are chain amounts, in each token's own decimals; ``mode`` is ``spot`` or
+        ``margin``.
+
+        ``block_number`` dates the event. A vault balance read at or after it already counts
+        the settlement's legs, so an event left at height zero never moves the tracked vault
+        balance once any read landed."""
+        json_data: dict[str, Any] = {
+            "user": user,
+            "sub_account_index": sub_account_index,
+            "nonce": nonce,
+            "token_out": token_out,
+            "amount_out": str(amount_out),
+            "token_in": token_in,
+            "amount_in": str(amount_in),
+            "mode": mode,
+            "settler": settler,
+        }
+        if block_number is not None:
+            json_data["block_number"] = block_number
+        await self._post("admin/chain-event/settled", json_data=json_data)
 
     async def set_avs_backstop_target(self, user: UserPublicKey | None):
         """Configure the AVS backstop user, or clear it (disabling the

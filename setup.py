@@ -8,7 +8,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tpluspy",
-    version="0.6.0",
+    version="0.7.0",
     description="""tpluspy: Client utilities for interacting with tplus""",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -17,6 +17,7 @@ setup(
     url="https://github.com/tpluslabs/tpluspy",
     include_package_data=True,
     install_requires=[
+        "anyio>=4",
         "click>=8.1",
         "cryptography>=44.0.1",
         "eth-pydantic-types>=0.2.6,<0.3",
@@ -39,7 +40,6 @@ setup(
             "pytest-timeout>=2.2.0,<3",
             "pytest-mock",
             "pytest-asyncio",
-            "anyio>=4",
             "pytest-anyio>=0.0.0",
             "trio>=0.24",
             # In-process EVM backend used by the web3-backend tests. ``py-evm``

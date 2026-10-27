@@ -5,6 +5,9 @@ import pytest
 from tplus.client.market_data import MarketDataClient
 from tplus.client.orderbook import OrderBookClient
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.market import MarketTypeFilter
+from tplus.model.trades import UserTradesPage
+from tplus.utils.user import User
 
 
 class _DummyUser:
@@ -235,3 +238,149 @@ async def test_get_markets_defaults_to_one_full_page():
     page = await client.get_markets()
     assert page.symbol_map is None
     assert captured == [{"page": 0, "limit": 1000}]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("market_type", [MarketTypeFilter.SPOT, "spot", "SPOT"])
+async def test_get_markets_sends_market_type(market_type):
+    envelope = {
+        "markets": [],
+        "total_markets": 0,
+        "page": 0,
+        "limit": 1000,
+        "total_pages": 0,
+        "cursor_size": 0,
+        "has_next_page": False,
+        "next_page": None,
+    }
+    client, captured = _client_returning(envelope)
+    await client.get_markets(market_type=market_type)
+    assert captured == [{"page": 0, "limit": 1000, "market_type": "spot"}]
+
+
+@pytest.mark.anyio
+async def test_get_markets_rejects_unknown_market_type():
+    client, captured = _client_returning({})
+    with pytest.raises(ValueError):
+        await client.get_markets(market_type="perp")
+    assert captured == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("limit", [1, 999, 1000])
+async def test_user_trades_requests_one_page_with_limit(limit, mocker):
+    user = User()
+    client = MarketDataClient(default_user=user)
+    get = mocker.patch.object(
+        client,
+        "_get",
+        new_callable=mocker.AsyncMock,
+        return_value={
+            "trades": [_trade(1, 100)],
+            "has_next_page": True,
+            "next_page": 3,
+        },
+    )
+
+    result = await client.get_user_trades(limit=limit, page=2)
+
+    get.assert_awaited_once_with(
+        f"/trades/user/{user.public_key}",
+        params={"limit": limit, "page": 2},
+        requires_auth=True,
+        user=None,
+    )
+    assert isinstance(result, UserTradesPage)
+    assert result.next_page == 3
+    assert len(result) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("asset", [None, AssetIdentifier("1")])
+async def test_user_trades_caps_limit_and_warns_without_following_next_page(asset, mocker):
+    user = User()
+    client = MarketDataClient(default_user=user)
+    get = mocker.patch.object(
+        client,
+        "_get",
+        new_callable=mocker.AsyncMock,
+        return_value={
+            "trades": [_trade(i, i) for i in range(1000, 0, -1)],
+            "has_next_page": True,
+            "next_page": 1,
+        },
+    )
+
+    with pytest.warns(UserWarning, match="Paginate"):
+        if asset is None:
+            result = await client.get_user_trades(limit=2500)
+        else:
+            result = await client.get_user_trades_for_asset(asset, limit=2500)
+
+    endpoint = f"/trades/user/{user.public_key}"
+    if asset is not None:
+        endpoint += f"/{asset}"
+    get.assert_awaited_once_with(
+        endpoint,
+        params={"limit": 1000},
+        requires_auth=True,
+        user=None,
+    )
+    assert len(result) == 1000
+    assert result[0].timestamp_ns == 1000
+    assert result[-1].timestamp_ns == 1
+    assert result.next_page == 1
+
+
+@pytest.mark.anyio
+async def test_user_trades_default_preserves_server_limit_and_page_type(mocker):
+    user = User()
+    client = MarketDataClient()
+    get = mocker.patch.object(
+        client,
+        "_get",
+        new_callable=mocker.AsyncMock,
+        return_value={
+            "trades": [_trade(1, 1)],
+            "has_next_page": True,
+            "next_page": 1,
+        },
+    )
+
+    recent = await client.get_user_trades(user=user)
+
+    get.assert_awaited_once_with(
+        f"/trades/user/{user.public_key}",
+        params=None,
+        requires_auth=True,
+        user=user,
+    )
+    assert isinstance(recent, UserTradesPage)
+    assert len(recent) == 1
+    assert recent.next_page == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "limit,error",
+    [
+        (0, ValueError),
+        (-1, ValueError),
+        (1.5, TypeError),
+        ("100", TypeError),
+        (True, TypeError),
+        (False, TypeError),
+    ],
+)
+@pytest.mark.parametrize("asset", [None, AssetIdentifier("1")])
+async def test_user_trades_rejects_invalid_limit_before_request(limit, error, asset, mocker):
+    client = MarketDataClient()
+    get = mocker.patch.object(client, "_get", new_callable=mocker.AsyncMock)
+
+    with pytest.raises(error, match="positive integer"):
+        if asset is None:
+            await client.get_user_trades(limit=limit)
+        else:
+            await client.get_user_trades_for_asset(asset, limit=limit)
+
+    get.assert_not_awaited()

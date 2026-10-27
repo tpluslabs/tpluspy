@@ -1,3 +1,5 @@
+from typing import Literal, get_args
+
 from pydantic_core.core_schema import (
     no_info_before_validator_function,
     no_info_plain_validator_function,
@@ -7,6 +9,11 @@ from pydantic_core.core_schema import (
 from tplus.utils.serializers import hex_serialize_no_prefix
 
 U64_MAX = (1 << 64) - 1
+
+MultisigPermissionLevel = Literal["low", "medium", "high"]
+"""A multisig permission level, ordered low < medium < high."""
+
+MULTISIG_PERMISSION_LEVELS: tuple[str, ...] = get_args(MultisigPermissionLevel)
 
 
 class UserPublicKey(str):

@@ -104,6 +104,12 @@ class ServerError(OmsError):
     pass
 
 
+class AssetDecimalsUnavailable(ServerError):
+    """The clearing engine has not yet published decimals for the requested assets."""
+
+    pass
+
+
 # ---------------------------------------------------------------------------
 # Code -> exception class mapping
 # ---------------------------------------------------------------------------
@@ -137,6 +143,10 @@ _SERVER_CODES = frozenset(
 _ORDER_PREFIXES = (
     "INSUFFICIENT_MARGIN",
     "INVALID_ORDER",
+    "INVALID_SETTLEMENT_REQUEST",
+    "UNSUPPORTED_ACCOUNT",
+    "SPOT_TRADE_REQUIRED",
+    "TRIGGER_NOT_ALLOWED",
     "ORDER_REJECTED",
     "DUPLICATE_ORDER",
     "SELF_TRADE",
@@ -155,6 +165,8 @@ def _classify(code: str, status_code: int) -> type[OmsError]:
     """Return the most specific ``OmsError`` subclass for *code*."""
     if code == "SIGNER_REGISTRY_UNAVAILABLE":
         return SignerRegistryUnavailable
+    if code == "ASSET_DECIMALS_UNAVAILABLE":
+        return AssetDecimalsUnavailable
     if code in _AUTH_CODES or any(code.startswith(p) for p in _AUTH_PREFIXES):
         return AuthError
     if code in _RATE_LIMIT_CODES:

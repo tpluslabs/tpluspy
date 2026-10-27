@@ -24,8 +24,8 @@ async def test_cancel_order_eth_account_as_default_user(eth_account, build_clien
 
 
 @pytest.mark.anyio
-async def test_get_user_inventory_public_key_still_accepted(eth_user, client_build):
-    client, request = client_build
+async def test_get_user_inventory_public_key_still_accepted(eth_user, mock_client):
+    client, request = mock_client
 
     await client.get_user_inventory(user=eth_user.public_key)
     assert request.call_args.args[1] == f"/inventory/user/{eth_user.public_key}"

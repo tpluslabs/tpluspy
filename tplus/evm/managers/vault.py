@@ -4,6 +4,7 @@ from tplus.client import ClearingEngineClient
 from tplus.evm.address import public_key_to_address
 from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainConnectedManager
+from tplus.model.chain_address import ChainAddress
 from tplus.model.types import ChainID, UserPublicKey
 from tplus.utils.address import to_evm_address
 from tplus.utils.domain import get_dstack_domain
@@ -102,12 +103,11 @@ class VaultOwner(ChainConnectedManager):
             if not (ce := self.ce):
                 raise ValueError("Must have clearing_engine to wait for settler registration.")
 
+            vault_address = ChainAddress.from_evm_address(str(self.vault.address), self.chain_id)
             await wait_for_condition(
-                update_fn=lambda: ce.admin_settlements.update_approved_settlers(
-                    self.chain_id, self.vault.address
-                ),
+                update_fn=lambda: ce.admin_settlements.update_approved_settlers(vault_address),
                 get_fn=lambda: ce.admin_settlements.get_approved_settlers(self.chain_id),
-                check_fn=lambda settlers: settler in settlers,
+                check_fn=lambda by_vault: settler in by_vault.get(vault_address.address, []),
                 timeout=10,
                 interval=1,
                 error_msg="Settler approval failed.",

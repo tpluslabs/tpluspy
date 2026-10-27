@@ -7,6 +7,8 @@ from tplus.client.market_data import MarketDataClient
 from tplus.client.orderbook import OrderBookClient
 
 DEFAULT_BASE_URL = "http://localhost:8080"
+OMS_SERVICE = "Oms"
+MDS_SERVICE = "Mds"
 
 
 class TplusApiClient(AuthenticatedClient):
@@ -31,12 +33,16 @@ class TplusApiClient(AuthenticatedClient):
 
     def __init__(self, base_url: str = DEFAULT_BASE_URL, **kwargs) -> None:
         super().__init__(base_url, **kwargs)
+        self._auth_service = OMS_SERVICE
         self.oms = OrderBookClient.from_client(self)
         self.mds = MarketDataClient.from_client(
             self,
             auth=Auth(cache_dir=self._auth.cache_dir),
             auth_path_prefix="/market-data",
         )
+        self.mds._auth_service = MDS_SERVICE
+        self._pair_tokens_with(self.mds)
+        self.oms._pair_tokens_with(self.mds)
 
     def __getattr__(self, name: str) -> Any:
         # Only reached when normal lookup fails, so real inherited attributes

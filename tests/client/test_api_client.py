@@ -16,7 +16,7 @@ class FakeGateway:
         self.oms_auth_calls = 0
         self.mds_nonce_calls = 0
         self.mds_auth_calls = 0
-        self.auth_headers: dict[str, str | None] = {}
+        self.auth_headers: dict[str, dict[str, str | None]] = {}
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -43,7 +43,7 @@ class FakeGateway:
             )
 
         if path.startswith("/inventory/user/"):
-            self.auth_headers["inventory"] = request.headers.get("Authorization")
+            self._record("inventory", request)
             return httpx.Response(200, json={"balances": []})
 
         if path == "/tickers":
@@ -53,7 +53,7 @@ class FakeGateway:
             )
 
         if path.startswith("/trades/user/"):
-            self.auth_headers["trades"] = request.headers.get("Authorization")
+            self._record("trades", request)
             return httpx.Response(
                 200,
                 json={
@@ -64,6 +64,12 @@ class FakeGateway:
             )
 
         return httpx.Response(404)
+
+    def _record(self, endpoint: str, request: httpx.Request) -> None:
+        self.auth_headers[endpoint] = {
+            name: request.headers.get(name)
+            for name in ("Authorization", "Oms-Authorization", "Mds-Authorization")
+        }
 
 
 def make_client(gateway: FakeGateway) -> TplusApiClient:
@@ -91,8 +97,13 @@ async def test_tplus_api_client_uses_service_scoped_tokens():
     assert gateway.oms_nonce_calls == 1
     assert gateway.mds_auth_calls == 1
     assert gateway.mds_nonce_calls == 1
-    assert gateway.auth_headers["inventory"] == "Bearer oms-tok"
-    assert gateway.auth_headers["trades"] == "Bearer mds-tok"
+    assert gateway.auth_headers["inventory"]["Authorization"] == "Bearer oms-tok"
+    assert gateway.auth_headers["trades"]["Authorization"] == "Bearer mds-tok"
+
+    # Both tokens ride on every request.
+    for endpoint in ("inventory", "trades"):
+        assert gateway.auth_headers[endpoint]["Oms-Authorization"] == "Bearer oms-tok"
+        assert gateway.auth_headers[endpoint]["Mds-Authorization"] == "Bearer mds-tok"
 
     await client.close()
 
