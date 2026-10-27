@@ -21,7 +21,7 @@ The CE client groups its API into sub-clients exposed as cached properties:
 
 | Property         | Wraps                                                                     | Purpose                                                                  |
 | ---------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `ce.settlements` | {py:class}`tplus.client.clearingengine.settlement.SettlementClient`       | Atomic + batch settlement init, signature retrieval, approval streaming. |
+| `ce.settlements` | {py:class}`tplus.client.clearingengine.settlement.SettlementClient`       | Atomic settlement init, signature retrieval, approval streaming. |
 | `ce.deposits`    | {py:class}`tplus.client.clearingengine.deposit.DepositClient`             | Triggering deposit-vault rescans.                                        |
 | `ce.withdrawals` | {py:class}`tplus.client.clearingengine.withdrawal.WithdrawalClient`       | Cancel / queue / signatures.                                             |
 | `ce.assets`      | {py:class}`tplus.client.clearingengine.assetregistry.AssetRegistryClient` | Asset registry queries.                                                  |
@@ -70,14 +70,6 @@ await ce.settlements.init_settlement(TxSettlementRequest(...))
 sigs = await ce.settlements.get_signatures(user.public_key)
 ```
 
-Batch settlements:
-
-```{code-block} python
-from tplus.model.settlement import BatchSettlementRequest
-
-await ce.settlements.init_batch_settlement(BatchSettlementRequest(...))
-```
-
 You can also stream encrypted settlement approvals via WebSocket:
 
 ```{code-block} python
@@ -91,7 +83,7 @@ async for approval in ce.settlements.stream_approvals(user.public_key):
 ```{code-block} python
 chain_addresses = await ce.vaults.get()
 await ce.vaults.update()                    # re-read the registry
-await ce.vaults.update_balance(asset_addr)  # nudge the CE to refresh balance
+await ce.vaults.update_balance(asset_addr)  # refresh a balance (debug CE builds only)
 ```
 
 ## Admin

@@ -81,7 +81,6 @@ class RegistryOwner(ChainConnectedManager):
                 get_fn=lambda: asset_registry.get_asset_config(),
                 check_fn=lambda assets: f"{index}" in assets,
                 timeout=10,
-                interval=1,
                 error_msg=f"Asset registration failed (asset={index}).",
             )
 

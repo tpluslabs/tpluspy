@@ -18,6 +18,56 @@ from tplus.model.types import UserPublicKey
 from tplus.utils.user import DelegatedUser, User
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("busy_count, expected_status, expected_calls", [(1, 200, 2), (5, 503, 4)])
+async def test_explicit_backpressure_retry_is_bounded(
+    busy_count, expected_status, expected_calls, mocker
+):
+    calls = 0
+    sleep = mocker.patch("tplus.client.base.anyio.sleep", new_callable=mocker.AsyncMock)
+
+    def handle(request):
+        nonlocal calls
+        calls += 1
+        if calls <= busy_count:
+            return httpx.Response(
+                503, json={"error": {"code": "SERVER_BUSY"}}, headers={"Retry-After": "1"}
+            )
+        return httpx.Response(200, json={})
+
+    async with httpx.AsyncClient(
+        base_url="http://test", transport=httpx.MockTransport(handle)
+    ) as http:
+        client = BaseClient(base_url="http://test", client=http)
+        response = await client._send("POST", "/orders", json_data={"order_id": "same"})
+    assert response.status_code == expected_status
+    assert calls == expected_calls
+    assert sleep.await_args_list == [mocker.call(1)] * (expected_calls - 1)
+
+
+@pytest.mark.anyio
+async def test_authentication_honors_admission_backpressure():
+    calls: dict[str, int] = {}
+
+    def handle(request):
+        path = request.url.path
+        calls[path] = calls.get(path, 0) + 1
+        if calls[path] == 1:
+            return httpx.Response(
+                503, json={"error": {"code": "SERVER_BUSY"}}, headers={"Retry-After": "0"}
+            )
+        if path.startswith("/nonce/"):
+            return httpx.Response(200, json={"value": "nonce"})
+        return httpx.Response(200, json={"token": "token", "expiry_ns": time.time_ns() + 10**12})
+
+    async with httpx.AsyncClient(
+        base_url="http://test", transport=httpx.MockTransport(handle)
+    ) as http:
+        client = AuthenticatedClient(base_url="http://test", client=http, default_user=User())
+        await client.authenticate()
+    assert list(calls.values()) == [2, 2]
+
+
 class FakeAuthBackend:
     def __init__(
         self,

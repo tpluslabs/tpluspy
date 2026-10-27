@@ -1,3 +1,6 @@
+from enum import Enum
+from typing import Any
+
 from pydantic import BaseModel
 
 from tplus.model.order import CreateOrderRequest
@@ -59,5 +62,50 @@ def parse_batch_replace_response(
                 reason=result.get("reason"),
             )
             for result in parsed_batch_replace_response["results"]
+        ]
+    )
+
+
+class BatchCancelStatus(str, Enum):
+    ACCEPTED = "accepted"
+    PARTIAL = "partial"
+
+
+class BatchCancelResponse(BaseModel):
+    """Outcome of ``DELETE /orders/cancel-batch``; IDs the caller does not own are not dispatched."""
+
+    status: BatchCancelStatus
+    dispatched: int
+    failures: list[str] | None = None
+
+
+class BatchAmendOrderRequest(BaseModel):
+    """Body of ``PATCH /orders/batch-amend`` / the ``BatchAmendRequest`` control message.
+
+    Each item is a complete amend payload, exactly as sent to the single amend endpoint
+    (see :func:`tplus.utils.amend_order.create_amend_order_ob_request_payload`). At most
+    50 items; an order id may appear only once per batch.
+    """
+
+    amends: list[dict[str, Any]]
+
+
+class BatchAmendOrderRequestResponse(BaseModel):
+    """One :class:`SingleOrderStatusFromBatch` per submitted amend, in submission order."""
+
+    batch_order_status: list[SingleOrderStatusFromBatch]
+
+
+def parse_batch_amend_response(
+    parsed_batch_amend_response: dict,
+) -> BatchAmendOrderRequestResponse:
+    return BatchAmendOrderRequestResponse(
+        batch_order_status=[
+            SingleOrderStatusFromBatch(
+                order_id=result["order_id"],
+                status=result["status"],
+                reason=result.get("reason"),
+            )
+            for result in parsed_batch_amend_response["results"]
         ]
     )

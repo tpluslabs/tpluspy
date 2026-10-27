@@ -103,6 +103,41 @@ class CancelWithdrawalRequest(BaseModel):
         return self.inner.signing_payload()
 
 
+class InnerResumeWithdrawalsRequest(BaseModel):
+    # Field order is the signed preimage; keep it aligned with the Rust struct.
+    user: UserPublicKey  # signer
+    target_user: UserPublicKey
+    nonce: int
+
+    def signing_payload(self) -> str:
+        return self.model_dump_json()
+
+
+class ResumeWithdrawalsRequest(BaseModel):
+    inner: InnerResumeWithdrawalsRequest
+    signature: list[int]
+    additional_signers: list[AdditionalSigner] = []
+
+    @classmethod
+    def create_signed(
+        cls,
+        signer: "UserLike",
+        target_user: UserPublicKey | str,
+        nonce: int,
+    ) -> "ResumeWithdrawalsRequest":
+        signer = to_user(signer)
+        inner = InnerResumeWithdrawalsRequest(
+            user=signer.public_key,
+            target_user=UserPublicKey(target_user),
+            nonce=nonce,
+        )
+        signature, additional_signers = signer.signing_parts(inner.signing_payload())
+        return cls(inner=inner, signature=signature, additional_signers=additional_signers)
+
+    def signing_payload(self) -> str:
+        return self.inner.signing_payload()
+
+
 class WithdrawalDelayParameters(BaseModel):
     min_delay: int = Field(alias="minDelay")
     max_delay: int = Field(alias="maxDelay")

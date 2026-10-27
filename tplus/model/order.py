@@ -12,6 +12,7 @@ from tplus.model.multisig import AdditionalSigner
 from tplus.model.order_id import UserOrderId
 from tplus.model.order_trigger import OrderTrigger
 from tplus.model.pagination import PageContinuation
+from tplus.model.sync_order import SyncMakerOrderDetails, SyncTakerOrderDetails
 from tplus.model.types import UserPublicKey
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class Order(BaseModel):
     base_asset: AssetIdentifier
     book_price_decimals: int
     book_quantity_decimals: int
-    details: LimitOrderDetails | MarketOrderDetails
+    details: LimitOrderDetails | MarketOrderDetails | SyncMakerOrderDetails | SyncTakerOrderDetails
     side: Side
     trigger: OrderTrigger | None = None
     creation_timestamp_ns: int
@@ -82,6 +83,13 @@ class Order(BaseModel):
     @field_serializer("trigger")
     def serialize_trigger(self, trigger, _info):
         return None if trigger is None else trigger.model_dump()
+
+    @field_serializer("details")
+    def serialize_details(self, details, _info):
+        # The detail models overlap in fields (e.g. `Limit` and `SyncMaker` both carry
+        # `limit_price`/`quantity`/`time_in_force`), so pydantic's union serializer can pick
+        # the wrong variant's wrapper key; dispatch on the concrete class instead.
+        return details.model_dump()
 
 
 class CreateOrderRequest(BaseModel):
@@ -271,6 +279,10 @@ class OrderCancelledEvent(BaseOrderEvent):
     operator_pubkey: str | None = None
     initial_receive_timestamp_ns: int | None = None
     reason: str | None = None
+    #: Book-wide orderbook event sequence; strictly increasing across the events the
+    #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
+    #: ``0`` when the event predates sequencing.
+    sequence: int = 0
 
 
 class OrderRemovedEvent(BaseOrderEvent):
@@ -293,6 +305,10 @@ class OrderRemovedEvent(BaseOrderEvent):
     confirmed_amount: int = 0
     book_quantity_decimals: int = 0
     initial_receive_timestamp_ns: int | None = None
+    #: Book-wide orderbook event sequence; strictly increasing across the events the
+    #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
+    #: ``0`` when the event predates sequencing.
+    sequence: int = 0
 
 
 class OrderReplacedEvent(BaseOrderEvent):
@@ -308,6 +324,10 @@ class OrderReplacedEvent(BaseOrderEvent):
     authorization_revision: int = 0
     operator_pubkey: str | None = None
     initial_receive_timestamp_ns: int | None = None
+    #: Book-wide orderbook event sequence; strictly increasing across the events the
+    #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
+    #: ``0`` when the event predates sequencing.
+    sequence: int = 0
 
 
 class OrderAmendedEvent(BaseOrderEvent):
@@ -323,6 +343,10 @@ class OrderAmendedEvent(BaseOrderEvent):
     book_quantity_decimals: int = 0
     timestamp_ns: int | None = None
     operator_pubkey: str | None = None
+    #: Book-wide orderbook event sequence; strictly increasing across the events the
+    #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
+    #: ``0`` when the event predates sequencing.
+    sequence: int = 0
 
 
 class OrderTriggeredEvent(BaseOrderEvent):
@@ -336,12 +360,18 @@ class OrderTriggeredEvent(BaseOrderEvent):
     quantity: int
     trigger_touched: bool
     operator_pubkey: str | None = None
+    #: Book-wide orderbook event sequence; strictly increasing across the events the
+    #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
+    #: ``0`` when the event predates sequencing.
+    sequence: int = 0
 
 
 class OrderCreateFailedEvent(BaseOrderEvent):
     event_type: Literal["CREATEFAILED"]
     order_id: str
     user_id: str
+    #: Market of the order; an order id is only unique within its market.
+    asset_id: AssetIdentifier | None = None
     reason: str | None = None
 
 
@@ -349,6 +379,8 @@ class OrderReplaceFailedEvent(BaseOrderEvent):
     event_type: Literal["REPLACEFAILED"]
     order_id: str
     user_id: str
+    #: Market of the order; an order id is only unique within its market.
+    asset_id: AssetIdentifier | None = None
     reason: str | None = None
 
 
@@ -356,6 +388,8 @@ class OrderAmendFailedEvent(BaseOrderEvent):
     event_type: Literal["AMENDFAILED"]
     order_id: str
     user_id: str
+    #: Market of the order; an order id is only unique within its market.
+    asset_id: AssetIdentifier | None = None
     reason: str | None = None
 
 
@@ -363,6 +397,8 @@ class OrderCancelFailedEvent(BaseOrderEvent):
     event_type: Literal["CANCELFAILED"]
     order_id: str
     user_id: str
+    #: Market of the order; an order id is only unique within its market.
+    asset_id: AssetIdentifier | None = None
     reason: str | None = None
 
 

@@ -10,6 +10,8 @@ class OrderBook(BaseModel):
     asks: list[list[float]] = []  # List of [price, quantity]
     bids: list[list[float]] = []  # List of [price, quantity]
     sequence_number: int = 0
+    # The depth may not reflect the book, until a reset replaces it.
+    stale: bool = False
 
 
 # Model for WebSocket Depth Stream Diff updates
@@ -17,6 +19,10 @@ class OrderBookDiff(BaseModel):
     bids: list[list[float]]
     asks: list[list[float]]
     sequence_number: int
+    # The book was replaced: drop every level held and fetch the book again.
+    reset: bool = False
+    # The depth this diff builds may not reflect the book, until a reset replaces it.
+    stale: bool = False
 
 
 # Model for individual Price Level Updates (Potentially for a different stream?)

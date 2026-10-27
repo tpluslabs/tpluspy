@@ -1,7 +1,6 @@
 import asyncio
-import time
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ape.contracts.base import ContractContainer
 from ape.utils.basemodel import ManagerAccessMixin
@@ -15,20 +14,16 @@ from tplus.evm.exceptions import SettlementError
 from tplus.evm.managers.settle import SettlementApprovalHandler, SettlementManager
 from tplus.evm.managers.withdraw import WithdrawalInfo, WithdrawalManager
 from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
-from tplus.model.settlement import (
-    InnerMakerOrderAttachment,
-    MakerOrderAttachment,
-    SettlementMode,
-)
+from tplus.model.settlement import SettlementMode
 from tplus.model.types import ChainID
 from tplus.utils.address import to_evm_address
 from tplus.utils.amount import Amount
-from tplus.utils.hex import str_to_vec
 from tplus.utils.serializers import parse_int
 from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
     from tplus.client import ClearingEngineClient
+    from tplus.model.approval import WithdrawalApproval
     from tplus.model.chain_address import Address32
     from tplus.model.types import UserPublicKey
     from tplus.types import UserLike
@@ -147,28 +142,6 @@ class DeveloperEnvironment(ManagerAccessMixin):
             vault=self.deposit_vault,
         )
 
-    @staticmethod
-    def create_maker_order(
-        mm: "User",
-        settler: "UserPublicKey",
-        expires_at_ns: int | None = None,
-    ) -> MakerOrderAttachment:
-        """
-        Create a signed :class:`~tplus.model.settlement.MakerOrderAttachment`
-        for delegated settlement tests.
-        """
-        if expires_at_ns is None:
-            expires_at_ns = int((time.time() + 300) * 1e9)
-
-        inner = InnerMakerOrderAttachment(
-            mm_pubkey=mm.public_key,
-            settler=settler,
-            expires_at=expires_at_ns,
-        )
-        payload = inner.model_dump_json(exclude_none=True)
-        signature = str_to_vec(mm.sign(payload).hex())
-        return MakerOrderAttachment(inner=inner, signature=signature)
-
     async def init_settlement(
         self,
         asset_in: AssetAddress,
@@ -177,7 +150,6 @@ class DeveloperEnvironment(ManagerAccessMixin):
         amount_out: Amount,
         user: "UserLike | None" = None,
         settler: "UserPublicKey | None" = None,
-        maker_order: MakerOrderAttachment | None = None,
         sub_account: int | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
     ):
@@ -185,8 +157,6 @@ class DeveloperEnvironment(ManagerAccessMixin):
         key = f"{user.public_key}"
         self._pending_settlements.setdefault(key, {})
         self._pending_settlement_errors.pop(key, None)
-
-        self.settler_executor.setReturnAmount(amount_in.amount, sender=self.admin)
 
         try:
             info, approval = await self.settlement_manager.init_settlement(
@@ -196,7 +166,6 @@ class DeveloperEnvironment(ManagerAccessMixin):
                 amount_out,
                 user=user,
                 settler=settler,
-                maker_order=maker_order,
                 account_index=sub_account,
                 mode=mode,
             )
@@ -207,6 +176,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
             self._pending_settlement_errors[key] = SettlementError(str(err))
             return
 
+        self.settler_executor.setReturnAmount(approval.amount_in, sender=self.admin)
         self._pending_settlements[key][info.nonce] = (info, approval)
 
     async def wait_for_settlement_approval_result(
@@ -261,10 +231,18 @@ class DeveloperEnvironment(ManagerAccessMixin):
 
     async def submit_latest_approved_settlement_onchain(
         self, user: "User | UserPublicKey | None" = None, nonce: int | None = None
-    ):
+    ) -> Any:
         approval, info = await self._prepare_settlement_execution(nonce, user)
         receipt = await self._execute_settlement(approval, info)
         print(f"Settlement submitted: {receipt.txn_hash}")
+        return receipt
+
+    async def latest_settlement(
+        self, user: "User | UserPublicKey | None" = None, nonce: int | None = None
+    ) -> tuple[Any, Any]:
+        """The ``(info, approval)`` of the user's latest initiated settlement, or of ``nonce``."""
+        approval, info = await self._prepare_settlement_execution(nonce, user)
+        return info, approval
 
     async def _execute_settlement(self, approval, info):
         return await self.settlement_manager.execute_settlement(
@@ -361,7 +339,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
     async def submit_approved_withdrawal_onchain(
         self,
         info: WithdrawalInfo,
-        approvals: list[dict],
+        approvals: list["WithdrawalApproval"],
         user: "UserLike | None" = None,
     ):
         user = to_user(user) if user is not None else self.default_user

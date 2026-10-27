@@ -2,6 +2,8 @@ import pytest
 
 from tplus.client.market_data import MarketDataClient
 from tplus.client.orderbook import OrderBookClient
+from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.sub_account import SubAccountType
 
 
 @pytest.mark.anyio
@@ -45,3 +47,33 @@ async def test_rename_sub_account_parses_response(mocker, eth_user, expected_use
     assert patch.call_args.args[0] == f"/account/{expected_user_id}/sub-account/2/name"
     assert patch.call_args.kwargs["json_data"] == {"name": "Rekt Whale"}
     assert response.new_name == "Rekt Whale"
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        pytest.param("Spot", "Spot", id="spot"),
+        pytest.param("CrossMargin", "CrossMargin", id="cross-margin"),
+        pytest.param(
+            "Isolated",
+            {"Isolated": {"asset": "200"}},
+            id="isolated",
+        ),
+    ],
+)
+def test_build_transfer_to_subaccount_encodes_the_target_account_type(
+    build_client, eth_user, kind, expected
+):
+    client, _ = build_client(default_user=eth_user)
+
+    payload = client._build_transfer_to_subaccount(
+        0,
+        1,
+        AssetIdentifier("200"),
+        1234,
+        SubAccountType.from_kind(kind, AssetIdentifier("200")),
+        nonce=1,
+        user=eth_user,
+    )
+
+    assert payload["inner"]["target_account_type"] == expected

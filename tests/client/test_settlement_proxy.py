@@ -38,7 +38,12 @@ async def test_init_settlement_uses_oms_client(monkeypatch: pytest.MonkeyPatch):
         called["sub_account_index"] = json_data["inner"]["sub_account_index"]
         return {
             "success": True,
-            "approval": {"inner": {"nonce": 12, "signature": "00"}, "expiry": 1},
+            "approval": {
+                "inner": {"nonce": 12, "signature": "00"},
+                "expiry": 1,
+                "amount_in": "1",
+                "amount_out": "1",
+            },
         }
 
     monkeypatch.setattr(client, "_post", fake_post)

@@ -12,13 +12,11 @@ decimals (rounding down) before signing the vault approval. The on-chain
 `vault.withdraw(...)` call must use that converted value or the digest will not
 match and the transaction reverts with `InvalidSignature()`.
 
-{py:class}`tplus.evm.managers.withdraw.WithdrawalManager` keeps both:
-`WithdrawalInfo.amount` is the 1e18 request amount and
-`WithdrawalInfo.chain_amount` is the native-decimals amount the approval covers.
-`execute_withdrawal()` uses `chain_amount`. Pass a
+Each approval carries that signed chain amount as `amount`, and
+{py:class}`tplus.evm.managers.withdraw.WithdrawalManager` `execute_withdrawal()` uses
+it. `WithdrawalInfo.amount` is the 1e18 request amount. Pass a
 {py:class}`tplus.utils.amount.Amount` to `init_withdrawal()` to give the amount
-in native decimals; a plain `int` is read as 1e18 units and the asset's decimals
-are looked up from the registry.
+in native decimals; a plain `int` is read as 1e18 units.
 
 ## 1. Initialize
 

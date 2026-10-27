@@ -160,10 +160,18 @@ def _transfer(
 @ignore_ssl_option()
 @tplus_account_option()
 @click.option("--account", "account_index", type=int, required=True, help="Sub-account index.")
-@click.option("--asset", "asset_id", required=True, help="Transfer asset identifier.")
+@click.option("--asset", "asset_id", required=True, help="Asset identifier of the position.")
 @pass_cli_context
 def _close(cli_ctx: CLIContext, account_index: int, asset_id: str):
-    """Close a position on a sub-account."""
+    """Close a position on a sub-account.
+
+    Spot of the asset is first squashed into the position's base liabilities
+    (any asset, not only USD), but only while the quote leg is exactly zero: a
+    short with a quote leg is closed by trading, and the close is rejected with
+    ``spot repays a base liability only while the quote leg is 0``. Once the
+    base leg is flat, spot USD repays a quote loss and a quote profit is moved
+    to spot USD.
+    """
     client = cli_ctx.orderbook_client()
     response = asyncio.run(client.request_close_position(account_index, asset_id))
     click.echo(json.dumps(response, indent=2, default=str))

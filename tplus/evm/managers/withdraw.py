@@ -13,12 +13,12 @@ from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainSigningManager
 from tplus.exceptions import OmsError
 from tplus.logger import get_logger
+from tplus.model.approval import WithdrawalApproval
 from tplus.model.asset_identifier import Address32, AssetAddress, AssetIdentifier
 from tplus.model.types import ChainID
 from tplus.model.withdrawal import WithdrawalRequest
 from tplus.utils.address import to_evm_address
 from tplus.utils.amount import Amount
-from tplus.utils.decimals import to_chain_decimals
 from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
@@ -63,12 +63,6 @@ class WithdrawalInfo:
     asset: AssetAddress
     amount: int
     """The requested amount, in CE-internal 1e18 units."""
-
-    chain_amount: int
-    """
-    ``amount`` converted to the asset's native chain decimals. This is the amount the CE
-    covered with its approval signature, so it is the only one the vault digest matches.
-    """
 
     nonce: int
     target: Address32
@@ -167,9 +161,9 @@ class WithdrawalManager(ChainSigningManager):
 
         Args:
             asset: The asset to withdraw.
-            amount: An ``int`` is a CE-internal 1e18-normalized amount and the asset's
-                decimals are looked up from the registry. An :class:`~tplus.utils.amount.Amount`
-                is a native-decimals amount and is normalized here instead.
+            amount: An ``int`` is a CE-internal 1e18-normalized amount. An
+                :class:`~tplus.utils.amount.Amount` is a native-decimals amount and is
+                normalized here instead.
         """
         user = to_user(user) if user is not None else await self.resolve_default_user()
 
@@ -180,10 +174,8 @@ class WithdrawalManager(ChainSigningManager):
             target = Address32(self.account.address)
 
         if isinstance(amount, Amount):
-            decimals: int | None = amount.decimals
             request_amount = amount.to_inventory_amount("down")
         else:
-            decimals = None
             request_amount = amount
 
         request = WithdrawalRequest.create_signed(
@@ -194,23 +186,15 @@ class WithdrawalManager(ChainSigningManager):
             target=target,
         )
 
-        if decimals is None:
-            decimals = await self.get_asset_decimals(request.inner.asset)
-
-        # The CE signs the chain-decimals amount, rounding down; the vault digest only
-        # matches if the on-chain call uses that exact value.
-        chain_amount = to_chain_decimals(request_amount, decimals, "down")
-
         await self.withdrawals.init_withdrawal(request)
         self.logger.info(
             f"Initialized withdrawal - Asset: {request.inner.asset}, "
-            f"Amount: {request_amount}, Chain amount: {chain_amount}, Nonce: {nonce}"
+            f"Amount: {request_amount}, Nonce: {nonce}"
         )
 
         info = WithdrawalInfo(
             asset=request.inner.asset,
             amount=request_amount,
-            chain_amount=chain_amount,
             nonce=nonce,
             target=request.inner.target,
             chain_id=self.chain_id,
@@ -226,7 +210,7 @@ class WithdrawalManager(ChainSigningManager):
 
     async def _wait_for_approvals(
         self, user_pubkey: str, nonce: int, interval: float, timeout: float
-    ) -> list[dict[str, Any]]:
+    ) -> list[WithdrawalApproval]:
         """Poll the CE until at least one approval arrives for ``nonce``.
 
         Returns every approval whose inner nonce matches; the caller passes the
@@ -255,7 +239,7 @@ class WithdrawalManager(ChainSigningManager):
                     continue
                 approvals = status.get("approvals")
                 if isinstance(approvals, list) and approvals:
-                    return approvals
+                    return [WithdrawalApproval.model_validate(approval) for approval in approvals]
             await asyncio.sleep(interval)
 
         raise TimeoutError(f"Timed out waiting for withdrawal approval (nonce={nonce}).")
@@ -263,19 +247,19 @@ class WithdrawalManager(ChainSigningManager):
     async def execute_withdrawal(
         self,
         info: WithdrawalInfo,
-        approvals: list[dict[str, Any]],
+        approvals: list[WithdrawalApproval],
         user: "UserLike | None" = None,
         target: "str | None" = None,
         **kwargs,
     ) -> Any:
         """Execute an approved withdrawal on-chain.
 
-        The vault call uses ``info.chain_amount`` (native token decimals), not the
-        1e18-normalized ``info.amount`` the CE request carried.
+        The vault call uses the chain amount the approvals signed, not the 1e18-normalized
+        ``info.amount`` the CE request carried.
 
         Args:
             info: The :class:`WithdrawalInfo` returned by :meth:`init_withdrawal`.
-            approvals: All :class:`OneTimeSignature` dicts whose inner nonce
+            approvals: All withdrawal approvals whose inner nonce
                 matches the withdrawal. Each contributes one admin signature
                 toward the contract-enforced withdrawal quorum.
         """
@@ -287,11 +271,6 @@ class WithdrawalManager(ChainSigningManager):
         kwargs.setdefault("required_confirmations", 0)
 
         first = approvals[0]
-        expiry = first["expiry"]
-        epoch_hash = first.get("epoch_hash")
-        if epoch_hash is None:
-            raise ValueError("Withdrawal approval is missing epoch_hash.")
-
         resolved_target = target
         if resolved_target is None:
             resolved_target = to_evm_address(f"0x{str(info.target)[:40]}")
@@ -304,18 +283,18 @@ class WithdrawalManager(ChainSigningManager):
 
         withdrawal = {
             "tokenAddress": asset_address,
-            "amount": info.chain_amount,
+            "amount": first.amount,
             "nonce": info.nonce,
         }
 
-        signatures = [HexBytes(a["inner"]["signature"]) for a in approvals]
+        signatures = [approval.inner.signature for approval in approvals]
 
         return self.vault.withdraw(
             withdrawal,
             HexBytes(user.public_key),
             resolved_target,
-            expiry,
-            HexBytes(bytes(epoch_hash)),
+            first.expiry,
+            first.epoch_hash,
             signatures,
             **kwargs,
         )

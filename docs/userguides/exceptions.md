@@ -29,6 +29,7 @@ keep working.
 | {py:class}`tplus.exceptions.RateLimitError` | Rate limit exceeded (HTTP 429 or `RATE_LIMITED`).                                                          |
 | {py:class}`tplus.exceptions.NotFoundError`  | Resource not found (HTTP 404 or `*_NOT_FOUND`).                                                            |
 | {py:class}`tplus.exceptions.ServerError`    | 5xx / `INTERNAL_ERROR` / `CE_COMMUNICATION_ERROR` / `TIMEOUT`.                                             |
+| {py:class}`tplus.exceptions.AssetDecimalsUnavailable` | Subclass of `ServerError`. Asset decimals are not available yet; retry shortly.                  |
 
 ## Branching on error code
 
@@ -56,6 +57,7 @@ The classification rules live in {py:func}`tplus.exceptions._classify` and
 are summarised below:
 
 - `SIGNER_REGISTRY_UNAVAILABLE` → `SignerRegistryUnavailable`.
+- `ASSET_DECIMALS_UNAVAILABLE` → `AssetDecimalsUnavailable`.
 - `UNAUTHORIZED`, `INVALID_SIGNATURE`, `SIGNER_*`, `NONCE_*` → `AuthError`.
 - `RATE_LIMITED` → `RateLimitError`.
 - `*_NOT_FOUND` → `NotFoundError`.

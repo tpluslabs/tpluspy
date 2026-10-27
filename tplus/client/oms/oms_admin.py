@@ -3,6 +3,15 @@ from tplus.model.asset_identifier import AssetIdentifier
 
 
 class OmsAdminClient(AuthenticatedClient):
+    async def list_suspended_withdrawals(self) -> dict:
+        """Every user whose withdrawals the clearing engine has suspended, oldest first.
+
+        Each entry carries ``suspended_since_ns`` and ``inventory``: the user's whole
+        inventory as it stood when the suspension was raised, in the shape of
+        ``GET /inventory/user/{user_id}`` (``None`` until the CE's gossip of it lands).
+        """
+        return await self._get("admin/withdrawal/suspended", requires_auth=False)
+
     async def set_settings(
         self,
         solvency_verifier: str,
@@ -89,3 +98,15 @@ class OmsAdminClient(AuthenticatedClient):
                 "asset_id": serialized_asset_id,
             },
         )
+
+    async def freeze_clock(self, now_ns: int | None = None) -> dict:
+        """Pin the OMS's clock to ``now_ns``, or release it with ``None`` (debug only).
+
+        Each service holds its own clock, so a scenario that pins time has to pin the
+        clearing engine's and the orderbook's too. Returns ``{"frozen_at_ns", "now_ns"}``.
+        """
+        return await self._post("admin/clock", json_data={"now_ns": now_ns})
+
+    async def get_clock(self) -> dict:
+        """Whether the OMS's clock is pinned, and to what (debug only)."""
+        return await self._get("admin/clock")

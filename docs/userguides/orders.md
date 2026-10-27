@@ -179,6 +179,23 @@ margin = await client.get_user_margin_info(include_positions=True)
 solvency = await client.get_user_solvency()
 ```
 
+`await md.get_user_trades()` returns the latest user-history rows using the MDS default page size.
+Use the existing optional `limit`, `page`, and filters for other reads:
+
+```{code-block} python
+page = await md.get_user_trades(limit=500, start_time=start_ns, end_time=end_ns)
+if page.has_next_page:
+    older = await md.get_user_trades(
+        limit=500, page=page.next_page, start_time=start_ns, end_time=end_ns
+    )
+```
+
+Both user-trade methods return a list-like `UserTradesPage` containing
+`HistoricalUserTrade` rows and continuation metadata. A row may combine fills.
+A supplied `limit` must be a positive integer. Asking for 2,500 emits a Python
+`UserWarning` and requests at most 1,000 rows. Keep the same capped limit and
+filters when requesting another page. Neither method follows pages automatically.
+
 If the user has not yet been seen by the OMS, the listing endpoints return
 empty results rather than raising.
 
@@ -233,6 +250,22 @@ await client.request_transfer_to_subaccount(
     transfer_amount=1_000_000,
 )
 ```
+
+When `target_index` is a new sub-account, `target_account_type` sets its kind:
+
+```{code-block} python
+from tplus.model.sub_account import SubAccountType
+
+await client.request_transfer_to_subaccount(
+    source_index=0,
+    target_index=2,
+    transfer_asset=asset,
+    transfer_amount=1_000_000,
+    target_account_type=SubAccountType.isolated(asset),
+)
+```
+
+`SubAccountType.spot()` and `SubAccountType.cross_margin()` cover the other kinds.
 
 ## Errors
 

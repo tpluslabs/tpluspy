@@ -47,16 +47,12 @@ class InnerSettlementRequest(BaseSettlement):
     nonce: int
     expires_at: int | None = None
     """
-    Optional expiry timestamp (ns). Required when ``mm_pubkey`` is set — the CE
-    rejects delegated settlements without it to bound the replay window.
+    Optional expiry timestamp (ns) after which the CE refuses the request.
     """
-
-    mm_pubkey: UserPublicKey | None = None
+    protocol_version: int = 2
     """
-    For delegated settlements: the market maker whose maker-order attachment is
-    expected alongside this request. Committing ``mm_pubkey`` into the signed
-    payload prevents a different MM from redirecting the settlement to their
-    own settler. Must be ``None`` for non-delegated flows.
+    Layout of the signed payload. Version 1 (clients predating the field) signed
+    ``"mm_pubkey": null``; version 2 drops it and commits the version instead.
     """
 
     @classmethod
@@ -77,9 +73,7 @@ class InnerSettlementRequest(BaseSettlement):
         expires_at: int | None = None,
     ) -> "InnerSettlementRequest":
         """
-        Create a non-delegated request using raw amounts, normalized to CE decimals.
-        ``mm_pubkey`` is always ``None`` here; use
-        :meth:`from_raw_delegated` for delegated settlements.
+        Create a request using raw amounts, normalized to CE decimals.
         """
         return cls.model_validate(
             {
@@ -97,48 +91,6 @@ class InnerSettlementRequest(BaseSettlement):
             }
         )
 
-    @classmethod
-    def from_raw_delegated(
-        cls,
-        asset_in: Address32 | str,
-        amount_in: int,
-        decimals_in: int,
-        asset_out: AssetAddress | str,
-        amount_out: int,
-        decimals_out: int,
-        tplus_user: UserPublicKey,
-        chain: ChainID | str,
-        sub_account_index: int,
-        nonce: int,
-        mm_pubkey: UserPublicKey,
-        expires_at: int,
-        mode: SettlementMode = SettlementMode.MARGIN,
-    ) -> "InnerSettlementRequest":
-        """
-        Create a delegated settlement request bound to a specific MM.
-
-        Both ``mm_pubkey`` and ``expires_at`` are required and committed into
-        the signed payload; the CE rejects delegated settlements missing
-        either. ``settler`` is always ``None`` — the CE derives the executor
-        from the attached maker order.
-        """
-        return cls.model_validate(
-            {
-                "mode": mode,
-                "asset_in": asset_in,
-                "amount_in": to_inventory_decimals(amount_in, decimals_in, "up"),
-                "asset_out": asset_out,
-                "amount_out": to_inventory_decimals(amount_out, decimals_out, "down"),
-                "tplus_user": tplus_user,
-                "settler": None,
-                "chain_id": chain,
-                "nonce": nonce,
-                "sub_account_index": sub_account_index,
-                "expires_at": expires_at,
-                "mm_pubkey": mm_pubkey,
-            }
-        )
-
     def signing_payload(self) -> str:
         base_data = self.model_dump(mode="json", exclude_none=True)
 
@@ -147,7 +99,7 @@ class InnerSettlementRequest(BaseSettlement):
         chain_id = base_data.pop("chain_id", None)
         nonce = base_data.pop("nonce")
         expires_at = base_data.pop("expires_at", None)
-        mm_pubkey = base_data.pop("mm_pubkey", None)
+        base_data.pop("protocol_version")
 
         # NOTE: The order here matters — must match the Rust struct field order
         # in `InnerSettlementRequest`, which is what `serde_json::to_string`
@@ -162,7 +114,10 @@ class InnerSettlementRequest(BaseSettlement):
         payload["chain_id"] = chain_id
         payload["nonce"] = nonce
         payload["expires_at"] = expires_at
-        payload["mm_pubkey"] = mm_pubkey
+        if self.protocol_version == 1:
+            payload["mm_pubkey"] = None
+        if self.protocol_version != 1:
+            payload["protocol_version"] = self.protocol_version
 
         return (
             json.dumps(payload, separators=(",", ":"))
@@ -170,33 +125,6 @@ class InnerSettlementRequest(BaseSettlement):
             .replace("\n", "")
             .replace("\t", "")
         )
-
-
-class InnerMakerOrderAttachment(BaseModel):
-    """
-    The signed inner part of a maker order attachment for delegated settlement.
-    """
-
-    mm_pubkey: UserPublicKey
-    """The market maker's public key."""
-
-    settler: UserPublicKey
-    """The settler/executor designated by the MM."""
-
-    expires_at: int
-    """Expiry timestamp in nanoseconds."""
-
-
-class MakerOrderAttachment(BaseModel):
-    """
-    A maker order attached to a delegated settlement request.
-    """
-
-    inner: InnerMakerOrderAttachment
-    """The signed inner part."""
-
-    signature: list[int]
-    """MM's signature over ``inner``."""
 
 
 class TxSettlementRequest(BaseModel):
@@ -212,11 +140,6 @@ class TxSettlementRequest(BaseModel):
     signature: list[int]
     """
     The settler's signature from signing the necessary data (mostly from ``.inner``).
-    """
-
-    maker_order: MakerOrderAttachment | None = None
-    """
-    Optional maker order for delegated settlement.
     """
 
     additional_signers: list[AdditionalSigner] = []
@@ -252,133 +175,5 @@ class TxSettlementRequest(BaseModel):
         signature, additional_signers = signer.signing_parts(signing_payload)
         return cls(inner=inner, signature=signature, additional_signers=additional_signers)
 
-    @classmethod
-    def create_signed_delegated(
-        cls,
-        inner: InnerSettlementRequest | dict,
-        signer: "UserLike",
-        maker_order: MakerOrderAttachment,
-    ) -> "TxSettlementRequest":
-        """
-        Create and sign a delegated settlement request, cross-checking that
-        ``inner.mm_pubkey`` matches the attached maker order's MM. The CE
-        enforces this binding server-side; checking locally surfaces the
-        mismatch earlier with a clearer error.
-        """
-        signer = to_user(signer)
-        if isinstance(inner, dict):
-            if "tplus_user" not in inner:
-                inner["tplus_user"] = signer.public_key
-            inner = InnerSettlementRequest.model_validate(inner)
-
-        if inner.mm_pubkey is None:
-            raise ValueError(
-                "Delegated settlement requires inner.mm_pubkey to be set "
-                "(use InnerSettlementRequest.from_raw_delegated)."
-            )
-        if inner.expires_at is None:
-            raise ValueError(
-                "Delegated settlement requires inner.expires_at to bound the replay window."
-            )
-        if inner.mm_pubkey != maker_order.inner.mm_pubkey:
-            raise ValueError(
-                "inner.mm_pubkey does not match maker_order.inner.mm_pubkey; "
-                "the CE will reject this as MmPubkeyMismatch."
-            )
-
-        signature, additional_signers = signer.signing_parts(inner.signing_payload())
-        return cls(
-            inner=inner,
-            signature=signature,
-            maker_order=maker_order,
-            additional_signers=additional_signers,
-        )
-
     def signing_payload(self) -> str:
         return self.inner.signing_payload()
-
-
-class BatchSettlementRequest(BaseModel):
-    """
-    Batch settlement request.
-
-    The CE still processes batch settlements (``UserAction::InitBatchSettlement``);
-    this mirrors the ``orderbook_messages`` wire type. Note the OMS no longer
-    exposes a public ``settlement/batch/init`` endpoint, so there is currently no
-    client convenience method that submits one.
-    """
-
-    inner: "InnerBatchSettlementRequest"
-    """
-    The inner part of the request (signature fields).
-    Allows multiple settlements, unlike ``TxSettlementRequest``.
-    """
-
-    signature: list[int] = []
-    """
-    The settler's signature from signing the necessary data (mostly from ``.inner``).
-    """
-
-    additional_signers: list[AdditionalSigner] = []
-    """
-    Multisig co-signatures, for accounts the master key alone cannot authorize.
-    """
-
-    @classmethod
-    def create_signed(
-        cls, inner: "InnerBatchSettlementRequest", signer: "UserLike"
-    ) -> "BatchSettlementRequest":
-        signature, additional_signers = to_user(signer).signing_parts(inner.signing_payload())
-        return cls(inner=inner, signature=signature, additional_signers=additional_signers)
-
-    def signing_payload(self) -> str:
-        return self.inner.signing_payload()
-
-
-class InnerBatchSettlementRequest(BaseModel):
-    """
-    Batch settlement inner request.
-    """
-
-    tplus_user: UserPublicKey
-    """
-    The user whose signature will be validated.
-    """
-
-    sub_account_index: int
-    """
-    Subaccount to pull the settled funds from.
-    """
-
-    settler: UserPublicKey
-    """
-    The settler executing the settlement.
-    """
-
-    orders: list[BaseSettlement]
-    """
-    The settlement orders.
-    """
-
-    transactions: list[dict]
-    """
-    Transactions in the bundle (not including the push and pull transactions on the vault).
-    """
-
-    chain_id: ChainID
-    """
-    The chain settling on.
-    """
-
-    nonce: int
-    """
-    First settlement nonce signed by this batch.
-    """
-
-    def signing_payload(self) -> str:
-        return (
-            self.model_dump_json(exclude_none=True)
-            .replace(" ", "")
-            .replace("\r", "")
-            .replace("\n", "")
-        )

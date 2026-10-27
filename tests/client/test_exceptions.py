@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from tplus.exceptions import (
+    AssetDecimalsUnavailable,
     AuthError,
     NotFoundError,
     OmsError,
@@ -39,6 +40,20 @@ class TestFromErrorBody:
     def test_invalid_order(self):
         exc = from_error_body({"code": "INVALID_ORDER", "message": "bad"}, 400)
         assert isinstance(exc, OrderRejected)
+
+    @pytest.mark.parametrize(
+        "code",
+        (
+            "INVALID_SETTLEMENT_REQUEST",
+            "UNSUPPORTED_ACCOUNT",
+            "SPOT_TRADE_REQUIRED",
+            "TRIGGER_NOT_ALLOWED",
+        ),
+    )
+    def test_sync_taker_validation_codes_are_order_rejections(self, code):
+        exc = from_error_body({"code": code, "message": "bad"}, 400)
+        assert isinstance(exc, OrderRejected)
+        assert exc.code == code
 
     def test_unauthorized(self):
         exc = from_error_body({"code": "UNAUTHORIZED", "message": "no"}, 401)
@@ -88,6 +103,11 @@ class TestFromErrorBody:
     def test_signer_registry_unavailable_is_catchable_as_auth_error(self):
         exc = from_error_body({"code": "SIGNER_REGISTRY_UNAVAILABLE", "message": "no"}, 503)
         assert isinstance(exc, AuthError)
+
+    def test_asset_decimals_unavailable_is_catchable_as_server_error(self):
+        exc = from_error_body({"code": "ASSET_DECIMALS_UNAVAILABLE", "message": "not yet"}, 503)
+        assert isinstance(exc, AssetDecimalsUnavailable)
+        assert isinstance(exc, ServerError)
 
     def test_rate_limited(self):
         exc = from_error_body({"code": "RATE_LIMITED", "message": "slow down"}, 429)

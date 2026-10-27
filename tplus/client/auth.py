@@ -97,6 +97,8 @@ class AuthenticatedClient(BaseClient):
         self._auth = auth or Auth()
         prefix = auth_path_prefix.strip("/")
         self._auth_path_prefix = f"/{prefix}" if prefix else ""
+        self._auth_service: str | None = None
+        self._peer_clients: list[AuthenticatedClient] = []
         self._auth_additional_signers: list[User] = [
             to_user(signer) for signer in auth_additional_signers or []
         ]
@@ -117,7 +119,7 @@ class AuthenticatedClient(BaseClient):
             if auth_additional_signers is None:
                 auth_additional_signers = client.auth_additional_signers
 
-        return cls.from_settings(
+        new_client = cls.from_settings(
             client._settings,
             default_user=client._default_user,
             client=client._client,
@@ -125,6 +127,17 @@ class AuthenticatedClient(BaseClient):
             auth_path_prefix=auth_path_prefix or "",
             auth_additional_signers=auth_additional_signers,
         )
+        if isinstance(client, AuthenticatedClient):
+            new_client._auth_service = client._auth_service
+
+        return new_client
+
+    def _pair_tokens_with(self, other: "AuthenticatedClient") -> None:
+        if other not in self._peer_clients:
+            self._peer_clients.append(other)
+
+        if self not in other._peer_clients:
+            other._peer_clients.append(self)
 
     @property
     def auth_additional_signers(self) -> list[User]:
@@ -132,10 +145,11 @@ class AuthenticatedClient(BaseClient):
         return list(self._auth_additional_signers)
 
     def set_default_user(self, user: "UserLike | None") -> None:
-        # The cached token belongs to the outgoing identity, so it cannot carry over.
+        # The cached tokens belong to the outgoing identity, so they cannot carry over.
         super().set_default_user(user)
-        self._auth.token = None
-        self._auth.expiry_ns = 0
+        for auth in (self._auth, *(peer._auth for peer in self._peer_clients)):
+            auth.token = None
+            auth.expiry_ns = 0
 
     def _auth_endpoint(self, path: str) -> str:
         return f"{self._auth_path_prefix}/{path.lstrip('/')}"
@@ -209,6 +223,9 @@ class AuthenticatedClient(BaseClient):
                     err,
                 )
                 use_auth = False
+
+            if use_auth:
+                await self._ensure_peer_auth(user=auth_user)
 
         headers = self._build_headers(with_auth=use_auth, user=auth_user)
         if extra_headers:
@@ -286,6 +303,18 @@ class AuthenticatedClient(BaseClient):
         return {
             "Authorization": f"Bearer {self._auth.token}",
             "User-Id": self._validate_user_public_key(user=user),
+            **self._scoped_auth_headers(),
+        }
+
+    def _scoped_auth_headers(self) -> dict[str, str]:
+        sessions = [
+            (self._auth_service, self._auth),
+            *((peer._auth_service, peer._auth) for peer in self._peer_clients),
+        ]
+        return {
+            f"{service}-Authorization": f"Bearer {auth.token}"
+            for service, auth in sessions
+            if service and auth.token
         }
 
     async def _ensure_auth(self, user: "User | None" = None) -> None:
@@ -303,6 +332,17 @@ class AuthenticatedClient(BaseClient):
 
             await self._authenticate(user=user)
 
+    async def _ensure_peer_auth(self, user: "User | None" = None) -> None:
+        for peer in self._peer_clients:
+            try:
+                await peer._ensure_auth(user=user)
+            except Exception as err:
+                self.logger.warning(
+                    "Auth against %s failed (%s); its token will not be presented.",
+                    peer._auth_service or "peer service",
+                    err,
+                )
+
     async def _authenticate(self, user: "User | None" = None) -> None:
         # Clear up-front so a failed handshake leaves a clean "no token" state.
         self._auth.token = None
@@ -310,7 +350,7 @@ class AuthenticatedClient(BaseClient):
 
         user = self._resolve_user(user=user)
         nonce_endpoint = self._auth_endpoint(f"nonce/{user.public_key}")
-        nonce_resp = await self._client.get(nonce_endpoint)
+        nonce_resp = await self._send("GET", nonce_endpoint)
         nonce_resp.raise_for_status()
         nonce_data = nonce_resp.json() if hasattr(nonce_resp, "json") else nonce_resp
 
@@ -341,9 +381,10 @@ class AuthenticatedClient(BaseClient):
             additional_signers=additional_signers,
         )
 
-        token_resp = await self._client.post(
+        token_resp = await self._send(
+            "POST",
             self._auth_endpoint("auth"),
-            json=auth_payload.model_dump(mode="json"),
+            json_data=auth_payload.model_dump(mode="json"),
         )
         token_resp.raise_for_status()
         token_json = token_resp.json() if hasattr(token_resp, "json") else token_resp
@@ -377,6 +418,7 @@ class AuthenticatedClient(BaseClient):
 
     async def _ws_auth_headers(self, user: "User | None" = None) -> dict[str, str]:
         await self._ensure_auth(user=user)
+        await self._ensure_peer_auth(user=user)
         return self._get_auth_headers(user=user)
 
     async def _connect_ws_with_auth(

@@ -1,9 +1,26 @@
-from typing import overload
+from enum import Enum
+from typing import Any, overload
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.pagination import PageMeta
+
+
+class MarketTypeFilter(str, Enum):
+    """Which markets `GET /markets` keeps, by `is_spot_enabled` or `is_margin_enabled`."""
+
+    SPOT = "spot"
+    MARGIN = "margin"
+
+    @classmethod
+    def _missing_(cls, value: object) -> Any:
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower:
+                    return member
+        return super()._missing_(value)
 
 
 class Market(BaseModel):
@@ -46,6 +63,8 @@ class MarketResponse(BaseModel):
     max_leverage: str | None = None
     current_long_max_leverage: str | None = None
     current_short_max_leverage: str | None = None
+    is_spot_enabled: bool = False
+    is_margin_enabled: bool = False
     isolated_only: bool = False
     min_order_size: str | None = None
     tick_size: str | None = None

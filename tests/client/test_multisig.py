@@ -149,6 +149,64 @@ async def test_add_multisig_signer_authenticates_before_fetching_request_nonce()
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("max_multisig_permission_level", [None, "low", "medium", "high"])
+async def test_add_multisig_signer_signs_max_multisig_permission_level_only_when_given(
+    max_multisig_permission_level,
+):
+    user = User()
+    signer = User()
+    add_payload: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal add_payload
+        if request.url.path == f"/nonce/{user.public_key}":
+            return httpx.Response(200, json={"value": "nonce", "ce_nonce": 7})
+        if request.url.path == "/auth":
+            return httpx.Response(
+                200,
+                json={"token": "tok", "expiry_ns": 9_999_999_999_999_999_999},
+            )
+        if request.url.path == "/multisig/add-signer":
+            add_payload = json.loads(request.content)
+            return httpx.Response(200, json={"added": True})
+        return httpx.Response(404)
+
+    httpx_client = httpx.AsyncClient(
+        base_url="http://test",
+        transport=httpx.MockTransport(handler),
+    )
+    client = OrderBookClient("http://test", default_user=user, client=httpx_client)
+
+    kwargs = (
+        {}
+        if max_multisig_permission_level is None
+        else {"max_multisig_permission_level": max_multisig_permission_level}
+    )
+    assert await client.add_multisig_signer(signer, **kwargs) == {"added": True}
+
+    expected_inner: dict[str, Any] = {
+        "user": user.public_key,
+        "oms_nonce": "nonce",
+        "ce_nonce": 7,
+        "signer": {"Ed25519": signer.public_key_vec},
+        "weight": 1,
+        "session_duration_ns": U64_MAX,
+    }
+    if max_multisig_permission_level is not None:
+        expected_inner["max_multisig_permission_level"] = max_multisig_permission_level
+    assert add_payload["inner"] == expected_inner
+    # The clearing engine verifies against the fields in declaration order,
+    # with the level last.
+    assert list(add_payload["inner"]) == list(expected_inner)
+    user.vk.verify(
+        bytes(add_payload["signature"]),
+        json.dumps(add_payload["inner"], separators=(",", ":")).encode(),
+    )
+
+    await client.close()
+
+
+@pytest.mark.anyio
 async def test_add_multisig_signer_supports_delegated_authorizer():
     account = User()
     credential = User()
@@ -218,6 +276,11 @@ async def test_add_multisig_signer_rejects_delegated_signer():
         ({"session_duration_ns": -1}, "session_duration_ns must be between"),
         ({"session_duration_ns": 0}, "session_duration_ns must be between"),
         ({"session_duration_ns": U64_MAX + 1}, "session_duration_ns must be between"),
+        ({"max_multisig_permission_level": "Low"}, "max_multisig_permission_level must be one of"),
+        (
+            {"max_multisig_permission_level": "admin"},
+            "max_multisig_permission_level must be one of",
+        ),
     ],
 )
 async def test_add_multisig_signer_validates_config(kwargs, message):

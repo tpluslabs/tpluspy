@@ -109,15 +109,15 @@ def build_client(mocker):
 
 
 @pytest.fixture
-def client_build(build_client):
+def mock_client(build_client):
     """The default ``(client, request)`` pair, for tests needing no client kwargs."""
     return build_client()
 
 
 @pytest.fixture
-def client(client_build):
+def client(mock_client):
     """The default client, for tests that never inspect the request."""
-    return client_build[0]
+    return mock_client[0]
 
 
 @pytest.fixture(params=_BACKENDS)

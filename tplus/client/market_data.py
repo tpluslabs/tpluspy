@@ -1,6 +1,7 @@
 """Client for the `market-data-service` (public market data + per-user endpoints)."""
 
 import time
+import warnings
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -181,6 +182,10 @@ class MarketDataClient(AuthenticatedClient):
         """
         Trades for `user`, newest first; empty unless the user's data is exported to MDS.
 
+        Omitted `limit` uses the MDS default; supplied limits must be positive. Values above 1,000
+        warn and are capped at 1,000. To read more, call again with the same
+        filters and capped limit and the returned `next_page`. One request per call.
+
         `start_time`/`end_time` are inclusive nanosecond Unix timestamps; `side` is
         `"buy"` or `"sell"`, matching the caller's role in the fill.
         """
@@ -211,6 +216,8 @@ class MarketDataClient(AuthenticatedClient):
         """
         Trades for `user` on `asset_id`, newest first.
 
+        Uses the same limit, warning, and paging behavior as `get_user_trades`.
+
         `start_time`/`end_time` are inclusive nanosecond Unix timestamps; `side` is
         `"buy"` or `"sell"`, matching the caller's role in the fill.
         """
@@ -239,6 +246,19 @@ class MarketDataClient(AuthenticatedClient):
         status: str | None = None,
         user: UserType | None = None,
     ) -> UserTradesPage:
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise TypeError("limit must be a positive integer")
+            if limit <= 0:
+                raise ValueError("limit must be a positive integer")
+            if limit > 1000:
+                warnings.warn(
+                    "limit exceeds 1,000; returning at most 1,000 user-history rows. "
+                    "Paginate with limit=1000, the same filters, and page=next_page to retrieve more.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                limit = 1000
         public_key = self._validate_user_public_key(user=user)
         endpoint = f"/trades/user/{public_key}"
         if asset_id is not None:

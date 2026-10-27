@@ -174,25 +174,25 @@ def test_externally_tagged_created_carries_the_full_book_order():
         ),
         (
             "CreateFailed",
-            {"order_id": ORDER_ID, "user_id": USER},
+            {"order_id": ORDER_ID, "user_id": USER, "asset_id": "1", "reason": "OrderNotFound"},
             OrderCreateFailedEvent,
             "CREATEFAILED",
         ),
         (
             "ReplaceFailed",
-            {"order_id": ORDER_ID, "user_id": USER},
+            {"order_id": ORDER_ID, "user_id": USER, "asset_id": "1", "reason": "OrderNotFound"},
             OrderReplaceFailedEvent,
             "REPLACEFAILED",
         ),
         (
             "AmendFailed",
-            {"order_id": ORDER_ID, "user_id": USER},
+            {"order_id": ORDER_ID, "user_id": USER, "asset_id": "1", "reason": "OrderNotFound"},
             OrderAmendFailedEvent,
             "AMENDFAILED",
         ),
         (
             "CancelFailed",
-            {"order_id": ORDER_ID, "user_id": USER},
+            {"order_id": ORDER_ID, "user_id": USER, "asset_id": "1", "reason": "OrderNotFound"},
             OrderCancelFailedEvent,
             "CANCELFAILED",
         ),
@@ -204,6 +204,23 @@ def test_every_rust_variant_parses(variant, payload, model, event_type):
     assert isinstance(event, model)
     assert event.event_type == event_type
     assert event.order_id == ORDER_ID
+
+
+def test_a_failure_names_its_market_and_reason():
+    event = parse_order_event(
+        {
+            "CancelFailed": {
+                "order_id": ORDER_ID,
+                "user_id": USER,
+                "asset_id": "1",
+                "reason": "OrderNotFound",
+            }
+        }
+    )
+
+    assert isinstance(event, OrderCancelFailedEvent)
+    assert event.asset_id == AssetIdentifier("1")
+    assert event.reason == "OrderNotFound"
 
 
 def test_legacy_internally_tagged_shape_still_parses():

@@ -1,5 +1,6 @@
 from tplus.client import TplusApiClient
 from tplus.exceptions import (
+    AssetDecimalsUnavailable,
     AuthError,
     NotFoundError,
     OmsError,
@@ -10,6 +11,7 @@ from tplus.exceptions import (
 )
 
 __all__ = [
+    "AssetDecimalsUnavailable",
     "AuthError",
     "NotFoundError",
     "OmsError",

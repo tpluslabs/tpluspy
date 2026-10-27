@@ -6,7 +6,12 @@ import pytest
 from tplus.client.orderbook import CONTROL_WS_PROTOCOL, encode_control_frame
 from tplus.exceptions import RateLimitError
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.batch_order import BatchCreateOrderRequest, BatchReplaceOrderRequest
+from tplus.model.batch_order import (
+    BatchAmendOrderRequest,
+    BatchCreateOrderRequest,
+    BatchReplaceOrderRequest,
+)
+from tplus.utils.amend_order import create_amend_order_ob_request_payload
 from tplus.utils.limit_order import create_limit_order_ob_request_payload
 from tplus.utils.replace_order import create_replace_order_ob_request_payload
 
@@ -224,6 +229,69 @@ async def test_control_ws_send_replace_batch_gathers_per_item_responses(
     assert by_id["oid1"].reason is None
     assert by_id["oid2"].status == "Rejected"
     assert by_id["oid2"].reason == "OrderNotFound"
+
+
+def build_amend_response(order_id: str, status: str, reason: str | None = None) -> dict:
+    return {
+        "AmendOrderResponse": {
+            "response": {"order_id": order_id, "status": status, "reason": reason},
+            "asset_id": str(ASSET_ID),
+        }
+    }
+
+
+@pytest.mark.anyio
+async def test_control_ws_send_amend_batch_gathers_per_item_responses(
+    control_ws_client, control_ws, control_user
+):
+    batch = BatchAmendOrderRequest(
+        amends=[
+            create_amend_order_ob_request_payload(
+                order_id=order_id,
+                asset_identifier=ASSET_ID,
+                user_id=control_user.public_key,
+                new_quantity=1,
+                book_quantity_decimals=3,
+            )
+            for order_id in ("oid1", "oid2")
+        ]
+    )
+
+    task = asyncio.create_task(control_ws_client._control_ws_send_amend_batch(batch, timeout=1.0))
+    await asyncio.sleep(0)
+
+    sent = control_ws.sent_frame()
+    request_id = sent["request_id"]
+    assert list(sent["data"].keys()) == ["BatchAmendRequest"]
+    wire_items = sent["data"]["BatchAmendRequest"]["amends"]
+    assert [item["request"]["order_id"] for item in wire_items] == ["oid1", "oid2"]
+    # Each item is a plain amend, exactly like a single one: no signature, user-initiated.
+    assert all(item["user_id"] == control_user.public_key for item in wire_items)
+    assert all(item["request"]["source"] == "User" for item in wire_items)
+
+    for data in (
+        ACK,
+        build_amend_response("oid2", "Rejected", reason="AmendWouldIncreaseQuantity"),
+        build_amend_response("oid1", "Received"),
+    ):
+        control_ws.feed(
+            {
+                "type": "event",
+                "channel": "control",
+                "request_id": request_id,
+                "data": data,
+                "error": None,
+            }
+        )
+
+    response = await task
+
+    assert [status.order_id for status in response.batch_order_status] == ["oid1", "oid2"]
+    by_id = {status.order_id: status for status in response.batch_order_status}
+    assert by_id["oid1"].status == "Received"
+    assert by_id["oid1"].reason is None
+    assert by_id["oid2"].status == "Rejected"
+    assert by_id["oid2"].reason == "AmendWouldIncreaseQuantity"
 
 
 @pytest.mark.anyio

@@ -15,7 +15,7 @@ class VaultClient(BaseClearingEngineClient):
 
     async def update_balance(self, asset_address: AssetAddress | str):
         """
-        Request that the CE check the deposit vault balance for the given asset.
+        Request that the CE check the deposit vault balance for the given asset. Debug CE builds only.
 
         Args:
             asset_address (AssetAddress | str): The asset address.

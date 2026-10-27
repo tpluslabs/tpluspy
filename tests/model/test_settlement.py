@@ -1,14 +1,10 @@
 import pytest
 
 from tplus.model.settlement import (
-    BatchSettlementRequest,
-    InnerMakerOrderAttachment,
     InnerSettlementRequest,
-    MakerOrderAttachment,
     SettlementMode,
     TxSettlementRequest,
 )
-from tplus.utils.user import User
 
 CHAIN_ID = "0x000000000000aa36a7"
 ASSET_IN = "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
@@ -41,6 +37,24 @@ class TestInnerSettlementRequest:
         assert request.chain_id == CHAIN_ID
         assert request.nonce == 7
 
+    def test_from_raw_with_expires_at(self, user):
+        request = InnerSettlementRequest.from_raw(
+            ASSET_IN,
+            100,
+            6,
+            ASSET_OUT,
+            100,
+            18,
+            user.public_key,
+            CHAIN_ID,
+            0,
+            7,
+            mode=SettlementMode.MARGIN,
+            expires_at=1_700_000_000_000_000_000,
+        )
+        assert request.expires_at == 1_700_000_000_000_000_000
+        assert request.settler == user.public_key
+
 
 class TestTxSettlementRequest:
     @pytest.fixture(scope="class")
@@ -60,11 +74,22 @@ class TestTxSettlementRequest:
         """
         settlement = TxSettlementRequest(inner=settlement, signature=[])
         actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"11478827000000000000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"2500000000000000","chain_id":"000000000000aa36a7","nonce":7,"expires_at":null,"mm_pubkey":null}}'
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"11478827000000000000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"2500000000000000","chain_id":"000000000000aa36a7","nonce":7,"expires_at":null,"protocol_version":2}}'
         assert actual == expected
 
         # Show it is the same as the inner version.
         actual = settlement.inner.signing_payload()
+        assert actual == expected
+
+    def test_legacy_signing_payload(self, settlement, user):
+        """
+        Version 1 is what clients predating ``protocol_version`` signed: ``mm_pubkey``
+        (since removed) serialized as null, no version field.
+        """
+        inner = InnerSettlementRequest.model_validate({**settlement, "protocol_version": 1})
+        settlement = TxSettlementRequest(inner=inner, signature=[])
+        actual = settlement.signing_payload()
+        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"11478827000000000000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"2500000000000000","chain_id":"000000000000aa36a7","nonce":7,"expires_at":null,"mm_pubkey":null}}'
         assert actual == expected
 
     def test_create_signed(self, settlement, user):
@@ -82,201 +107,6 @@ class TestTxSettlementRequest:
         signed = TxSettlementRequest.create_signed(settlement_model, user)
         assert signed.inner.tplus_user == user.public_key
         assert signed.signature  # truthiness
-
-
-class TestDelegatedSettlement:
-    @pytest.fixture(scope="class")
-    def mm_user(self):
-        return User()
-
-    @pytest.fixture(scope="class")
-    def settler_user(self):
-        return User()
-
-    @pytest.fixture
-    def maker_order(self, mm_user, settler_user):
-        return MakerOrderAttachment(
-            inner=InnerMakerOrderAttachment(
-                mm_pubkey=mm_user.public_key,
-                settler=settler_user.public_key,
-                expires_at=1_700_000_000_000_000_000,
-            ),
-            signature=[],
-        )
-
-    def test_from_raw_delegated(self, user, mm_user):
-        request = InnerSettlementRequest.from_raw_delegated(
-            ASSET_IN,
-            100,
-            6,
-            ASSET_OUT,
-            100,
-            18,
-            user.public_key,
-            CHAIN_ID,
-            0,
-            7,
-            mm_user.public_key,
-            1_700_000_000_000_000_000,
-        )
-        assert request.settler is None
-        assert request.mm_pubkey == mm_user.public_key
-        assert request.expires_at == 1_700_000_000_000_000_000
-        assert request.amount_in == 100_000_000_000_000
-
-    def test_from_raw_with_expires_at(self, user):
-        request = InnerSettlementRequest.from_raw(
-            ASSET_IN,
-            100,
-            6,
-            ASSET_OUT,
-            100,
-            18,
-            user.public_key,
-            CHAIN_ID,
-            0,
-            7,
-            mode=SettlementMode.MARGIN,
-            expires_at=1_700_000_000_000_000_000,
-        )
-        assert request.expires_at == 1_700_000_000_000_000_000
-        assert request.mm_pubkey is None
-        assert request.settler == user.public_key
-
-    def test_signing_payload_delegated(self, user, mm_user):
-        request = InnerSettlementRequest.from_raw_delegated(
-            ASSET_IN,
-            100,
-            6,
-            ASSET_OUT,
-            100,
-            18,
-            user.public_key,
-            CHAIN_ID,
-            0,
-            7,
-            mm_user.public_key,
-            1_700_000_000_000_000_000,
-        )
-        payload = request.signing_payload()
-        # Delegated flow: settler is null in the signed JSON (CE derives executor from maker order).
-        assert '"settler":null' in payload
-        assert f'"mm_pubkey":"{mm_user.public_key}"' in payload
-        assert '"nonce":7' in payload
-        assert '"expires_at":1700000000000000000' in payload
-        # Field ordering: chain_id, nonce, expires_at, then mm_pubkey (append order in signing_payload)
-        assert payload.index('"chain_id"') < payload.index('"nonce"')
-        assert payload.index('"nonce"') < payload.index('"expires_at"')
-        assert payload.index('"expires_at"') < payload.index('"mm_pubkey"')
-
-    def test_create_signed_delegated(self, user, mm_user, maker_order):
-        inner = InnerSettlementRequest.from_raw_delegated(
-            ASSET_IN,
-            100,
-            6,
-            ASSET_OUT,
-            100,
-            18,
-            user.public_key,
-            CHAIN_ID,
-            0,
-            7,
-            mm_user.public_key,
-            1_700_000_000_000_000_000,
-        )
-        signed = TxSettlementRequest.create_signed_delegated(inner, user, maker_order)
-        assert signed.signature
-        assert signed.maker_order is maker_order
-        assert signed.inner.mm_pubkey == mm_user.public_key
-
-    def test_create_signed_delegated_from_dict(self, user, mm_user, maker_order):
-        inner_dict = {
-            "sub_account_index": 0,
-            "settler": None,
-            **get_base_settlement_data(),
-            "chain_id": CHAIN_ID,
-            "nonce": 7,
-            "mm_pubkey": mm_user.public_key,
-            "expires_at": 1_700_000_000_000_000_000,
-        }
-        signed = TxSettlementRequest.create_signed_delegated(inner_dict, user, maker_order)
-        assert signed.inner.tplus_user == user.public_key
-        assert signed.signature
-
-    def test_create_signed_delegated_missing_mm_pubkey(self, user, maker_order):
-        inner = InnerSettlementRequest.from_raw(
-            ASSET_IN,
-            100,
-            6,
-            ASSET_OUT,
-            100,
-            18,
-            user.public_key,
-            CHAIN_ID,
-            0,
-            7,
-            mode=SettlementMode.MARGIN,
-            expires_at=1_700_000_000_000_000_000,
-        )
-        with pytest.raises(ValueError, match="mm_pubkey to be set"):
-            TxSettlementRequest.create_signed_delegated(inner, user, maker_order)
-
-    def test_create_signed_delegated_missing_expires_at(self, user, mm_user, maker_order):
-        # Bypass from_raw_delegated's required expires_at to construct the bad state.
-        inner = InnerSettlementRequest.model_validate(
-            {
-                "mode": "margin",
-                "sub_account_index": 0,
-                "settler": None,
-                **get_base_settlement_data(),
-                "tplus_user": user.public_key,
-                "chain_id": CHAIN_ID,
-                "nonce": 7,
-                "mm_pubkey": mm_user.public_key,
-            }
-        )
-        with pytest.raises(ValueError, match="expires_at to bound the replay window"):
-            TxSettlementRequest.create_signed_delegated(inner, user, maker_order)
-
-    def test_create_signed_delegated_mm_mismatch(self, user, maker_order):
-        # Different MM than the one in maker_order.
-        other_mm = User()
-        inner = InnerSettlementRequest.from_raw_delegated(
-            ASSET_IN,
-            100,
-            6,
-            ASSET_OUT,
-            100,
-            18,
-            user.public_key,
-            CHAIN_ID,
-            0,
-            7,
-            other_mm.public_key,
-            1_700_000_000_000_000_000,
-        )
-        with pytest.raises(ValueError, match="MmPubkeyMismatch"):
-            TxSettlementRequest.create_signed_delegated(inner, user, maker_order)
-
-
-class TestBundleSettlementRequest:
-    def test_signing_payload(self, user):
-        """
-        Show we serialize to the JSON the clearing-engine expects.
-        """
-        inner = {
-            "tplus_user": user.public_key,
-            "sub_account_index": 0,
-            "settler": user.public_key,
-            "orders": [get_base_settlement_data()],
-            "transactions": [],
-            "chain_id": CHAIN_ID,
-            "nonce": 7,
-        }
-        settlement = BatchSettlementRequest.model_validate({"inner": inner})
-        actual = settlement.signing_payload()
-        expected = f'{{"tplus_user":"{user.public_key}","sub_account_index":0,"settler":"{user.public_key}","orders":[{{"mode":"margin","asset_in":"62622e77d1349face943c6e7d5c01c61465fe1dc000000000000000000000000","amount_in":"11478827000000000000","asset_out":"58372ab62269a52fa636ad7f200d93999595dcaf000000000000000000000000","amount_out":"2500000000000000"}}],"transactions":[],"chain_id":"000000000000aa36a7","nonce":7}}'
-        assert actual == expected
 
 
 def get_base_settlement_data() -> dict:
