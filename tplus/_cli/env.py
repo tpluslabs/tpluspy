@@ -44,6 +44,11 @@ def env(output_format: str):
             "~/tplus/tplus-contracts",
             "Path to a local tplus-contracts checkout.",
         ),
+        (
+            "TPLUS_CONTRACTS_ALLOW_INSTALL",
+            "false",
+            "Let Ape install a missing tplus-contracts dependency on load.",
+        ),
     ]
     records = [
         {

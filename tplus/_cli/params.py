@@ -13,8 +13,10 @@ from tplus._cli._context import (
     tplus_account_option,
 )
 from tplus.cli_tools import (
+    describe_schedule_event,
     ignore_ssl_option,
     no_pager_option,
+    op_id_option,
     output_format_option,
     registry_address_option,
     render,
@@ -135,12 +137,14 @@ if _EVM_AVAILABLE:
         params_json: str,
         registry_address: str | None,
     ):
-        """Set pending risk parameters for asset INDEX."""
+        """Schedule risk parameters for asset INDEX, signed by the account as the risk council."""
         owner = _build_owner(cli_ctx, account, registry_address=registry_address)
-        receipt = owner.set_pending_risk_parameters(index, json.loads(params_json))
-        click.echo(f"tx: {receipt.txn_hash}")
+        schedule_event = owner.schedule_operation(
+            "RISK_PARAMETERS", [index, json.loads(params_json)]
+        )
+        click.echo(describe_schedule_event(schedule_event))
 
-    @params.command("apply", cls=ConnectedProviderCommand)
+    @params.command("execute", cls=ConnectedProviderCommand)
     @tplus_network_option()
     @clearing_url_option()
     @ignore_ssl_option()
@@ -148,11 +152,22 @@ if _EVM_AVAILABLE:
     @tplus_account_option()
     @account_option()
     @click.argument("index", type=int)
+    @click.option("--params", "params_json", required=True, help="The scheduled risk parameters.")
+    @op_id_option()
     @pass_cli_context
-    def _apply(cli_ctx: CLIContext, account, index: int, registry_address: str | None):
-        """Apply pending risk parameters for asset INDEX."""
+    def _execute(
+        cli_ctx: CLIContext,
+        account,
+        index: int,
+        params_json: str,
+        op_id: bytes,
+        registry_address: str | None,
+    ):
+        """Execute the risk parameters scheduled for asset INDEX."""
         owner = _build_owner(cli_ctx, account, registry_address=registry_address)
-        receipt = owner.apply_pending_risk_parameters(index)
+        receipt = owner.execute_operation(
+            "RISK_PARAMETERS", [index, json.loads(params_json)], op_id
+        )
         click.echo(f"tx: {receipt.txn_hash}")
 
 else:

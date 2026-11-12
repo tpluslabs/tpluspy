@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from ape.api.accounts import AccountAPI
 
 SEED_SIZE = 32
-MAIN_SUB_ACCOUNT = 0
+MARGIN_SUB_ACCOUNT = 1
 
 UnlockFn = Callable[[], "bytes | Ed25519PrivateKey"]
 
@@ -126,7 +126,7 @@ def resolve_ape_account(account: "str | EvmAccount") -> "EvmAccount":
     try:
         from ape import accounts as ape_accounts
     except ImportError as err:
-        raise ImportError('Install the "evm" extra to load Ape accounts.') from err
+        raise ImportError('Install the "evm-ape" extra to load Ape accounts.') from err
 
     return ape_accounts.load(account)
 
@@ -164,8 +164,8 @@ class User:
             bytes, or an existing :class:`Ed25519PrivateKey`. Both 32-byte
             seeds and 64-byte ``seed || pubkey`` concatenations are
             accepted. If ``None``, a fresh keypair is generated.
-        sub_account: Optional sub-account index. Defaults to the main
-            sub-account (``0``).
+        sub_account: Optional sub-account index. Defaults to the trading
+            sub-account (``1``); an explicit ``0`` selects funding custody.
     """
 
     _evm_address: str | None = None
@@ -265,8 +265,8 @@ class User:
 
     @property
     def sub_account(self) -> int:
-        """Active sub-account index. Defaults to the main sub-account."""
-        return self._sub_account or MAIN_SUB_ACCOUNT
+        """Active sub-account index. Defaults to trading account 1; preserves 0."""
+        return MARGIN_SUB_ACCOUNT if self._sub_account is None else self._sub_account
 
     def pubkey(self) -> str:
         """Return the hex-encoded raw Ed25519 public key."""

@@ -12,16 +12,24 @@ from tplus._cli._context import (
     tplus_account_option,
 )
 from tplus.cli_tools import (
+    asset_data_options,
     chain_address_record,
+    describe_schedule_event,
     echo_with_pager,
     ignore_ssl_option,
     no_pager_option,
+    op_id_option,
     output_format_option,
     registry_address_option,
     render,
+    resolve_universe,
+    universe_option,
 )
+from tplus.utils.universe import compute_universe_id
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from eth_pydantic_types.address import AddressType
 
     from tplus.evm.contracts import Registry
@@ -175,21 +183,55 @@ if _EVM_AVAILABLE:
         registry = cast("Registry", Registry.at(registry_address)) if registry_address else None
         return RegistryOwner(owner=signer, registry=registry, clearing_engine=ce)
 
-    @assets.command("set-risk-manager", cls=ConnectedProviderCommand)
+    @assets.command("init-risk-council", cls=ConnectedProviderCommand)
     @tplus_network_option()
     @clearing_url_option()
     @ignore_ssl_option()
     @registry_address_option()
     @tplus_account_option()
     @account_option()
-    @click.argument("multisig")
+    @click.argument("credential_manager")
+    @universe_option(
+        help="Governance universe of CREDENTIAL_MANAGER. Required off the local network."
+    )
+    @click.option(
+        "--member",
+        "members",
+        multiple=True,
+        help="Risk council member address. May be repeated. Defaults to the sender.",
+    )
+    @click.option("--threshold", type=int, help="Defaults to a strict majority of the members.")
     @pass_cli_context
-    def _set_risk_manager(
-        cli_ctx: CLIContext, account, multisig: str, registry_address: str | None
+    def _init_risk_council(
+        cli_ctx: CLIContext,
+        account,
+        credential_manager: str,
+        universe: str | None,
+        members: "Iterable[str]",
+        threshold: int | None,
+        registry_address: str | None,
+        provider,
     ):
-        """Set the Registry's risk manager multisig to MULTISIG."""
+        """Install the Registry's risk council, governed by CREDENTIAL_MANAGER."""
+        from tplus.evm.contracts import ZERO_ADDRESS
+        from tplus.evm.governance import compute_majority_threshold
+
         owner = _build_owner(cli_ctx, account, registry_address=registry_address)
-        receipt = owner.set_risk_manager_multisig(multisig)
+        if owner.registry.get_credential_manager() != ZERO_ADDRESS:
+            click.echo("risk council already installed")
+            return
+
+        universe_id = bytes(
+            compute_universe_id(resolve_universe(universe, provider.network.is_local))
+        )
+
+        council = list(members) or [account.address]
+        receipt = owner.initialize_risk_council(
+            credential_manager,
+            universe_id,
+            council,
+            threshold or compute_majority_threshold(len(council)),
+        )
         click.echo(f"tx: {receipt.txn_hash}")
 
     @assets.command("deploy-registry", cls=ConnectedProviderCommand)
@@ -204,19 +246,59 @@ if _EVM_AVAILABLE:
         help="Risk-param delay in seconds.",
     )
     @click.option(
+        "--upgrade-delay",
+        "upgrade_delay",
+        type=int,
+        default=0,
+        show_default=True,
+        help=(
+            "Proxy upgrade delay in seconds. Mainnet needs a non-zero delay unless "
+            "--allow-zero-upgrade-delay is passed."
+        ),
+    )
+    @click.option(
+        "--allow-zero-upgrade-delay",
+        is_flag=True,
+        help=(
+            "Allow a zero upgrade delay on mainnet for bootstrap; raise it before relying on "
+            "the upgrade timelock."
+        ),
+    )
+    @click.option(
         "--skip-if-deployed",
         is_flag=True,
         help="Reuse the CE-registered deployment on this chain if live.",
     )
-    def _deploy_registry(account, risk_param_delay: int, skip_if_deployed: bool):
-        """Deploy a new Registry."""
+    def _deploy_registry(
+        provider,
+        account,
+        risk_param_delay: int,
+        upgrade_delay: int,
+        allow_zero_upgrade_delay: bool,
+        skip_if_deployed: bool,
+    ):
+        """Deploy a new Registry behind an ERC1967 proxy."""
         from tplus.evm.contracts import Registry
 
         if skip_if_deployed and (adopted := Registry()._adopt_ce_deployment()):
             click.echo(f"reused: {adopted.address}")
             return
 
-        instance = Registry.deploy(account, risk_param_delay, sender=account)
+        if provider.network.is_mainnet and upgrade_delay == 0:
+            if not allow_zero_upgrade_delay:
+                raise click.UsageError(
+                    "Pass a non-zero --upgrade-delay on mainnet, or --allow-zero-upgrade-delay "
+                    "for bootstrap; with a zero delay the admin can upgrade the Registry at once."
+                )
+
+            click.echo(
+                "The Registry starts with a zero upgrade delay; raise it before relying on the "
+                "upgrade timelock."
+            )
+
+        instance = Registry.deploy_proxy(
+            sender=account, risk_param_delay_secs=risk_param_delay, upgrade_delay_secs=upgrade_delay
+        )
         click.echo(f"deployed: {instance.address}")
 
     @assets.command("set", cls=ConnectedProviderCommand)
@@ -226,12 +308,7 @@ if _EVM_AVAILABLE:
     @registry_address_option()
     @tplus_account_option()
     @account_option()
-    @click.argument("index", type=int)
-    @click.argument("asset_address")
-    @click.option("--chain-id", "chain_id", type=int, required=True)
-    @click.option("--max-deposit", "max_deposit", type=int, required=True)
-    @click.option("--max-1hr", "max_1hr_deposits", type=int, required=True)
-    @click.option("--min-weight", "min_weight", type=int, required=True)
+    @asset_data_options()
     @click.option("--no-wait", is_flag=True, help="Don't wait for CE ingestion.")
     @pass_cli_context
     def _set(
@@ -247,10 +324,11 @@ if _EVM_AVAILABLE:
         registry_address: str | None,
     ):
         """Register asset INDEX at ASSET_ADDRESS."""
+        from tplus.evm.governance import is_operation_due
         from tplus.model.types import ChainID
 
         owner = _build_owner(cli_ctx, account, registry_address=registry_address)
-        asyncio.run(
+        schedule_event = asyncio.run(
             owner.set_asset(
                 index=index,
                 asset_address=cast("AddressType", asset_address),
@@ -261,7 +339,51 @@ if _EVM_AVAILABLE:
                 wait=not no_wait,
             )
         )
-        click.echo(f"Asset {index} registered.")
+        if is_operation_due(schedule_event, owner.registry.backend):
+            click.echo(f"Asset {index} registered.")
+        else:
+            click.echo(f"Asset {index} {describe_schedule_event(schedule_event)}")
+
+    @assets.command("execute", cls=ConnectedProviderCommand)
+    @tplus_network_option()
+    @clearing_url_option()
+    @ignore_ssl_option()
+    @registry_address_option()
+    @tplus_account_option()
+    @account_option()
+    @asset_data_options()
+    @op_id_option()
+    @pass_cli_context
+    def _execute(
+        cli_ctx: CLIContext,
+        account,
+        index: int,
+        asset_address: str,
+        chain_id: int,
+        max_deposit: int,
+        max_1hr_deposits: int,
+        min_weight: int,
+        op_id: bytes,
+        registry_address: str | None,
+    ):
+        """Execute the asset entry scheduled for INDEX, then request CE ingestion."""
+        from tplus.evm.contracts import Registry
+        from tplus.model.types import ChainID
+
+        owner = _build_owner(cli_ctx, account, registry_address=registry_address)
+        data = Registry.build_asset_data(
+            index,
+            cast("AddressType", asset_address),
+            ChainID.evm(chain_id),
+            max_deposit,
+            max_1hr_deposits,
+            min_weight,
+        )
+        receipt = owner.execute_operation("ASSET_DATA", [data], op_id)
+        click.echo(f"tx: {receipt.txn_hash}")
+        if ce := owner.ce:
+            asyncio.run(ce.assets.update())
+            click.echo("CE asset update requested.")
 
 else:
 

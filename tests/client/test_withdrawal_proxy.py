@@ -2,9 +2,10 @@ from typing import Any
 
 import pytest
 
+from tplus.client.orderbook import OrderBookClient
 from tplus.client.withdrawal import WithdrawalClient
 from tplus.exceptions import OmsError, ServerError
-from tplus.model.withdrawal import CancelWithdrawalRequest, WithdrawalRequest
+from tplus.model.withdrawal import CancelTransferRequest, WithdrawalRequest
 from tplus.utils.user import User
 
 
@@ -98,7 +99,7 @@ async def test_init_withdrawal_surfaces_oms_failure(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.anyio
-async def test_get_queued_withdrawals_uses_oms_client(monkeypatch: pytest.MonkeyPatch):
+async def test_get_withdrawal_status_uses_oms_client(monkeypatch: pytest.MonkeyPatch):
     user = User()
     client = WithdrawalClient(default_user=user, base_url="http://127.0.0.1:8000")
     payload = {
@@ -112,11 +113,11 @@ async def test_get_queued_withdrawals_uses_oms_client(monkeypatch: pytest.Monkey
 
     async def fake_get(endpoint: str, json_data=None, **_kwargs):
         _ = json_data
-        assert endpoint == f"withdrawal/queue/{user.public_key}"
+        assert endpoint == f"withdrawal/status/{user.public_key}"
         return [payload]
 
     monkeypatch.setattr(client, "_get", fake_get)
-    queued = await client.get_queued_withdrawals(user.public_key)
+    queued = await client.get_withdrawal_status(user.public_key)
 
     assert len(queued) == 1
     assert queued[0]["nonce"] == 9
@@ -124,13 +125,14 @@ async def test_get_queued_withdrawals_uses_oms_client(monkeypatch: pytest.Monkey
 
 
 @pytest.mark.anyio
-async def test_cancel_withdrawal_uses_oms_client(monkeypatch: pytest.MonkeyPatch):
+async def test_cancel_transfer_uses_oms_client(monkeypatch: pytest.MonkeyPatch):
     user = User()
-    client = WithdrawalClient(default_user=user, base_url="http://127.0.0.1:8000")
+    client = OrderBookClient(default_user=user, base_url="http://127.0.0.1:8000")
     called = {}
-    cancel_request = CancelWithdrawalRequest.create_signed(
+    cancel_request = CancelTransferRequest.create_signed(
         signer=user,
-        asset_address="0x62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7",
+        source=2,
+        token="0x62622E77D1349Face943C6e7D5c01C61465FE1dc@000000000000aa36a7",
         nonce=4,
     )
 
@@ -141,7 +143,23 @@ async def test_cancel_withdrawal_uses_oms_client(monkeypatch: pytest.MonkeyPatch
         return {}
 
     monkeypatch.setattr(client, "_post", fake_post)
-    await client.cancel_withdrawal(cancel_request)
+    await client.cancel_transfer(cancel_request)
 
-    assert called["endpoint"] == "withdrawal/cancel"
+    assert called["endpoint"] == "account/transfer/cancel"
     assert called["nonce"] == 4
+    assert cancel_request.inner.source == 2
+    assert list(cancel_request.inner.model_dump()) == ["user", "source", "token", "nonce"]
+
+
+@pytest.mark.anyio
+async def test_get_queued_transfers_uses_oms_client(monkeypatch):
+    user = User()
+    client = OrderBookClient(default_user=user)
+    rows = [{"source_index": 2, "nonce": 1, "filled_principal": "5"}]
+
+    async def get(endpoint, **kwargs):
+        assert endpoint == f"account/transfer/queue/{user.public_key}"
+        return rows
+
+    monkeypatch.setattr(client, "_get", get)
+    assert await client.get_queued_transfers(user.public_key) == rows

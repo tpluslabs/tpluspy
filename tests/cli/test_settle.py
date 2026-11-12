@@ -64,7 +64,7 @@ def test_settle_weth_out_usdc_in(runner, env, tplus_cli):
     async def _verify():
         env.ce_client = env._fresh_ce()
         await env.verify_inventory(
-            sub_account=0,
+            sub_account=1,
             asset=env.weth.asset_identifier,
             spot=True,
             expected_amount=EXPECTED_SPOT_WETH,

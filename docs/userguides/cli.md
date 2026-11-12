@@ -166,7 +166,7 @@ tplus wd signatures [--user <pubkey>] [--nonce N]
 Registry-owner operations. Uses Ape's `--network` / `--account` for write
 paths. The read-only CE-backed subcommands (`list`, `update-ce`,
 `get-registry-address`) work without the `[evm]` extras; everything that
-touches the on-chain Registry (`set`, `set-risk-manager`, `deploy-registry`)
+touches the on-chain Registry (`set`, `init-risk-council`, `deploy-registry`)
 requires `pip install "tpluspy[evm]"`. When evm isn't installed, `tplus assets
 list` queries the clearing engine directly and the `--ce` flag is implicit.
 
@@ -184,12 +184,25 @@ tplus assets list --ce --include-risk-params
 # JSON output (each entry includes `index`).
 tplus assets list --output-format json
 
+# Register asset INDEX. Under a Registry delay, prints the operation ID and when it can execute.
 tplus assets set <index> <asset_address> \
   --chain-id 42161 --max-deposit 1000000 --max-1hr 100000 --min-weight 1 \
   [--no-wait]
 
-# Deploy a new Registry contract. Prints the deployed address.
-tplus assets deploy-registry [--risk-param-delay <seconds>]
+# Execute a scheduled asset entry once its delay has passed, with the same arguments as `set`
+# and the operation ID `set` printed.
+tplus assets execute <index> <asset_address> \
+  --chain-id 42161 --max-deposit 1000000 --max-1hr 100000 --min-weight 1 --op-id <op_id>
+
+# Deploy a new Registry behind an ERC1967 proxy. Prints the proxy address. Mainnet refuses a zero
+# upgrade delay unless --allow-zero-upgrade-delay is passed.
+tplus assets deploy-registry [--risk-param-delay <seconds>] [--upgrade-delay <seconds>] \
+  [--allow-zero-upgrade-delay]
+
+# Install the risk council once the CredentialManager exists. Members default to the account,
+# the threshold to a strict majority, and --universe is required off the local network.
+tplus assets init-risk-council <credential_manager> \
+  [--universe <universe>] [--member <address> ...] [--threshold N]
 
 # Trigger CE re-ingestion of assets from the on-chain registry.
 tplus assets update-ce
@@ -203,7 +216,7 @@ Risk parameter management lives under [`tplus params`](#tplus-params).
 ## `tplus params`
 
 Manage and inspect per-asset risk parameters. `list` and `update-ce` work
-against the clearing engine without the `[evm]` extras; `set` and `apply`
+against the clearing engine without the `[evm]` extras; `set` and `execute`
 require `pip install "tpluspy[evm]"`.
 
 ```shell
@@ -219,26 +232,27 @@ tplus params list --output-format json
 # Trigger CE re-ingestion of risk parameters from the on-chain registry.
 tplus params update-ce
 
-# Set pending risk parameters on-chain for asset INDEX.
+# Schedule risk parameters on-chain for asset INDEX, signed by the risk council.
 tplus params set <index> --params '{...}'
 
-# Apply previously-set pending risk parameters.
-tplus params apply <index>
+# Execute the scheduled risk parameters once the delay has passed, with the operation ID `set`
+# printed.
+tplus params execute <index> --params '{...}' --op-id <op_id>
 ```
 
 ## `tplus withdrawal params`
 
 On-chain withdrawal-delay parameter management. Mirrors the risk-params flow:
-set pending on-chain, then trigger CE ingestion. `update-ce` works without
+schedule and execute on-chain, then trigger CE ingestion. `update-ce` works without
 the `[evm]` extras; `set` requires `pip install "tpluspy[evm]"`.
 
 ```shell
-# Set pending + apply withdrawal-delay params on the Registry.
+# Schedule withdrawal-delay params on the Registry, executing them when no delay applies.
 tplus withdrawal params set \
   --min-delay 0 --max-delay 0 \
   --clamp 0 --clamp 1000000 \
   --value 0 --value 0 \
-  [--cap-floor 50000] [--no-apply]
+  [--cap-floor 50000] [--no-execute]
 
 # Trigger CE ingestion of the on-chain params.
 tplus withdrawal params update-ce
@@ -252,8 +266,8 @@ directly to the CE state and bypasses the on-chain ingestion path.
 Vault-owner operations. Uses Ape's `--network` / `--account` for write paths.
 The read-only CE-backed subcommands (`list`, `update-ce`) work without the
 `[evm]` extras; the rest (`deploy`, `deploy-registry`, `register`,
-`set-administrators`, `set-domain-separator`, `set-credential-manager`,
-`register-settler`, `register-depositor`, `admins`) require
+`attest-signer`, `register-strategy`, `sync`, `set-domain-separator`,
+`set-credential-manager`, `register-settler`, `register-depositor`, `admins`) require
 `pip install "tpluspy[evm]"`. When evm isn't installed, `tplus vaults list`
 queries the clearing engine directly.
 
@@ -268,17 +282,37 @@ tplus vaults list --ce
 tplus vaults update-ce
 
 # Deploy a new CredentialManager (aka vault registry) pointing at REGISTRY.
+# Each --operator is ADDRESS:PUBLIC_KEY, a 64-byte public key, or an Ape account alias.
+# Off the local network, forks included, --universe, --council-member and an
+# --automata-verifier (or --allow-unverified-attestation) are required.
+# Operator keys are per-universe: never reuse one across universes.
 tplus vaults deploy-registry <registry_address> \
-  [--operator <addr> ...] [--quorum N] \
-  [--measurement <hex> ...] [--automata-verifier <addr>]
+  [--operator <address:public_key|public_key|alias> ...] [--quorum N] \
+  [--universe <name>] [--automata-verifier <addr> | --allow-unverified-attestation] \
+  [--council-member <addr> ...] [--council-threshold N] [--withdrawal-quorum N] \
+  [--skip-if-deployed]
 
-# Deploy a new DepositVault pointing at CREDENTIAL_MANAGER.
+# Attest the CE signer for --account's operator, on a manager with no verifier. The manager
+# commits its first governance snapshot once attested keys reach the withdrawal quorum.
+tplus vaults attest-signer [--signer-key <hex>]
+
+# Deploy a new DepositVault pointing at CREDENTIAL_MANAGER. Its genesis is the manager's
+# committed governance snapshot, so this fails until a signer is attested.
 tplus vaults deploy <credential_manager_address>
 
-tplus vaults set-domain-separator [--separator <hex>]
-tplus vaults set-administrators [--admin-key <hex> ...] [--quorum N]
+# On an L2 CREDENTIAL_MANAGER is the receiver that relays the manager's snapshots, so name
+# the manager the genesis is read from, and its chain's RPC.
+tplus vaults deploy <receiver_address> \
+  --genesis-manager <credential_manager_address> --genesis-rpc-url <manager_chain_rpc>
 
-# Register a vault with the credential manager (addVault).
+tplus vaults set-domain-separator [--separator <hex>]
+
+# Register the strategy that delivers snapshots to a vault on the manager's chain, then
+# deliver the manager's current snapshot to it.
+tplus vaults register-strategy
+tplus vaults sync
+
+# Register a vault with the credential manager (a committee-signed ADD_VAULT operation).
 # Default chain config is all-zeros (dev). Override any field via flags.
 tplus vaults register 0x<vault>@<chain>  # or 0x<vault> --chain-id 42161
 tplus vaults register 0x<vault> --chain-id 42161 \

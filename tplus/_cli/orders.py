@@ -27,7 +27,7 @@ def orders():
 @orderbook_url_option()
 @ignore_ssl_option()
 @tplus_account_option()
-@click.option("--asset", "asset_id", required=True, help="Asset identifier.")
+@click.option("--asset", "asset_id", required=True, help="Asset index.")
 @click.option(
     "--side",
     type=click.Choice(["buy", "sell"], case_sensitive=False),
@@ -140,17 +140,12 @@ def _replace(
 def _transfer(
     cli_ctx: CLIContext, source_index: int, target_index: int, asset_id: str, amount: int
 ):
-    """Transfer between sub-accounts."""
+    """Transfer between funding and trading accounts."""
     from tplus.model.asset_identifier import AssetIdentifier
 
     client = cli_ctx.orderbook_client()
     response = asyncio.run(
-        client.request_transfer_to_subaccount(
-            source_index=source_index,
-            target_index=target_index,
-            transfer_asset=AssetIdentifier(asset_id),
-            transfer_amount=amount,
-        )
+        client.request_transfer(source_index, target_index, AssetIdentifier(asset_id), amount)
     )
     click.echo(json.dumps(response, indent=2, default=str))
 
@@ -167,10 +162,11 @@ def _close(cli_ctx: CLIContext, account_index: int, asset_id: str):
 
     Spot of the asset is first squashed into the position's base liabilities
     (any asset, not only USD), but only while the quote leg is exactly zero: a
-    short with a quote leg is closed by trading, and the close is rejected with
-    ``spot repays a base liability only while the quote leg is 0``. Once the
-    base leg is flat, spot USD repays a quote loss and a quote profit is moved
-    to spot USD.
+    short with a quote leg is closed by trading. Once the base leg is flat, spot
+    USD repays a quote loss and a quote profit is moved to spot USD. A long
+    moves only a quote profit to spot USD and keeps its base. Any other open
+    position is rejected with ``No settled PnL while the long is open`` or
+    ``No settled PnL while the short is open``.
     """
     client = cli_ctx.orderbook_client()
     response = asyncio.run(client.request_close_position(account_index, asset_id))

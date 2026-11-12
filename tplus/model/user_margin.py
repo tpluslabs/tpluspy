@@ -105,6 +105,21 @@ class MarginCallInfo(BaseModel):
     deadline_ns: int
 
 
+class NettingAllocationInfo(BaseModel):
+    """
+    Offset the sub-account holds on one venue asset out of its shared allowance.
+
+    Attributes:
+        venue: Venue the asset is held on.
+        asset_id: Venue asset identifier.
+        allocated: Offset quantity granted, in asset units.
+    """
+
+    venue: int
+    asset_id: str
+    allocated: Decimal
+
+
 class AccountMarginInfo(BaseModel):
     """
     Margin breakdown for a single sub-account.
@@ -137,6 +152,9 @@ class AccountMarginInfo(BaseModel):
         margin_calls: Open margin calls, one per called venue. Empty for a
             healthy account.
 
+        netting_allocations: Shared-allowance offsets held per venue asset.
+            Empty when the account holds none.
+
         positions: Per-position breakdown (only present if include_positions=True).
             Contains size and notional value for each position.
     """
@@ -153,6 +171,7 @@ class AccountMarginInfo(BaseModel):
     im_surplus: Decimal | None
     net_apy: Decimal | None
     margin_calls: list[MarginCallInfo] = []
+    netting_allocations: list[NettingAllocationInfo] = []
     netting: list[AssetNettingInfo] | None = None
     positions: list[PositionMarginInfo] | None = None
 
@@ -217,6 +236,9 @@ def parse_account_margin_info(data: dict) -> AccountMarginInfo:
         im_surplus=im_surplus,
         net_apy=net_apy,
         margin_calls=[MarginCallInfo(**c) for c in data.get("margin_calls", [])],
+        netting_allocations=[
+            NettingAllocationInfo(**a) for a in data.get("netting_allocations", [])
+        ],
         netting=(
             [AssetNettingInfo(**n) for n in data["netting"]]
             if data.get("netting") is not None

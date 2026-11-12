@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
 from tplus.client import ClearingEngineClient
-from tplus.evm.address import public_key_to_address
 from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.chain_address import ChainAddress
@@ -55,32 +54,6 @@ class VaultOwner(ChainConnectedManager):
         tx_kwargs.setdefault("sender", self.owner)
         address = getattr(new_credential_manager, "address", new_credential_manager)
         return self.vault.set_credential_manager(to_evm_address(address), **tx_kwargs)
-
-    async def set_administrators(
-        self,
-        admin_keys: list[str] | None = None,
-        withdrawal_quorum: int | None = None,
-        **tx_kwargs,
-    ) -> Any:
-        """
-        Register the connected clearing-engine as a valid deposit vault admin.
-        Requires being the vault contract owner.
-        """
-        tx_kwargs.setdefault("sender", self.owner)
-
-        if admin_keys is None:
-            if self.ce is None:
-                raise ValueError("Either admin_key or self.ce must be specified")
-
-            admin_keys = [await self.ce.admin.get_verifying_key()]
-
-        addresses = [public_key_to_address(k) for k in admin_keys]
-
-        if withdrawal_quorum is None:
-            withdrawal_quorum = len(addresses)
-
-        tx = self.vault.setAdministrators(addresses, withdrawal_quorum, **tx_kwargs)
-        return tx
 
     async def register_settler(
         self,

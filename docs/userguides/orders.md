@@ -243,29 +243,21 @@ for order in preview.orders:
 ## Sub-account transfers
 
 ```{code-block} python
-await client.request_transfer_to_subaccount(
-    source_index=0,
-    target_index=1,
-    transfer_asset=asset,
-    transfer_amount=1_000_000,
-)
+await client.request_transfer(1, 2, asset, 1_000_000)
 ```
 
-When `target_index` is a new sub-account, `target_account_type` sets its kind:
+When the destination is a new sub-account, `target_account_type` sets its kind:
 
 ```{code-block} python
-from tplus.model.sub_account import SubAccountType
+from tplus.model.transfer import isolated
 
-await client.request_transfer_to_subaccount(
-    source_index=0,
-    target_index=2,
-    transfer_asset=asset,
-    transfer_amount=1_000_000,
-    target_account_type=SubAccountType.isolated(asset),
+await client.request_transfer(
+    1, 3, asset, 1_000_000,
+    target_account_type=isolated(asset),
 )
 ```
 
-`SubAccountType.spot()` and `SubAccountType.cross_margin()` cover the other kinds.
+`cross_margin()` covers the other kind. Trading account indices must be nonzero.
 
 ## Errors
 

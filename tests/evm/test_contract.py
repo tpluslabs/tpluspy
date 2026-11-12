@@ -1,7 +1,9 @@
 import importlib.util
 
 import pytest
+from eth_abi import decode
 from eth_utils import keccak, to_hex
+from eth_utils.abi import function_abi_to_4byte_selector, get_abi_input_types
 
 from tplus.evm.constants import REGISTRY_ADDRESS
 from tplus.evm.contracts import (
@@ -9,8 +11,13 @@ from tplus.evm.contracts import (
     Registry,
     TPlusContract,
     _decode_erc20_error,
+    build_credential_manager_initialization,
+    build_dev_genesis,
+    count_credential_manager_op_types,
+    find_credential_manager_initialize_abi,
 )
 from tplus.evm.exceptions import ContractNotExists
+from tplus.evm.governance import OperatorKey
 from tplus.model.asset_identifier import ChainAddress
 from tplus.utils.domain import get_dstack_domain
 
@@ -49,6 +56,26 @@ class TestDepositVault:
         assert vault.address == address.evm_address
 
 
+def test_build_credential_manager_initialization_has_a_bounds_pair_per_op_type():
+    initialize_abi = find_credential_manager_initialize_abi()
+    operator = OperatorKey.create()
+    calldata = build_credential_manager_initialization(
+        universe_id=bytes(32),
+        operator_public_keys=[operator.public_key],
+        committee_threshold=1,
+        security_council=[],
+        security_council_threshold=0,
+        automata_verifier="0x" + "00" * 20,
+        registry="0x" + "00" * 20,
+        withdrawal_quorum=1,
+    )
+    [params] = decode(get_abi_input_types(initialize_abi), calldata[4:])
+    assert calldata[:4] == function_abi_to_4byte_selector(initialize_abi)
+    assert params[-1] == tuple((0, 0) for _ in range(count_credential_manager_op_types()))
+    assert [address.lower() for address in params[1]] == [operator.address.lower()]
+    assert list(params[2]) == [operator.public_key]
+
+
 @pytest.mark.parametrize("error", ("TransferFromFailed()", "TransferFailed()"))
 def test_decode_erc20_error(error):
     erc20_error = to_hex(keccak(text=error)[:4])
@@ -63,7 +90,12 @@ class TestDepositVaultDeploy:
     def test_deploy(self, evm_backend, test_accounts):
         owner = test_accounts[0]
         credential_manager = test_accounts[2]
-        instance = DepositVault.deploy(owner, credential_manager, sender=owner)
+        instance = DepositVault.deploy(
+            owner,
+            credential_manager,
+            build_dev_genesis(evm_backend.convert_address(owner)),
+            sender=owner,
+        )
         assert instance.address
         assert instance.owner() == evm_backend.convert_address(owner)
 
@@ -72,7 +104,12 @@ class TestDepositVaultDeploy:
         sender = test_accounts[1]
         credential_manager = test_accounts[2]
         nonce_before = sender.nonce
-        instance = DepositVault.deploy(owner, credential_manager, sender=sender)
+        instance = DepositVault.deploy(
+            owner,
+            credential_manager,
+            build_dev_genesis(evm_backend.convert_address(owner)),
+            sender=sender,
+        )
         assert instance.address
         assert instance.owner() == evm_backend.convert_address(owner)
         assert sender.nonce > nonce_before
@@ -81,7 +118,12 @@ class TestDepositVaultDeploy:
         owner = test_accounts[0]
         credential_manager = test_accounts[2]
 
-        instance = DepositVault.deploy(owner, credential_manager, sender=owner)
+        instance = DepositVault.deploy(
+            owner,
+            credential_manager,
+            build_dev_genesis(evm_backend.convert_address(owner)),
+            sender=owner,
+        )
         expected = get_dstack_domain(instance.chain_address)
         instance.set_domain_separator(expected, sender=owner)
 
@@ -90,7 +132,12 @@ class TestDepositVaultDeploy:
 
     def test_chain_address(self, evm_backend, test_accounts):
         owner = test_accounts[0]
-        instance = DepositVault.deploy(owner, owner, sender=owner)
+        instance = DepositVault.deploy(
+            owner,
+            owner,
+            build_dev_genesis(evm_backend.convert_address(owner)),
+            sender=owner,
+        )
         actual = instance.chain_address
         assert actual.evm_address == instance.address
         assert actual.chain_id.routing_id == 0

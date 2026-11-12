@@ -1,5 +1,6 @@
 from tplus.client.clearingengine.base import BaseClearingEngineClient
-from tplus.model.asset_identifier import AssetAddress, ChainAddress
+from tplus.model.asset_identifier import ChainAddress
+from tplus.model.vault import ChildManager
 
 
 class VaultClient(BaseClearingEngineClient):
@@ -13,15 +14,17 @@ class VaultClient(BaseClearingEngineClient):
         """
         await self._post("vaults/update")
 
-    async def update_balance(self, asset_address: AssetAddress | str):
+    async def update_child_managers(self):
         """
-        Request that the CE check the deposit vault balance for the given asset. Debug CE builds only.
+        Request that the CE re-read the child credential managers its credential manager lists.
+        """
+        await self._post("child-managers/update")
 
-        Args:
-            asset_address (AssetAddress | str): The asset address.
+    async def get_child_managers(self) -> list[ChildManager]:
         """
-        request = {"asset_address": str(asset_address)}
-        await self._post("vault/balance/update", json_data=request)
+        Get the child credential managers the CE's credential manager lists.
+        """
+        return [ChildManager.model_validate(entry) for entry in await self._get("child-managers")]
 
     async def set_credential_manager_address(self, credential_manager: ChainAddress):
         """

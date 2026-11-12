@@ -49,11 +49,22 @@ class InnerSettlementRequest(BaseSettlement):
     """
     Optional expiry timestamp (ns) after which the CE refuses the request.
     """
-    protocol_version: int = 2
+    max_fee: int | None = None
+    """
+    The most the settlement may reserve for the rebalancing fee of its outgoing leg, in canonical
+    (1e18) units of ``asset_out``: ``None`` accepts the protocol-calculated reservation, ``0``
+    only a fee-free approval. Signed from protocol version 3 on.
+    """
+    protocol_version: int = 3
     """
     Layout of the signed payload. Version 1 (clients predating the field) signed
-    ``"mm_pubkey": null``; version 2 drops it and commits the version instead.
+    ``"mm_pubkey": null``; version 2 drops it and commits the version instead; version 3 signs
+    ``max_fee`` too, ``null`` when unset.
     """
+
+    @field_serializer("max_fee")
+    def serialize_max_fee(self, val: int | None) -> str | None:
+        return None if val is None else str(val)
 
     @classmethod
     def from_raw(
@@ -71,9 +82,11 @@ class InnerSettlementRequest(BaseSettlement):
         settler: UserPublicKey | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
         expires_at: int | None = None,
+        max_fee: int | None = None,
     ) -> "InnerSettlementRequest":
         """
-        Create a request using raw amounts, normalized to CE decimals.
+        Create a request using raw amounts, normalized to CE decimals. ``max_fee`` is in
+        canonical (1e18) units of ``asset_out``, not raw ones.
         """
         return cls.model_validate(
             {
@@ -88,6 +101,7 @@ class InnerSettlementRequest(BaseSettlement):
                 "nonce": nonce,
                 "sub_account_index": sub_account_index,
                 "expires_at": expires_at,
+                "max_fee": max_fee,
             }
         )
 
@@ -99,7 +113,10 @@ class InnerSettlementRequest(BaseSettlement):
         chain_id = base_data.pop("chain_id", None)
         nonce = base_data.pop("nonce")
         expires_at = base_data.pop("expires_at", None)
+        max_fee = base_data.pop("max_fee", None)
         base_data.pop("protocol_version")
+        if max_fee is not None and self.protocol_version < 3:
+            raise ValueError("max_fee is signed from protocol version 3 on")
 
         # NOTE: The order here matters — must match the Rust struct field order
         # in `InnerSettlementRequest`, which is what `serde_json::to_string`
@@ -114,6 +131,8 @@ class InnerSettlementRequest(BaseSettlement):
         payload["chain_id"] = chain_id
         payload["nonce"] = nonce
         payload["expires_at"] = expires_at
+        if self.protocol_version >= 3:
+            payload["max_fee"] = max_fee
         if self.protocol_version == 1:
             payload["mm_pubkey"] = None
         if self.protocol_version != 1:

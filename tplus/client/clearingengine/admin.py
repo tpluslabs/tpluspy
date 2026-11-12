@@ -6,9 +6,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.interest_rates import InterestRates
-from tplus.model.representation_rate import SetRepresentationRateMappingRequest
 from tplus.model.types import UserPublicKey
-from tplus.model.vault import VaultBalance
+from tplus.model.vault import RebalancingBacking
 from tplus.utils.operator import load_operator_sk, sign_operator_payload
 from tplus.utils.serializers import to_u256_str
 from tplus.utils.user import to_user_public_key
@@ -52,6 +51,8 @@ class AdminClient(BaseClearingEngineClient):
         spot_balance: str,
         average_spot_deposit: str,
         sub_account_index: int = 1,
+        *,
+        admitted_backing: tuple[str, int] | None = None,
     ):
         """
         Admin-only API for testing.
@@ -61,6 +62,9 @@ class AdminClient(BaseClearingEngineClient):
             asset: The asset identifier
             balance: Dict with "credits" and "liabilities" keys
             sub_account_index: The sub-account index (0=main, 1=margin). Defaults to 1 (margin).
+            admitted_backing: Optional (token address, exact unlocked admitted amount
+                at 18 decimals). Only for canonical trading seeds. This debug override
+                does not deposit tokens, debit funding or apply admission caps.
         """
         if not isinstance(user, UserPublicKey):
             user = UserPublicKey.__validate_user__(user)
@@ -79,6 +83,11 @@ class AdminClient(BaseClearingEngineClient):
                 "spot": spot_balance,
                 "average_spot_deposit": average_spot_deposit,
                 "sub_account_index": sub_account_index,
+                "admitted_backing": (
+                    [admitted_backing[0], to_u256_str(admitted_backing[1])]
+                    if admitted_backing is not None
+                    else None
+                ),
             },
         )
 
@@ -131,6 +140,14 @@ class AdminClient(BaseClearingEngineClient):
         params = {} if now_ns is None else {"now_ns": now_ns}
         return await self._get(f"admin/inventory/{user}", params=params)
 
+    async def get_protocol_values(self) -> dict:
+        """
+        Admin-only API for the protocol-wide aggregates: exposure, margin balances,
+        collateral, one-hour deposits and the netting offset in use per venue asset.
+        Every amount is a decimal string in inventory units.
+        """
+        return await self._get("admin/protocol-values")
+
     async def get_representation_rate(self, token: str) -> int | None:
         """
         Admin-only API for the rate a representation token converts at now, or None without one.
@@ -146,12 +163,21 @@ class AdminClient(BaseClearingEngineClient):
         """
         await self._post("admin/representation-rates/read", json_data={})
 
-    async def get_vault_balance(self, token: str) -> VaultBalance:
+    async def get_rebalancing_backing(self, token: str) -> RebalancingBacking:
         """
-        Admin-only API for a token's free and locked vault balance at 18 decimals.
+        Admin-only API for a token's rebalancing anchor and backing at 18 decimals.
         """
-        response = await self._get(f"admin/vault/{token}")
-        return VaultBalance.model_validate(response)
+        response = await self._get(f"admin/rebalancing-backing/{token}")
+        return RebalancingBacking.model_validate(response)
+
+    async def set_rebalancing_anchor(self, token: str, anchor: int | None) -> None:
+        """
+        Debug-only: open, move or, with ``None``, close a token's rebalancing anchor at 18 decimals.
+        """
+        await self._post(
+            f"admin/rebalancing-anchor/{token}",
+            json_data={"anchor": to_u256_str(anchor) if anchor is not None else None},
+        )
 
     async def set_asset_config(
         self,
@@ -233,12 +259,6 @@ class AdminClient(BaseClearingEngineClient):
                 "asset_id": asset_index,
                 "risk_parameters": risk_parameters,
             },
-        )
-
-    async def set_representation_rate_mapping(self, request: SetRepresentationRateMappingRequest):
-        """Rotate the representation-rate mapping. A request with no mapping clears it."""
-        await self._post(
-            "representation-rate-mapping/set", json_data=request.model_dump(mode="json")
         )
 
     async def set_withdrawal_delay_params(
@@ -431,23 +451,13 @@ class AdminClient(BaseClearingEngineClient):
         windows = await self._get(f"admin/average-oi/{user}", params=params)
         return cast(list[dict[str, Any]], windows)
 
-    async def set_average_open_interest(
-        self, user: "UserPublicKey", asset: "AssetIdentifier", notional_usd: str
-    ):
-        """Seed a flat 14-day average notional OI (USD, 18 decimals) for a user and market."""
+    async def set_average_open_interest(self, user: "UserPublicKey", asset: int, notional_usd: str):
+        """Seed a flat 14-day average notional OI (USD, 18 decimals) for a user and canonical asset index."""
         if not isinstance(user, UserPublicKey):
             user = UserPublicKey.__validate_user__(user)
-        if not isinstance(asset, AssetIdentifier):
-            asset = AssetIdentifier.model_validate(asset)
         await self._post(
             "admin/average-oi/modify",
-            json_data={"user": user, "asset": asset.model_dump(), "notional_usd": notional_usd},
-        )
-
-    async def set_fee_account(self, user: UserPublicKey):
-        await self._post(
-            "admin/fee-account/modify",
-            json_data={"fee_account": user},
+            json_data={"user": user, "asset": asset, "notional_usd": notional_usd},
         )
 
     async def set_withdrawal_suspension(self, user: UserPublicKey, suspended: bool):
@@ -470,9 +480,7 @@ class AdminClient(BaseClearingEngineClient):
         ``amount`` is the chain amount, in the token's own decimals. The vault signs what it
         pays, so this is the only way to ingest a payout that differs from its approval.
 
-        ``block_number`` dates the event. A vault balance read at or after it already counts
-        the payout, so an event left at height zero never leaves the tracked vault balance
-        once any read landed."""
+        ``block_number`` dates the event."""
         json_data: dict[str, Any] = {
             "user": user,
             "nonce": nonce,
@@ -501,9 +509,7 @@ class AdminClient(BaseClearingEngineClient):
         Amounts are chain amounts, in each token's own decimals; ``mode`` is ``spot`` or
         ``margin``.
 
-        ``block_number`` dates the event. A vault balance read at or after it already counts
-        the settlement's legs, so an event left at height zero never moves the tracked vault
-        balance once any read landed."""
+        ``block_number`` dates the event."""
         json_data: dict[str, Any] = {
             "user": user,
             "sub_account_index": sub_account_index,
@@ -538,9 +544,9 @@ class AdminClient(BaseClearingEngineClient):
             json_data={},
         )
 
-    async def reset_max_one_hr_deposit(self):
+    async def reset_max_one_hr_admissions(self):
         await self._post(
-            "admin/deposits/reset-1hr",
+            "admin/admissions/reset-1hr",
             json_data={},
         )
 

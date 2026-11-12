@@ -41,6 +41,42 @@ class ChainConfig(BaseModel):
             settlementIngestConfirmations=0,
         )
 
+    @classmethod
+    def for_evm_chain(cls, chain_id: int) -> "ChainConfig | None":
+        """The confirmation policy production runs for an EVM chain, or ``None`` for others."""
+        # TODO: read these from one source shared with infra's chain values and `AddVault.s.sol`.
+        policies = {
+            1: (12_000, 4),
+            42_161: (1_000, 15),
+            143: (400, 15),
+            8_453: (2_000, 10),
+        }
+        if chain_id not in policies:
+            return None
+
+        block_time_ms, confirmations = policies[chain_id]
+        return cls(
+            blockTimeMs=block_time_ms,
+            defaultConfirmations=confirmations,
+            depositIngestConfirmations=confirmations,
+            withdrawalIngestConfirmations=confirmations,
+            settlementIngestConfirmations=0,
+        )
+
+    def find_unexpected_zero_confirmations(self, expected: "ChainConfig | None") -> list[str]:
+        """Confirmation fields that are zero although ``expected`` does not make them zero."""
+        names = (
+            "defaultConfirmations",
+            "depositIngestConfirmations",
+            "withdrawalIngestConfirmations",
+            "settlementIngestConfirmations",
+        )
+        return [
+            name
+            for name in names
+            if getattr(self, name) == 0 and (expected is None or getattr(expected, name) != 0)
+        ]
+
     @property
     def abi_types(self) -> list[str]:
         return [

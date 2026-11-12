@@ -78,10 +78,10 @@ class TestUser:
         assert additional[0].signer.model_dump() == {"Ed25519": signer.public_key_vec}
         signer.vk.verify(bytes(additional[0].signature), b"payload")
 
-    def test_delegated_user_defaults_to_main_sub_account(self):
+    def test_delegated_user_defaults_to_margin_sub_account(self):
         user = DelegatedUser(User().public_key, User())
 
-        assert user.sub_account == 0
+        assert user.sub_account == 1
 
     @pytest.mark.parametrize("attribute", ["sk", "vk"])
     def test_delegated_user_has_no_account_master_key(self, attribute):
@@ -138,3 +138,9 @@ def test_to_user_public_key_passes_through_str(expected_user_id):
 
 def test_to_user_public_key_evm_account(eth_account, expected_user_id):
     assert to_user_public_key(eth_account) == expected_user_id
+
+
+@pytest.mark.parametrize(("selected", "expected"), [(None, 1), (0, 0), (2, 2)])
+def test_user_sub_account_preserves_explicit_funding(selected, expected):
+    assert User(sub_account=selected).sub_account == expected
+    assert DelegatedUser(User().public_key, User(), sub_account=selected).sub_account == expected

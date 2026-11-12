@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.serialization import (  # type: ignore
 
 from tplus.utils.user.ed_keyfile import decrypt_keyfile, encrypt_keyfile
 from tplus.utils.user.model import (
-    MAIN_SUB_ACCOUNT,
+    MARGIN_SUB_ACCOUNT,
     EvmAccount,
     LocalUser,
     User,
@@ -182,7 +182,7 @@ class UserManager:
         Returns:
             User: The user derived from ``account``.
         """
-        key = (account.address.lower(), sub_account or MAIN_SUB_ACCOUNT)
+        key = (account.address.lower(), MARGIN_SUB_ACCOUNT if sub_account is None else sub_account)
         if key not in self._evm_users:
             self._evm_users[key] = User.from_evm_account(
                 account, sub_account=sub_account, signature=self.master_key_signature(account)

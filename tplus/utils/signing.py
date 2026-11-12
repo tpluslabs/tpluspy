@@ -2,35 +2,17 @@ import time
 from typing import TYPE_CHECKING
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.cancel_order import (  # For Cancel operations
-    CancelOrder,
-    CancelOrderRequest,
-)
+from tplus.model.cancel_order import CancelOrder, CancelOrderRequest
 from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
     from tplus.types import UserLike
 
-# LimitOrderDetails and Order are no longer needed for dummy cancel creation here
-
 
 def create_cancel_order_ob_request_payload(
     signer: "UserLike", asset_identifier: AssetIdentifier, order_id: str
 ) -> CancelOrderRequest:
-    """
-    Creates the CancelOrderRequest payload for an ObRequest.
-    This now only includes the order_id, matching the Rust struct.
-    """
+    """Creates the CancelOrderRequest payload for an ObRequest."""
     signer = to_user(signer)
     cancel = CancelOrder(order_id=order_id, asset_id=asset_identifier, signer=signer.public_key)
-    sign_payload_json = cancel.model_dump_json()
-    compact_sign_payload_json = (
-        sign_payload_json.replace(" ", "").replace("\r", "").replace("\n", "")
-    )
-    # Delegated cancels are authorized by the authenticated OMS session and account
-    # ownership. They do not reach the clearing engine, so no delegated signature is sent.
-    signature, _ = signer.signing_parts(compact_sign_payload_json)
-
-    return CancelOrderRequest(
-        cancel=cancel, signature=signature, post_sign_timestamp=time.time_ns()
-    )
+    return CancelOrderRequest(cancel=cancel, post_sign_timestamp=time.time_ns())

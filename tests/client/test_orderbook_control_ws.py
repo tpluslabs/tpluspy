@@ -4,7 +4,7 @@ import json
 import pytest
 
 from tplus.client.orderbook import CONTROL_WS_PROTOCOL, encode_control_frame
-from tplus.exceptions import RateLimitError
+from tplus.exceptions import RateLimitError, ServerError
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.batch_order import (
     BatchAmendOrderRequest,
@@ -268,6 +268,7 @@ async def test_control_ws_send_amend_batch_gathers_per_item_responses(
     # Each item is a plain amend, exactly like a single one: no signature, user-initiated.
     assert all(item["user_id"] == control_user.public_key for item in wire_items)
     assert all(item["request"]["source"] == "User" for item in wire_items)
+    assert all(item["target"]["account"] == 1 for item in wire_items)
 
     for data in (
         ACK,
@@ -382,3 +383,128 @@ def test_encode_control_frame_passes_exclude_none_to_the_model(control_user):
         "request_id": "rid",
         "data": {"ReplaceOrderRequest": request.model_dump(exclude_none=True)},
     }
+
+
+def build_cancel_response(order_id: str, status: str = "Received") -> dict:
+    return {
+        "CancelOrderResponse": {
+            "response": {"order_id": order_id, "status": status},
+            "asset_id": str(ASSET_ID),
+        }
+    }
+
+
+@pytest.mark.anyio
+async def test_cancel_orders_via_control_returns_on_submitted_ack(control_ws_client, control_ws):
+    task = asyncio.create_task(
+        control_ws_client.cancel_orders_via_control(["oid1", "oid2"], timeout=1.0)
+    )
+    await asyncio.sleep(0)
+
+    sent = control_ws.sent_frame()
+    assert sent["data"] == {"BatchCancelRequest": {"order_ids": ["oid1", "oid2"]}}
+
+    # A bulk cancel has no terminal response of its own: the ack is the answer.
+    control_ws.feed(
+        {
+            "type": "ack",
+            "channel": "control",
+            "request_id": sent["request_id"],
+            "data": ACK,
+            "error": None,
+        }
+    )
+
+    submission = await task
+    assert (submission.request_id, submission.status) == (sent["request_id"], "submitted")
+    assert control_ws_client.control_responses(submission.request_id) == []
+
+
+@pytest.mark.anyio
+async def test_cancel_orders_via_control_collects_per_order_responses(
+    control_ws_client, control_ws
+):
+    task = asyncio.create_task(
+        control_ws_client.cancel_orders_via_control(["oid1", "oid2", "ghost"], timeout=1.0)
+    )
+    await asyncio.sleep(0)
+    request_id = control_ws.sent_frame()["request_id"]
+    control_ws.feed(
+        {"type": "ack", "channel": "control", "request_id": request_id, "data": ACK, "error": None}
+    )
+    submission = await task
+
+    # The OMS streams one CancelOrderResponse per dispatched id under the batch's
+    # request id, and nothing at all for an id it does not own.
+    for order_id in ("oid2", "oid1"):
+        control_ws.feed(
+            {
+                "type": "event",
+                "channel": "control",
+                "request_id": request_id,
+                "data": build_cancel_response(order_id),
+                "error": None,
+            }
+        )
+
+    responses = await control_ws_client.wait_control_responses(submission.request_id, 2)
+    assert sorted(r.order_id for r in responses) == ["oid1", "oid2"]
+    assert all(r.message == "CancelOrderResponse" for r in responses)
+    assert all(r.status == "Received" for r in responses)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await control_ws_client.wait_control_responses(submission.request_id, 3, timeout=0.2)
+    assert len(control_ws_client.control_responses(submission.request_id)) == 2
+
+
+@pytest.mark.anyio
+async def test_cancel_orders_via_control_needs_ws_mode(control_user):
+    from tplus.client.orderbook import OrderBookClient
+
+    client = OrderBookClient("http://example.com", default_user=control_user)
+    with pytest.raises(RuntimeError, match="use_ws_control"):
+        await client.cancel_orders_via_control(["oid1"])
+    await client.close()
+
+
+@pytest.mark.anyio
+async def test_cancel_orders_via_control_raises_on_admission_error(control_ws_client, control_ws):
+    task = asyncio.create_task(control_ws_client.cancel_orders_via_control(["oid1"], timeout=1.0))
+    await asyncio.sleep(0)
+
+    # An OMS refusal arrives correlated by request id before any ack, and must fail
+    # the call at once rather than let it wait for an ack that never comes.
+    control_ws.feed(
+        {
+            "type": "error",
+            "channel": "control",
+            "request_id": control_ws.sent_frame()["request_id"],
+            "data": None,
+            "error": {
+                "code": "SERVER_BUSY",
+                "message": "OMS is busy",
+                "details": {},
+                "retryable": True,
+            },
+        }
+    )
+
+    with pytest.raises(ServerError) as exc_info:
+        await task
+
+    assert (exc_info.value.code, exc_info.value.status_code) == ("SERVER_BUSY", 503)
+    assert control_ws_client._pending_control == {}
+
+
+@pytest.mark.anyio
+async def test_cancel_orders_via_control_uses_the_given_request_id(control_ws_client, control_ws):
+    task = asyncio.create_task(
+        control_ws_client.cancel_orders_via_control(["oid1"], request_id="abc", timeout=1.0)
+    )
+    await asyncio.sleep(0)
+    assert control_ws.sent_frame()["request_id"] == "abc"
+
+    control_ws.feed(
+        {"type": "ack", "channel": "control", "request_id": "abc", "data": ACK, "error": None}
+    )
+    assert (await task).request_id == "abc"

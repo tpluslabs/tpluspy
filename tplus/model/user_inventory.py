@@ -1,7 +1,6 @@
 from decimal import Decimal
-from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Spot(BaseModel):
@@ -33,7 +32,9 @@ class Margin(BaseModel):
 class UserAccount(BaseModel):
     """Represents a single user account: Combination of spot and margin accounts"""
 
-    kind: Literal["cross_margin", "isolated_margin", "spot"]
+    kind: str = Field(pattern=r"^(funding|cross_margin|isolated:[0-9]+)$")
+    custody: dict[str, Decimal | None]
+    custody_liabilities: dict[str, Decimal | None] | None = None
     spot: Spot
     margin: Margin
 
@@ -70,6 +71,8 @@ def parse_user_inventory(data: dict) -> UserInventory:
         # ---- UserAccount ----
         accounts[account_id] = UserAccount(
             kind=account_data["kind"],
+            custody=account_data["custody"],
+            custody_liabilities=account_data.get("custody_liabilities"),
             spot=spot,
             margin=margin,
         )

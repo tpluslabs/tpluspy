@@ -29,14 +29,22 @@ class Market(BaseModel):
     book_quantity_decimals: int
 
 
-class Asset(BaseModel):
-    """One canonical asset index and the token symbols that are fungible into it."""
+class ChainAsset(BaseModel):
+    """One token deployment of an asset."""
 
-    index: int
-    symbol: str
-    name: str
-    asset_class: str
-    representations: list[str]
+    chain: str
+    chain_id: str
+    address: str
+
+
+class MarketAsset(BaseModel):
+    """A market's asset; fields are None when the OMS does not know them."""
+
+    symbol: str | None = None
+    name: str | None = None
+    asset_class: str | None = None
+    representations: list[str] | None = None
+    chain_assets: list[ChainAsset] | None = None
 
 
 class FeeTierConfig(BaseModel):
@@ -47,11 +55,10 @@ class FeeTierConfig(BaseModel):
 
 
 class MarketFeeSchedule(BaseModel):
-    """Fee ladder and fee account for a market, from the active orderbook config."""
+    """Fee ladder for a market, from the active orderbook config."""
 
     model_config = ConfigDict(populate_by_name=True)
 
-    fee_account: str
     global_: list[FeeTierConfig] = Field(alias="global")
     per_asset: list[FeeTierConfig]
 
@@ -69,17 +76,16 @@ class MarketResponse(BaseModel):
     min_order_size: str | None = None
     tick_size: str | None = None
     fee_schedule: MarketFeeSchedule | None = None
+    asset: MarketAsset = Field(default_factory=MarketAsset)
 
 
 class MarketsPage(PageMeta):
-    """One page of markets plus pagination metadata, and the canonical asset
-    table when it was requested.
+    """One page of markets plus pagination metadata.
 
     Behaves like a sequence of `MarketResponse` for list-style callers.
     """
 
     markets: list[MarketResponse]
-    symbol_map: dict[int, Asset] | None = None
     total_markets: int
 
     def __iter__(self):

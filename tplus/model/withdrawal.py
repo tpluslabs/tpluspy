@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field, field_serializer
 
@@ -17,6 +17,12 @@ class InnerWithdrawalRequest(BaseModel):
     amount: int
     nonce: int | None = None
     target: Address32 = Address32("00" * 32)
+    max_fee: int | None = None
+    """
+    The most the withdrawal may reserve for its rebalancing fee, in canonical (1e18) units of
+    ``asset``: ``None`` accepts the protocol-calculated reservation, ``0`` only a fee-free
+    approval. Signed with the request, ``null`` included.
+    """
 
     def signing_payload(self) -> str:
         return self.model_dump_json()
@@ -24,6 +30,10 @@ class InnerWithdrawalRequest(BaseModel):
     @field_serializer("amount")
     def serialize_amount(self, value: int) -> str:
         return str(value)
+
+    @field_serializer("max_fee")
+    def serialize_max_fee(self, value: int | None) -> str | None:
+        return None if value is None else str(value)
 
 
 class WithdrawalRequest(BaseModel):
@@ -39,6 +49,7 @@ class WithdrawalRequest(BaseModel):
         amount: int,
         nonce: int | None = None,
         target: Address32 | str | None = None,
+        max_fee: int | None = None,
     ) -> "WithdrawalRequest":
         signer = to_user(signer)
         if isinstance(asset, str):
@@ -57,6 +68,8 @@ class WithdrawalRequest(BaseModel):
             data["nonce"] = nonce
         if target is not None:
             data["target"] = target
+        if max_fee is not None:
+            data["max_fee"] = max_fee
 
         inner = InnerWithdrawalRequest.model_validate(data)
         signature, additional_signers = signer.signing_parts(inner.signing_payload())
@@ -66,17 +79,18 @@ class WithdrawalRequest(BaseModel):
         return self.inner.signing_payload()
 
 
-class InnerCancelWithdrawalRequest(BaseModel):
-    tplus_user: UserPublicKey
-    asset_address: AssetAddress
+class InnerCancelTransferRequest(BaseModel):
+    user: UserPublicKey
+    source: int = Field(gt=0)
+    token: AssetAddress
     nonce: int
 
     def signing_payload(self) -> str:
         return self.model_dump_json()
 
 
-class CancelWithdrawalRequest(BaseModel):
-    inner: InnerCancelWithdrawalRequest
+class CancelTransferRequest(BaseModel):
+    inner: InnerCancelTransferRequest
     signature: list[int]
     additional_signers: list[AdditionalSigner] = []
 
@@ -84,16 +98,18 @@ class CancelWithdrawalRequest(BaseModel):
     def create_signed(
         cls,
         signer: "UserLike",
-        asset_address: AssetAddress | str,
+        source: int,
+        token: AssetAddress | str,
         nonce: int,
-    ) -> "CancelWithdrawalRequest":
+    ) -> "CancelTransferRequest":
         signer = to_user(signer)
-        if not isinstance(asset_address, AssetAddress):
-            asset_address = AssetAddress.model_validate(asset_address)
+        if not isinstance(token, AssetAddress):
+            token = AssetAddress.model_validate(token)
 
-        inner = InnerCancelWithdrawalRequest(
-            tplus_user=signer.public_key,
-            asset_address=asset_address,
+        inner = InnerCancelTransferRequest(
+            user=signer.public_key,
+            source=source,
+            token=token,
             nonce=nonce,
         )
         signature, additional_signers = signer.signing_parts(inner.signing_payload())
@@ -146,3 +162,23 @@ class WithdrawalDelayParameters(BaseModel):
     cap_floor: int = Field(default=50_000, alias="capFloor")
 
     model_config = {"populate_by_name": True}
+
+
+class TransferDelayed(BaseModel):
+    type: Literal["delayed"]
+    execution_time_ns: int
+
+
+class TransferFilling(BaseModel):
+    type: Literal["filling"]
+    fillable_since_ns: int
+
+
+class QueuedTransfer(BaseModel):
+    user: UserPublicKey
+    source_index: int
+    token: AssetAddress
+    nonce: int
+    requested_principal: str
+    filled_principal: str
+    status: TransferDelayed | TransferFilling = Field(discriminator="type")

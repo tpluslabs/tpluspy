@@ -6,6 +6,7 @@ from tplus.model.user_event import (
     DepositLanded,
     InterestEpochOccurred,
     SettlementCompleted,
+    SyncBookCreated,
     parse_user_event,
 )
 
@@ -83,6 +84,90 @@ class TestParseUserEvent:
         assert isinstance(event, DepositLanded)
         assert event.amount == "1500000000000000000"
 
+    def test_sync_book_created(self):
+        raw = {
+            "SyncBookCreated": {
+                "user": "ab" * 32,
+                "asset": "200",
+                "timestamp_ns": 1_789_516_800_000_000_000,
+            }
+        }
+        event = parse_user_event(raw)
+        assert isinstance(event, SyncBookCreated)
+        assert event.user == "ab" * 32
+        assert event.asset == "200"
+        assert event.timestamp_ns == 1_789_516_800_000_000_000
+
     def test_unknown_variant(self):
         with pytest.raises(ValueError, match="Unknown user activity event variant"):
             parse_user_event({"Nope": {}})
+
+
+@pytest.mark.parametrize("reason", ["Cancelled", {"Unsafe": {"error": "insolvent"}}])
+def test_remainder_termination_decodes(reason):
+    from tplus.model.user_event import TransferRemainderEnded
+
+    event = parse_user_event(
+        {
+            "TransferRemainderEnded": {
+                "user": "ab" * 32,
+                "source_sub_account_index": 2,
+                "token": "token",
+                "nonce": 3,
+                "progress": {"filled_principal": "4", "remaining_principal": "6"},
+                "reason": reason,
+                "timestamp_ns": 10,
+            }
+        }
+    )
+    assert isinstance(event, TransferRemainderEnded)
+    assert event.progress.filled_principal == "4"
+    assert event.reason == reason
+
+
+def test_sub_account_asset_transferred_per_fill_payload():
+    from tplus.model.user_event import SubAccountAssetTransferred
+
+    event = parse_user_event(
+        {
+            "SubAccountAssetTransferred": {
+                "user": "ab" * 32,
+                "source_sub_account_index": 1,
+                "target_sub_account_index": 0,
+                "nonce": 3,
+                "debited": {"Canonical": {"asset": 2, "amount": "4"}},
+                "credited": {"Custody": {"asset": "token", "amount": "8"}},
+                "redemption": {"filled_principal": "4", "remaining_principal": "6"},
+                "timestamp_ns": 10,
+            }
+        }
+    )
+    assert isinstance(event, SubAccountAssetTransferred)
+    assert event.credited["Custody"]["amount"] == "8"
+    assert event.redemption is not None
+    assert event.redemption.remaining_principal == "6"
+
+
+def test_signature_hint_decodes():
+    from tplus.model.user_event import WithdrawalSignatureAvailable
+
+    event = parse_user_event(
+        {
+            "WithdrawalSignatureAvailable": {
+                "user": "ab" * 32,
+                "asset": "11" * 32,
+                "amount": "10",
+                "chain_id": "chain",
+                "withdrawal_nonce": 3,
+                "valid_until_secs": 123,
+                "timestamp_ns": 10,
+            }
+        }
+    )
+    assert isinstance(event, WithdrawalSignatureAvailable)
+    assert event.asset == "11" * 32
+    assert event.withdrawal_nonce == 3
+    payload = event.model_dump()
+    payload["asset"] = "not-an-address"
+    with pytest.raises(ValueError):
+        parse_user_event({"WithdrawalSignatureAvailable": payload})

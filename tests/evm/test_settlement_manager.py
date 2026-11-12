@@ -94,3 +94,29 @@ async def test_back_to_back_settlements_get_distinct_nonces(back_to_back_manager
     assert first_info.nonce == 7
     assert second_info.nonce == 8
     assert [request.inner.nonce for request in back_to_back_manager.init_requests] == [7, 8]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("explicit", [True, False])
+async def test_funding_settlement_rejected_before_nonce_lookup(manager, settle_args, explicit):
+    if explicit:
+        settle_args["account_index"] = 0
+    else:
+        manager.default_user = User(sub_account=0)
+    with pytest.raises(ValueError, match="settlement account must be a trading account"):
+        await manager.init_settlement(**settle_args)
+    manager.vault.settlementCounts.assert_not_called()
+    assert manager.init_requests == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("selected", "expected"), [(None, 1), (2, 2)])
+async def test_settlement_default_and_explicit_trading_account(
+    manager, settle_args, selected, expected
+):
+    manager.default_user = User()
+    info, _ = await manager.init_settlement(**settle_args, account_index=selected)
+    assert info.account_index == expected
+    manager.vault.settlementCounts.assert_called_once_with(
+        manager.default_user.public_key, expected
+    )

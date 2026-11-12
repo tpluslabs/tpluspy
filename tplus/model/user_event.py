@@ -15,6 +15,8 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tplus.model.asset_identifier import Address32
+
 
 class DepositLanded(BaseModel):
     """An on-chain deposit has been ingested into the user's inventory."""
@@ -81,19 +83,46 @@ class PositionCleared(BaseModel):
     timestamp_ns: int
 
 
+class RedemptionProgress(BaseModel):
+    filled_principal: str
+    remaining_principal: str
+
+
 class SubAccountAssetTransferred(BaseModel):
-    """The user transferred an asset between two of their own sub-accounts.
-
-    `amount` is in `INVENTORY_DECIMALS` (1e18), encoded as a base-10 string.
-    """
-
-    model_config = ConfigDict(populate_by_name=True)
+    """One committed transfer or redemption fill, with the actual debit and credit."""
 
     user: str
     source_sub_account_index: int
     target_sub_account_index: int
-    asset: str
-    amount: str
+    nonce: int
+    debited: dict
+    credited: dict
+    conversion: dict | None = None
+    fee: dict | None = None
+    reward: dict | None = None
+    redemption: RedemptionProgress | None = None
+    timestamp_ns: int
+
+
+class TransferRemainderEnded(BaseModel):
+    user: str
+    source_sub_account_index: int
+    token: str
+    nonce: int
+    progress: RedemptionProgress
+    reason: str | dict
+    timestamp_ns: int
+
+
+class WithdrawalSignatureAvailable(BaseModel):
+    """A refresh hint, never proof of a current or complete approval."""
+
+    user: str
+    asset: Address32  # Token address on chain_id.
+    amount: str  # Token units normalized to 1e18.
+    chain_id: str
+    withdrawal_nonce: int
+    valid_until_secs: int
     timestamp_ns: int
 
 
@@ -153,8 +182,8 @@ class InterestPayment(BaseModel):
 class InterestEpochOccurred(BaseModel):
     """The clearing engine applied an interest epoch that moved this user's balances.
 
-    `payments` is keyed by market asset identifier, then by sub-account index;
-    only sub-accounts the epoch touched appear. Accounts the epoch left alone
+    `payments` is keyed by canonical asset index as a decimal string, then by
+    sub-account index; only sub-accounts the epoch touched appear. Accounts the epoch left alone
     get no event.
     """
 
@@ -165,14 +194,32 @@ class InterestEpochOccurred(BaseModel):
     timestamp_ns: int
 
 
+class SyncBookCreated(BaseModel):
+    """A sync book was made for this market maker on ``asset``.
+
+    Sent once per new book, whether the market maker or an operator asked for it; not sent
+    when the market maker already had one there. Delivery is best effort, like every
+    account event: ``POST /sync_book/create`` for the market says whether a book exists.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    user: str
+    asset: str
+    timestamp_ns: int
+
+
 UserActivityEvent = (
     DepositLanded
     | WithdrawalCompleted
     | SettlementCompleted
     | PositionCleared
     | SubAccountAssetTransferred
+    | TransferRemainderEnded
+    | WithdrawalSignatureAvailable
     | MarginCallUpdated
     | InterestEpochOccurred
+    | SyncBookCreated
 )
 
 
@@ -182,8 +229,11 @@ _VARIANTS: dict[str, type[BaseModel]] = {
     "SettlementCompleted": SettlementCompleted,
     "PositionCleared": PositionCleared,
     "SubAccountAssetTransferred": SubAccountAssetTransferred,
+    "TransferRemainderEnded": TransferRemainderEnded,
+    "WithdrawalSignatureAvailable": WithdrawalSignatureAvailable,
     "MarginCallUpdated": MarginCallUpdated,
     "InterestEpochOccurred": InterestEpochOccurred,
+    "SyncBookCreated": SyncBookCreated,
 }
 
 

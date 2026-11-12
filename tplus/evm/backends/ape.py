@@ -107,6 +107,14 @@ class ApeBackend(EVMBackend):
     def get_code(self, address: str) -> bytes:
         return bytes(ManagerAccessMixin.chain_manager.provider.get_code(address))
 
+    def get_event_args(self, receipt: Any, contract: Any, event_name: str) -> dict[str, Any]:
+        instance = contract.instance if isinstance(contract, ApeContractHandle) else contract
+        logs = getattr(instance, event_name).from_receipt(receipt)
+        if not logs:
+            raise ValueError(f"no {event_name} event from {instance.address} in the receipt")
+
+        return dict(logs[0].event_arguments)
+
     def convert_address(self, value: Any) -> str:
         if isinstance(value, ContractHandle):
             value = value.address

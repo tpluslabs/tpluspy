@@ -210,6 +210,7 @@ class SettlementManager(ChainSigningManager):
         mode: SettlementMode = SettlementMode.MARGIN,
         then_execute: bool = False,
         executor_contract: "ContractInstance | None" = None,
+        max_fee: int | None = None,
     ) -> tuple[SettlementInfo, SettlementApproval]:
         """
         Initialize a settlement and return its approval synchronously.
@@ -229,6 +230,9 @@ class SettlementManager(ChainSigningManager):
               executor is a contract (e.g. ``SettlerExecutor``) rather than an EOA, because the
               vault dispatches ``onAtomicSettlement`` back into ``msg.sender``. Only relevant
               when ``then_execute=True``.
+            max_fee: The most the settlement may reserve for the rebalancing fee of its outgoing leg, in
+              CE-internal 1e18 units of ``asset_out``. The CE refuses a request priced above it;
+              ``None`` accepts whatever the protocol reserves.
 
         Returns:
             tuple[SettlementInfo, SettlementApproval]: Settlement metadata and the approval returned by CE.
@@ -238,6 +242,8 @@ class SettlementManager(ChainSigningManager):
 
         if account_index is None:
             account_index = user.sub_account
+        if account_index == 0:
+            raise ValueError("settlement account must be a trading account")
 
         # NB: nonce is per (user, account); read it for the settlement's own account_index,
         # not user.sub_account, so a non-default-account settlement gets the right nonce.
@@ -261,6 +267,8 @@ class SettlementManager(ChainSigningManager):
         }
         # Sign over an explicit settler, not null.
         request_data["settler"] = settler if settler is not None else user.public_key
+        if max_fee is not None:
+            request_data["max_fee"] = max_fee
 
         request = TxSettlementRequest.create_signed(request_data, user)
 
@@ -338,6 +346,14 @@ class SettlementManager(ChainSigningManager):
         if token_out_address is None:
             token_out_address = settlement_info.asset_out.evm_address
 
+        account_index = (
+            user.sub_account
+            if settlement_info.account_index is None
+            else settlement_info.account_index
+        )
+        if account_index == 0:
+            raise ValueError("settlement account must be a trading account")
+
         # Execute the settlement on-chain.
         tx = self.settlement_vault.execute_atomic_settlement(
             {
@@ -347,9 +363,7 @@ class SettlementManager(ChainSigningManager):
                 "amountOut": approval.amount_out,
                 "mode": settlement_mode_to_contract(settlement_info.mode),
                 "user": HexBytes(user.public_key),
-                "account": settlement_info.account_index
-                if settlement_info.account_index is not None
-                else user.sub_account,
+                "account": account_index,
                 "nonce": nonce,
                 "validUntil": expiry,
             },

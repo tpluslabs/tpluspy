@@ -89,8 +89,8 @@ def create_sync_taker_order_ob_request_payload(
 
     ``base_token`` is the token of the market's base asset that moves on chain (address and
     chain); ``nonce`` is the vault settlement nonce of the signer's sub-account on that chain
-    (``DepositVault.settlementCounts``). The trade must be a spot trade from the main
-    account, which is the default target.
+    (``DepositVault.settlementCounts``). The trade must use spot on a nonzero account;
+    the default target is the cross-margin account (1).
     """
     signer = to_user(signer)
     side_normalized = Side(side)
@@ -109,7 +109,7 @@ def create_sync_taker_order_ob_request_payload(
         side=side_normalized,
         trigger=None,
         creation_timestamp_ns=time.time_ns(),
-        target=TradeTarget.main_account_spot_trade() if target is None else target,
+        target=TradeTarget.margin_account_spot_trade() if target is None else target,
         reduce_only=False,
         max_trading_fees_rate=(50000 if max_trading_fees_rate is None else max_trading_fees_rate),
     )

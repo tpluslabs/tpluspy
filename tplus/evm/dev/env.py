@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,7 @@ from tplus.evm.dev.token import Token
 from tplus.evm.exceptions import SettlementError
 from tplus.evm.managers.settle import SettlementApprovalHandler, SettlementManager
 from tplus.evm.managers.withdraw import WithdrawalInfo, WithdrawalManager
+from tplus.exceptions import OmsError
 from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
 from tplus.model.settlement import SettlementMode
 from tplus.model.types import ChainID
@@ -95,10 +97,6 @@ class DeveloperEnvironment(ManagerAccessMixin):
 
         raise NotImplementedError(f"Token not yet implemented {symbol}")
 
-    async def sync_vault_balances(self):
-        await self.ce_client.vaults.update_balance(self.usdc.asset_address)
-        await self.ce_client.vaults.update_balance(self.weth.asset_address)
-
     async def disable_withdrawal_delay(self):
         await self.ce_client.admin.set_withdrawal_delay_params(
             min_delay=0,
@@ -152,6 +150,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
         settler: "UserPublicKey | None" = None,
         sub_account: int | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
+        max_fee: int | None = None,
     ):
         user = to_user(user) if user is not None else self.default_user
         key = f"{user.public_key}"
@@ -168,9 +167,16 @@ class DeveloperEnvironment(ManagerAccessMixin):
                 settler=settler,
                 account_index=sub_account,
                 mode=mode,
+                max_fee=max_fee,
             )
         except SettlementError as err:
             self._pending_settlement_errors[key] = err
+            return
+        except OmsError as err:
+            # A CE rejection carries its kind as `code` and its message as `details.reason`.
+            self._pending_settlement_errors[key] = SettlementError(
+                {"reason": str(err), **(err.details or {}), "code": err.code}
+            )
             return
         except Exception as err:
             self._pending_settlement_errors[key] = SettlementError(str(err))
@@ -200,14 +206,16 @@ class DeveloperEnvironment(ManagerAccessMixin):
             if key in self._pending_settlement_errors:
                 err = self._pending_settlement_errors.pop(key)
                 reason = str(err)
+                code = None
 
                 if isinstance(err, SettlementError) and err.args:
                     first_arg = err.args[0]
 
                     if isinstance(first_arg, dict):
                         reason = first_arg.get("reason", reason)
+                        code = first_arg.get("code")
 
-                return {"success": False, "reason": reason}
+                return {"success": False, "reason": reason, "code": code}
 
             if key in self._pending_settlements:
                 settlements = self._pending_settlements[key]
@@ -277,6 +285,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
         user: "UserLike | None" = None,
         target: "Address32 | str | None" = None,
         nonce: int | None = None,
+        max_fee: int | None = None,
     ) -> WithdrawalInfo:
         user = to_user(user) if user is not None else self.default_user
         key = f"{user.public_key}"
@@ -290,6 +299,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
                 target=target,
                 user=user,
                 nonce=nonce,
+                max_fee=max_fee,
             )
         except BaseException as err:
             self._pending_withdrawal_errors[key] = err
@@ -327,9 +337,32 @@ class DeveloperEnvironment(ManagerAccessMixin):
         info, _ = pending[target_nonce]
 
         try:
-            approvals = await self.withdrawal_manager._wait_for_approvals(
-                user_pubkey, target_nonce, poll_interval, timeout
+            signer = (
+                to_user(user)
+                if user is not None and not isinstance(user, str)
+                else self.default_user
             )
+            if signer.public_key != user_pubkey:
+                raise ValueError("A matching signer is required for withdrawal event subscription")
+            ready = asyncio.get_running_loop().create_future()
+            changed = asyncio.Event()
+            watcher = asyncio.create_task(
+                self.withdrawal_manager._watch_signature_hints(
+                    signer, target_nonce, ready, changed, poll_interval
+                )
+            )
+            try:
+                await asyncio.wait_for(ready, timeout)
+                approvals = await asyncio.wait_for(
+                    self.withdrawal_manager._wait_for_approvals(
+                        user_pubkey, target_nonce, changed, poll_interval
+                    ),
+                    timeout,
+                )
+            finally:
+                watcher.cancel()
+                with suppress(asyncio.CancelledError):
+                    await watcher
         except TimeoutError as err:
             return {"success": False, "reason": str(err)}
 

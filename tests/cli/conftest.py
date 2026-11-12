@@ -157,7 +157,8 @@ def env(tplus_cli, settler_user, cli_env):
         params_json = json.dumps(params)
         for index in (0, 1):
             tplus_cli(["params", "set", str(index), "--params", params_json, *BASE_ARGS])
-            tplus_cli(["params", "apply", str(index), *BASE_ARGS])
+            tplus_cli(["params", "execute", str(index), "--params", params_json, *BASE_ARGS])
+
         tplus_cli(["params", "update-ce"])
         _wait_for_ce_risk_params(settler_user, (0, 1), params["maxCollateral"])
 
@@ -227,10 +228,11 @@ def _wait_for_ce_risk_params(user, indexes, expected_max_collateral: int, timeou
 def _permissive_risk_params_struct() -> dict:
     # camelCase matches ``Registry.RiskParameters`` so ape encodes directly.
     # on-chain ``validateRiskParameters`` checks: kinks start 0, increase,
-    # end at 1_000_000; bufferMultiple in [1e6, 2e6]; funding/util rates <= 1142.
+    # end at 1_000_000; bufferMultiple in [1e6, 2e6]; hourly rate caps <= 11_420_000.
+    # Hourly rates use 1e8; utilization kinks and other ratios retain 1e6.
     huge = 10**30
     kinks = [0, 400000, 700000, 850000, 950000, 1000000]
-    rates = [0, 20000, 50000, 100000, 300000, 1000000]
+    rates = [0, 2000000, 5000000, 10000000, 30000000, 100000000]
 
     return {
         "collateralFactor": 75,
@@ -246,11 +248,11 @@ def _permissive_risk_params_struct() -> dict:
         "usdKinkInterestRates": rates,
         "skewModifier": 9000,
         "skewCliff": 500,
-        "baseFundingRate": 500,
+        "baseFundingRate": 50000,
         "premiumClamp": 500,
         "initialMarginClamps": [0, 500000],
         "initialMarginFactors": [980000, 0],
-        "maxFundingRate": 1000,
-        "maxUtilizationRate": 1000,
+        "maxFundingRate": 100000,
+        "maxUtilizationRate": 100000,
         "bufferMultiple": 1200000,
     }

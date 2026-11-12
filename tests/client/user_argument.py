@@ -1,7 +1,6 @@
 """Shared checks for passing an EVM account straight into client API calls."""
 
 from tplus.model.asset_identifier import AssetIdentifier
-from tplus.model.cancel_order import CancelOrder
 from tplus.utils.user import to_user
 
 ASSET = AssetIdentifier(200)
@@ -28,8 +27,8 @@ async def check_read_call_with_per_call_user(account, build_client) -> None:
     assert request.call_args.kwargs["user"] is account
 
 
-async def check_signed_call_uses_derived_key(account, build_client) -> None:
-    """A signing call signs with the derived Ed25519 key, and the T+ user verifies it."""
+async def check_write_call_uses_derived_user(account, build_client) -> None:
+    """A write call with the account as ``default_user`` acts as the derived T+ user."""
     user = to_user(account)
     client, request = build_client(default_user=account)
 
@@ -39,8 +38,4 @@ async def check_signed_call_uses_derived_key(account, build_client) -> None:
     assert method == "DELETE"
     assert endpoint == "/orders/cancel"
     assert body["cancel"]["signer"] == user.public_key
-
-    cancel = CancelOrder.model_validate(body["cancel"])
-    signed_payload = cancel.model_dump_json().replace(" ", "")
-    user.vk.verify(bytes(body["signature"]), signed_payload.encode("utf-8"))
     assert request.call_args.kwargs["user"].public_key == user.public_key

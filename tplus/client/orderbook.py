@@ -22,7 +22,9 @@ from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
 from tplus.model.batch_order import (
     BatchAmendOrderRequest,
     BatchAmendOrderRequestResponse,
+    BatchCancelRequest,
     BatchCancelResponse,
+    BatchCancelSubmission,
     BatchCreateOrderRequest,
     BatchCreateOrderRequestResponse,
     BatchReplaceOrderRequest,
@@ -37,7 +39,7 @@ from tplus.model.close_all_positions_preview import (
     CloseAllPreviewResponse,
     parse_close_all_preview,
 )
-from tplus.model.control import ControlWSFrame
+from tplus.model.control import ControlOrderResponse, ControlWSFrame
 from tplus.model.intent import (
     IntentAggregateUpdate,
     IntentReport,
@@ -70,7 +72,8 @@ from tplus.model.position import (
 from tplus.model.replace_order import ReplaceOrderRequestPayload
 from tplus.model.representation_rate import RepresentationPreviewResponse
 from tplus.model.settlement import TxSettlementRequest
-from tplus.model.sub_account import RenameSubAccountResponse, SubAccountType
+from tplus.model.sub_account import RenameSubAccountResponse
+from tplus.model.sync_book import CreateSyncBookResponse
 from tplus.model.sync_order import SyncTimeInForce
 from tplus.model.sync_settlement import SyncSettlementEvent, parse_sync_settlement_event
 from tplus.model.trades import (
@@ -78,6 +81,7 @@ from tplus.model.trades import (
     parse_single_user_trade,
     parse_user_trades,
 )
+from tplus.model.transfer import TradingAccountKind
 from tplus.model.types import MULTISIG_PERMISSION_LEVELS, U64_MAX, MultisigPermissionLevel
 from tplus.model.user_event import UserActivityEvent, parse_user_event
 from tplus.model.user_margin import (
@@ -92,6 +96,7 @@ from tplus.model.user_solvency import (
     UserSolvency,
     parse_user_solvency,
 )
+from tplus.model.withdrawal import CancelTransferRequest
 from tplus.types import UserType
 from tplus.utils.amend_order import create_amend_order_ob_request_payload
 from tplus.utils.limit_order import (
@@ -152,6 +157,11 @@ def encode_control_frame(
     return f'{{"request_id":{json.dumps(request_id)},"data":{{{json.dumps(variant)}:{body}}}}}'
 
 
+# How many bulk cancels a control connection keeps the per-order responses of; the
+# oldest are dropped so a long-running bot does not grow.
+_CONTROL_HISTORY_LIMIT = 1000
+
+
 class OrderBookClient(AuthenticatedClient):
     """Client for HTTP + WebSocket interactions with the OMS.
 
@@ -180,6 +190,9 @@ class OrderBookClient(AuthenticatedClient):
         self._control_ws_lock: asyncio.Lock = asyncio.Lock()
         self._pending_control: dict[str, asyncio.Future] = {}
         self._pending_control_batches: dict[str, list[asyncio.Future]] = {}
+        # Per-order responses of a bulk cancel, by request id: the server acks the
+        # batch once and streams the outcomes afterwards, with nothing awaiting them.
+        self._control_responses: dict[str, list[ControlOrderResponse]] = {}
         # Optional user callback for control channel state updates
         self._on_control_state: Callable[[str], None] | None = None
         self._last_user_action_nonce_ms: int = 0
@@ -237,16 +250,14 @@ class OrderBookClient(AuthenticatedClient):
 
     async def get_markets(
         self,
-        include_symbol_map: bool = False,
         *,
         page: int | None = None,
         limit: int | None = None,
         market_type: MarketTypeFilter | str | None = None,
     ) -> MarketsPage:
-        """Fetch one page of markets, and the canonical asset table when asked for it.
+        """Fetch one page of markets.
 
         Args:
-            include_symbol_map: Also return the asset index -> :class:`Asset` map.
             page: Zero-based page to fetch. Defaults to the first page.
             limit: Markets per page. Defaults to a page big enough to hold them all.
             market_type: Keep only ``spot`` or ``margin`` markets; the server filters
@@ -261,7 +272,6 @@ class OrderBookClient(AuthenticatedClient):
         params = page_params(
             page if page is not None else 0,
             limit if limit is not None else MARKETS_PAGE_LIMIT,
-            include_symbol_map="true" if include_symbol_map else None,
             market_type=MarketTypeFilter(market_type).value if market_type is not None else None,
         )
         response = await self._get("/markets", params=params, requires_auth=False)
@@ -496,8 +506,8 @@ class OrderBookClient(AuthenticatedClient):
             nonce: Vault settlement nonce of the caller's sub-account on that chain.
             asset_id: Asset to trade.
             order_id: Optional caller-supplied order id.
-            target: Trade target; defaults to a spot trade from the main account, the only
-                sub-account a sync taker may trade from.
+            target: Trade target; defaults to spot on the default cross-margin account (1).
+                Sync takers must select a nonzero account.
         """
         user = self._resolve_user(user=user)
         order_id = validate_order_id(
@@ -525,16 +535,19 @@ class OrderBookClient(AuthenticatedClient):
 
     async def create_sync_book(
         self, asset_id: AssetIdentifier, user: "UserLike | None" = None
-    ) -> dict[str, Any]:
+    ) -> CreateSyncBookResponse:
         """Create the caller's sync book on one market (``POST /sync_book/create``).
 
         The caller must be registered as a market maker. Quotes posted afterwards with
-        :meth:`create_sync_maker_order` rest in this book only.
+        :meth:`create_sync_maker_order` rest in this book only. A market maker holds at most
+        one sync book per market: the reply's ``status`` is ``CREATED`` when this call made
+        it and ``ALREADY_EXISTED`` when the caller already had one, left untouched.
         """
         user = self._resolve_user(user=user)
-        return await self._post(
+        resp = await self._post(
             "/sync_book/create", json_data={"asset_id": str(asset_id)}, user=user
         )
+        return CreateSyncBookResponse.model_validate(resp)
 
     async def create_sync_maker_order(
         self,
@@ -649,17 +662,15 @@ class OrderBookClient(AuthenticatedClient):
         """
         user = self._resolve_user(user=user)
         validate_order_id(order_id)
-        signed_message = create_cancel_order_ob_request_payload(
+        request = create_cancel_order_ob_request_payload(
             order_id=order_id, asset_identifier=asset_id, signer=user
         )
         self.logger.debug(f"Sending Cancel Order Request: OrderID={order_id}, Asset={asset_id}")
         if self._use_ws_control:
-            payload = {"CancelOrderRequest": signed_message}
+            payload = {"CancelOrderRequest": request}
             ws_resp = await self._control_ws_send(payload, expected_order_id=order_id, timeout=10.0)
             return self._extract_operation_response(ws_resp)
-        resp = await self._delete(
-            "/orders/cancel", json_data=signed_message.model_dump(), user=user
-        )
+        resp = await self._delete("/orders/cancel", json_data=request.model_dump(), user=user)
         return OrderOperationResponse.model_validate(resp)
 
     async def get_order(self, order_id: str, user: "UserLike | None" = None) -> OrderResponse:
@@ -671,14 +682,88 @@ class OrderBookClient(AuthenticatedClient):
     async def cancel_orders(
         self, order_ids: list[str], user: "UserLike | None" = None
     ) -> BatchCancelResponse:
-        """Cancel several orders in one request (``DELETE /orders/cancel-batch``)."""
-        for order_id in order_ids:
-            validate_order_id(order_id)
+        """Cancel several orders in one request (``DELETE /orders/cancel-batch``).
 
+        Always goes over REST: the control channel answers a bulk cancel with a bare
+        ``submitted`` ack instead of this dispatch outcome. Use
+        :meth:`cancel_orders_via_control` for that channel.
+        """
+        request = BatchCancelRequest(order_ids=[validate_order_id(oid) for oid in order_ids])
         response = await self._delete(
-            "/orders/cancel-batch", json_data={"order_ids": order_ids}, user=user
+            "/orders/cancel-batch", json_data=request.model_dump(), user=user
         )
         return BatchCancelResponse.model_validate(response)
+
+    async def cancel_orders_via_control(
+        self,
+        order_ids: list[str],
+        *,
+        request_id: str | None = None,
+        timeout: float = 10.0,
+    ) -> BatchCancelSubmission:
+        """Cancel several orders with one ``BatchCancelRequest`` on the ``/control`` channel.
+
+        Returns once the OMS acknowledges the batch as ``submitted``. The per-order
+        ``CancelOrderResponse`` events arrive afterwards on this connection and are
+        collected under the returned ``request_id``; see :meth:`control_responses`.
+        An ID the OMS does not own is dropped silently and never answered. A batch the
+        OMS refuses outright, such as with ``SERVER_BUSY``, raises the matching
+        :class:`~tplus.exceptions.OmsError` instead of an acknowledgement.
+
+        ``request_id`` is the envelope's correlation id; one is generated when omitted.
+        Requires ``use_ws_control=True``.
+        """
+        request = BatchCancelRequest(order_ids=[validate_order_id(oid) for oid in order_ids])
+        if not self._use_ws_control:
+            raise RuntimeError("cancel_orders_via_control needs use_ws_control=True")
+        await self._ensure_control_ws()
+        if not self._control_ws:
+            raise RuntimeError("WS control not connected")
+
+        request_id = request_id or uuid.uuid4().hex
+        key = f"ack:{request_id}"
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending_control[key] = fut
+        self._control_responses[request_id] = []
+        while len(self._control_responses) > _CONTROL_HISTORY_LIMIT:
+            self._control_responses.pop(next(iter(self._control_responses)))
+        try:
+            await self._control_ws.send(
+                encode_control_frame(request_id, {"BatchCancelRequest": request})
+            )
+            ack = await asyncio.wait_for(fut, timeout=timeout)
+        except BaseException:
+            self._control_responses.pop(request_id, None)
+            raise
+        finally:
+            self._pending_control.pop(key, None)
+            if not fut.done():
+                fut.cancel()
+        status = ack.get("request", {}).get("status") if isinstance(ack, dict) else None
+        return BatchCancelSubmission(request_id=request_id, status=str(status))
+
+    def control_responses(self, request_id: str) -> list[ControlOrderResponse]:
+        """The per-order responses received so far for a bulk cancel's ``request_id``."""
+        return list(self._control_responses.get(request_id, []))
+
+    async def wait_control_responses(
+        self, request_id: str, count: int, *, timeout: float = 10.0
+    ) -> list[ControlOrderResponse]:
+        """Wait until ``count`` per-order responses have arrived for ``request_id``.
+
+        Raises :class:`asyncio.TimeoutError` with whatever arrived still readable through
+        :meth:`control_responses`, so a caller can assert that a dropped ID stays silent.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while len(self._control_responses.get(request_id, [])) < count:
+            if loop.time() >= deadline:
+                received = len(self._control_responses.get(request_id, []))
+                raise asyncio.TimeoutError(
+                    f"{received} of {count} responses for request {request_id} within {timeout}s"
+                )
+            await asyncio.sleep(0.05)
+        return self.control_responses(request_id)
 
     async def replace_order(
         self,
@@ -1078,6 +1163,13 @@ class OrderBookClient(AuthenticatedClient):
                     if frame.is_heartbeat:
                         continue
 
+                    # A bulk cancel is answered by its ack alone, so the ack completes
+                    # that request; every other ack precedes the response its request
+                    # awaits and is skipped.
+                    if frame.is_ack:
+                        self._resolve_ack(frame)
+                        continue
+
                     # Admission errors are raised before any order response exists,
                     # so the request id is the only thing they can be routed on.
                     if frame.request_id is not None and not frame.is_ack:
@@ -1087,8 +1179,9 @@ class OrderBookClient(AuthenticatedClient):
                         if self._resolve_request(frame):
                             continue
 
-                    if frame.order_payload is not None:
-                        self._resolve_order(frame.order_payload)
+                    payload = frame.order_payload
+                    if payload is not None and not self._resolve_order(payload):
+                        self._collect_response(frame.request_id, payload)
                 except Exception as err:
                     # Ignore malformed messages; futures will timeout
                     self.logger.debug(f"Control WS reader parse error: {err}")
@@ -1103,6 +1196,7 @@ class OrderBookClient(AuthenticatedClient):
                     if not fut.done():
                         fut.set_exception(e)
             self._pending_control_batches.clear()
+            self._control_responses.clear()
         finally:
             try:
                 if self._control_ws and not getattr(self._control_ws, "closed", False):
@@ -1119,12 +1213,17 @@ class OrderBookClient(AuthenticatedClient):
                     pass
 
     def _reject_request(self, frame: ControlWSFrame) -> bool:
-        """Fail whatever awaits *frame*, returning whether anything was awaiting it."""
+        """Fail whatever awaits *frame*, returning whether anything was awaiting it.
+
+        That is a single request's response, a bulk cancel's ``submitted`` ack, or
+        every per-order response of a batch.
+        """
         exc = self._control_ws_error(frame.error or {})
-        fut = self._pending_control.pop(f"request:{frame.request_id}", None)
-        if fut is not None and not fut.done():
-            fut.set_exception(exc)
-            return True
+        for key in (f"request:{frame.request_id}", f"ack:{frame.request_id}"):
+            fut = self._pending_control.pop(key, None)
+            if fut is not None and not fut.done():
+                fut.set_exception(exc)
+                return True
 
         batch = self._pending_control_batches.pop(frame.request_id or "", [])
         for batch_fut in batch:
@@ -1132,6 +1231,23 @@ class OrderBookClient(AuthenticatedClient):
                 batch_fut.set_exception(exc)
 
         return bool(batch)
+
+    def _resolve_ack(self, frame: ControlWSFrame) -> bool:
+        """Complete a request waiting for the ``submitted`` ack itself, if any."""
+        fut = self._pending_control.pop(f"ack:{frame.request_id}", None)
+        if fut is None or fut.done():
+            return False
+        fut.set_result(frame.data)
+        return True
+
+    def _collect_response(self, request_id: str | None, payload: dict[str, Any]) -> None:
+        """Keep a per-order response nothing awaited under the bulk cancel it answers, if any."""
+        responses = self._control_responses.get(request_id or "")
+        if responses is None:
+            return
+        response = ControlOrderResponse.from_payload(payload)
+        if response is not None:
+            responses.append(response)
 
     def _resolve_request(self, frame: ControlWSFrame) -> bool:
         """Complete the future awaiting *frame*, returning whether one was awaiting it."""
@@ -1146,20 +1262,22 @@ class OrderBookClient(AuthenticatedClient):
 
         return True
 
-    def _resolve_order(self, payload: dict[str, Any]) -> None:
-        """Complete the future keyed by the order named in *payload*.
+    def _resolve_order(self, payload: dict[str, Any]) -> bool:
+        """Complete the future keyed by the order named in *payload*, returning whether one was.
 
         Batch responses stay order-keyed because one request id fans out into one
         terminal response per submitted order.
         """
         key_parts = self._control_response_order_id(payload)
         if key_parts is None:
-            return
+            return False
 
         variant, asset_id, order_id = key_parts
         fut = self._pending_control.pop(f"{variant}:{asset_id}:{order_id}", None)
         if fut is not None and not fut.done():
             fut.set_result(payload)
+            return True
+        return False
 
     @staticmethod
     def _control_ws_error(error: dict[str, Any]) -> Exception:
@@ -1558,6 +1676,19 @@ class OrderBookClient(AuthenticatedClient):
         ):
             yield event
 
+    async def cancel_transfer(self, request: dict | CancelTransferRequest) -> dict:
+        """Cancel only the unfilled remainder identified by user, source, token and nonce."""
+        request = CancelTransferRequest.model_validate(request)
+        return await self._post(
+            "account/transfer/cancel", json_data=request.model_dump(mode="json")
+        )
+
+    async def get_queued_transfers(self, user: str) -> list[dict]:
+        result = await self._get(f"account/transfer/queue/{user}", request_timeout=30.0)
+        if not isinstance(result, list):
+            raise ValueError("Expected an array of queued transfers")
+        return result
+
     async def stream_user_events(
         self, user: UserType | None = None
     ) -> AsyncIterator[UserActivityEvent]:
@@ -1835,18 +1966,18 @@ class OrderBookClient(AuthenticatedClient):
             raise Exception("Invalid response from init_margin_simulate.")
         return parse_user_simulated_margin(response_data)
 
-    async def request_transfer_to_subaccount(
+    async def request_transfer(
         self,
         source_index: int,
         target_index: int,
         transfer_asset: AssetIdentifier,
         transfer_amount: int,
-        target_account_type: SubAccountType | None = None,
+        target_account_type: TradingAccountKind | None = None,
         nonce: int | None = None,
         user: "UserLike | None" = None,
     ) -> dict[str, Any]:
         user = self._resolve_user(user=user)
-        payload = self._build_transfer_to_subaccount(
+        payload = self._build_transfer_request(
             source_index,
             target_index,
             transfer_asset,
@@ -1856,21 +1987,20 @@ class OrderBookClient(AuthenticatedClient):
             user=user,
         )
 
-        response_data = await self._send_transfer_request(payload)
-        return response_data
+        return await self._send_transfer_request(payload)
 
     async def _send_transfer_request(self, payload):
-        self.logger.debug(f"Sending subaccount transfer request. Payload is: {payload}")
+        self.logger.debug(f"Sending transfer request. Payload is: {payload}")
         response_data = await self._post("/account/transfer/sub-account", json_data=payload)
         return response_data
 
-    def _build_transfer_to_subaccount(
+    def _build_transfer_request(
         self,
         source_index,
         target_index,
         transfer_asset,
         transfer_amount,
-        target_account_type: SubAccountType | None = None,
+        target_account_type: TradingAccountKind | None = None,
         nonce: int | None = None,
         user: "UserLike | None" = None,
     ):
@@ -1881,9 +2011,7 @@ class OrderBookClient(AuthenticatedClient):
             "target_index": target_index,
             "transfer_asset": str(transfer_asset),
             "transfer_amount": str(transfer_amount),
-            "target_account_type": (
-                None if target_account_type is None else target_account_type.model_dump()
-            ),
+            "target_account_type": target_account_type,
             "nonce": self._next_user_action_nonce() if nonce is None else nonce,
         }
         self.logger.debug(f"Transfer request: {inner}")
@@ -1896,27 +2024,64 @@ class OrderBookClient(AuthenticatedClient):
         }
         return payload
 
+    async def request_custody_repayment(
+        self,
+        source_index: int,
+        token: str,
+        amount: int,
+        nonce: int | None = None,
+        user: "UserLike | None" = None,
+    ) -> dict[str, Any]:
+        """Repay funding token liability using funding or trading custody, in inventory units."""
+        payload = self._build_custody_repayment(source_index, token, amount, nonce=nonce, user=user)
+        return await self._post("/account/transfer/custody-repayment", json_data=payload)
+
+    def _build_custody_repayment(
+        self,
+        source_index: int,
+        token: str,
+        amount: int,
+        nonce: int | None = None,
+        user: "UserLike | None" = None,
+    ) -> dict[str, Any]:
+        user = self._resolve_user(user=user)
+        inner = {
+            "user": user.public_key,
+            "repayment": {
+                "source": "Funding" if source_index == 0 else {"Trading": source_index},
+                "asset": str(token),
+                "amount": str(amount),
+            },
+            "nonce": self._next_user_action_nonce() if nonce is None else nonce,
+        }
+        signature, additional_signers = user.signing_parts(json.dumps(inner, separators=(",", ":")))
+        return {
+            "inner": inner,
+            "signature": signature,
+            "additional_signers": [signer.model_dump(mode="json") for signer in additional_signers],
+        }
+
     async def request_close_position(
         self,
         account: int,
-        transfer_asset: str,
+        asset: AssetIdentifier | int | str,
         nonce: int | None = None,
         user: "UserLike | None" = None,
     ) -> dict[str, Any]:
         """Close a margin position via the OMS.
 
-        Spot of ``transfer_asset`` is first squashed into the position's base
+        Spot of ``asset`` is first squashed into the position's base
         liabilities (any asset, not only USD; a partial squash is accepted),
         but only while the quote leg is exactly zero: a short with a quote leg
-        is closed by trading, and the close is rejected with ``spot repays a
-        base liability only while the quote leg is 0``.
+        is closed by trading.
         Once the base leg is flat, spot USD repays a quote loss and a quote
-        profit is moved to spot USD.
+        profit is moved to spot USD. A long moves only a quote profit to spot
+        USD and keeps its base. Any other open position is rejected with
+        ``No settled PnL while the long is open`` or ``No settled PnL while
+        the short is open``.
         """
         user = self._resolve_user(user=user)
-        payload = self._build_close_position_request(
-            account, transfer_asset, nonce=nonce, user=user
-        )
+        payload = self._build_close_position_request(account, asset, nonce=nonce, user=user)
 
         response_data = await self._send_close_position_request(payload)
         return response_data
@@ -1924,7 +2089,7 @@ class OrderBookClient(AuthenticatedClient):
     def _build_close_position_request(
         self,
         account: int,
-        transfer_asset: str,
+        asset: AssetIdentifier | int | str,
         nonce: int | None = None,
         user: "UserLike | None" = None,
     ) -> dict:
@@ -1933,7 +2098,7 @@ class OrderBookClient(AuthenticatedClient):
         inner = {
             "user": user.public_key,
             "account": account,
-            "asset_identifier": transfer_asset,
+            "asset": int(str(asset)),
             "nonce": self._next_user_action_nonce() if nonce is None else nonce,
         }
 

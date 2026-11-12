@@ -1,10 +1,14 @@
 import asyncio
+import json
 import os
+from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import httpx
 from hexbytes import HexBytes
+from websockets.exceptions import ConnectionClosed
 
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.client.oms.assetregistry import AssetRegistryClient
@@ -16,14 +20,13 @@ from tplus.logger import get_logger
 from tplus.model.approval import WithdrawalApproval
 from tplus.model.asset_identifier import Address32, AssetAddress, AssetIdentifier
 from tplus.model.types import ChainID
+from tplus.model.user_event import WithdrawalSignatureAvailable, parse_user_event
 from tplus.model.withdrawal import WithdrawalRequest
 from tplus.utils.address import to_evm_address
 from tplus.utils.amount import Amount
 from tplus.utils.user import to_user
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from tplus.client.base import BaseClient
     from tplus.evm.backends.base import AccountLike, EVMBackend
     from tplus.types import UserLike
@@ -107,7 +110,7 @@ class WithdrawalManager(ChainSigningManager):
         self.logger = get_logger()
         self._decimals_cache: dict[str, int] = dict(SEEDED_DECIMALS_CACHE)
 
-    def _user_clients(self) -> "Iterable[BaseClient]":
+    def _user_clients(self) -> Iterable["BaseClient"]:
         # OMS first: it is the signer registry the T+ frontend resolves accounts against.
         return (self.withdrawals, self.ce, self.registry_client)
 
@@ -152,18 +155,23 @@ class WithdrawalManager(ChainSigningManager):
         then_execute: bool = False,
         poll_interval: float = 2.0,
         poll_timeout: float = 60.0,
+        max_fee: int | None = None,
     ) -> WithdrawalInfo:
         """
         Submit a withdrawal to the clearing engine.
 
-        If ``then_execute`` is True, poll the CE for an approval signature and
-        submit the on-chain ``withdraw`` transaction once it arrives.
+        If ``then_execute`` is True, subscribe to signature hints and
+        read status before submitting the on-chain ``withdraw`` transaction.
 
         Args:
             asset: The asset to withdraw.
             amount: An ``int`` is a CE-internal 1e18-normalized amount. An
                 :class:`~tplus.utils.amount.Amount` is a native-decimals amount and is
                 normalized here instead.
+            max_fee: The most the withdrawal may reserve for its rebalancing fee, in
+                CE-internal 1e18 units of the asset. The CE refuses a request quoted above
+                it and fails the withdrawal if its approval prices above it; ``None``
+                accepts whatever the protocol reserves.
         """
         user = to_user(user) if user is not None else await self.resolve_default_user()
 
@@ -184,12 +192,7 @@ class WithdrawalManager(ChainSigningManager):
             amount=request_amount,
             nonce=nonce,
             target=target,
-        )
-
-        await self.withdrawals.init_withdrawal(request)
-        self.logger.info(
-            f"Initialized withdrawal - Asset: {request.inner.asset}, "
-            f"Amount: {request_amount}, Nonce: {nonce}"
+            max_fee=max_fee,
         )
 
         info = WithdrawalInfo(
@@ -199,57 +202,128 @@ class WithdrawalManager(ChainSigningManager):
             target=request.inner.target,
             chain_id=self.chain_id,
         )
+        if not then_execute:
+            await self.withdrawals.init_withdrawal(request)
+            return info
 
-        if then_execute:
-            approvals = await self._wait_for_approvals(
-                user.public_key, nonce, poll_interval, poll_timeout
+        # Wait for the server to acknowledge the subscription before submitting init.
+        ready = asyncio.get_running_loop().create_future()
+        changed = asyncio.Event()
+        watcher = asyncio.create_task(
+            self._watch_signature_hints(user, nonce, ready, changed, poll_interval)
+        )
+        submitted = False
+        try:
+            await asyncio.wait_for(ready, poll_timeout)
+            submitted = True
+            await self.withdrawals.init_withdrawal(request)
+            changed.set()  # Initial status also covers an approval already present at subscription.
+            approvals = await asyncio.wait_for(
+                self._wait_for_approvals(user.public_key, nonce, changed, poll_interval),
+                poll_timeout,
             )
             await self.execute_withdrawal(info, approvals, user=user)
-
+        except asyncio.TimeoutError as err:
+            if not submitted:
+                raise TimeoutError(
+                    "Withdrawal event stream unavailable; nothing was submitted."
+                ) from err
+            raise TimeoutError(
+                f"Withdrawal outcome unknown (chain={self.chain_id}, nonce={nonce}); "
+                "check withdrawal status before retrying."
+            ) from err
+        finally:
+            watcher.cancel()
+            with suppress(asyncio.CancelledError):
+                await watcher
         return info
 
-    async def _wait_for_approvals(
-        self, user_pubkey: str, nonce: int, interval: float, timeout: float
-    ) -> list[WithdrawalApproval]:
-        """Poll the CE until at least one approval arrives for ``nonce``.
-
-        Returns every approval whose inner nonce matches; the caller passes the
-        full list on-chain to satisfy the withdrawal quorum.
-        """
-        loop = asyncio.get_event_loop()
-        deadline = loop.time() + timeout
-
-        while loop.time() < deadline:
+    async def _watch_signature_hints(self, user, nonce, ready, changed, reconnect_delay):
+        while True:
             try:
-                queued = await self.withdrawals.get_queued_withdrawals(user_pubkey)
+                connection = await self.withdrawals.open_ws(
+                    f"/account/events/{user.public_key}", user=user
+                )
+                async with connection as websocket:
+                    subscribed = False
+                    async for message in websocket:
+                        try:
+                            payload = json.loads(message)
+                            if isinstance(payload, dict) and payload.get("type") == "subscriptions":
+                                if payload.get("errors") or not payload.get("channels"):
+                                    continue
+                                subscribed = True
+                                if not ready.done():
+                                    ready.set_result(None)
+                                changed.set()  # Resynchronize after every acknowledged connection.
+                                continue
+                            if not subscribed:
+                                continue
+                            event = parse_user_event(payload)
+                        except (ValueError, TypeError):
+                            continue
+                        if (
+                            isinstance(event, WithdrawalSignatureAvailable)
+                            and event.user == user.public_key
+                            and event.chain_id == str(self.chain_id)
+                            and event.withdrawal_nonce == nonce
+                        ):
+                            changed.set()
+            except (ConnectionClosed, OSError, httpx.HTTPError) as err:
+                self.logger.warning(f"Withdrawal event stream disconnected: {err}")
+            except Exception as err:
+                if not ready.done():
+                    ready.set_exception(err)
+                raise
+            await asyncio.sleep(reconnect_delay)
+
+    async def _wait_for_approvals(
+        self,
+        user_pubkey: str,
+        nonce: int,
+        changed: asyncio.Event,
+        reconnect_delay: float = 2.0,
+    ) -> list[WithdrawalApproval]:
+        while True:
+            await changed.wait()
+            changed.clear()
+            try:
+                rows = await self.withdrawals.get_withdrawal_status(user_pubkey)
             except OmsError as err:
-                # Queue polling is read-only; transient CE overlay timeouts should
-                # not fail approval polling.
                 if err.code == "TIMEOUT_UNKNOWN_STATE":
-                    await asyncio.sleep(interval)
+                    # Retry this failed read: the triggering hint need not be repeated.
+                    # The caller's overall timeout bounds retries; an empty successful
+                    # read still waits for the next hint or reconnect.
+                    await asyncio.sleep(reconnect_delay)
+                    changed.set()
                     continue
                 raise
-            for withdrawal in queued:
-                if withdrawal.get("nonce") != nonce:
+            for row in rows:
+                if row.get("nonce") != nonce:
                     continue
-                status = withdrawal.get("status")
-                if not isinstance(status, dict):
-                    continue
+                status = row.get("status", {})
                 if status.get("type") != "approved":
                     continue
-                approvals = status.get("approvals")
-                if isinstance(approvals, list) and approvals:
-                    return [WithdrawalApproval.model_validate(approval) for approval in approvals]
-            await asyncio.sleep(interval)
-
-        raise TimeoutError(f"Timed out waiting for withdrawal approval (nonce={nonce}).")
+                payloads = status.get("approvals", [])
+                if not payloads or any(a.get("chain_id") != str(self.chain_id) for a in payloads):
+                    continue
+                approvals = [WithdrawalApproval.model_validate(a) for a in payloads]
+                if approvals and all(a.inner.nonce == nonce for a in approvals):
+                    # The status route separates different signed payloads into different rows.
+                    first = approvals[0]
+                    if all(
+                        (a.amount, a.expiry, a.epoch_hash)
+                        == (first.amount, first.expiry, first.epoch_hash)
+                        for a in approvals
+                    ):
+                        return approvals
 
     async def execute_withdrawal(
         self,
         info: WithdrawalInfo,
         approvals: list[WithdrawalApproval],
         user: "UserLike | None" = None,
-        target: "str | None" = None,
+        target: str | None = None,
         **kwargs,
     ) -> Any:
         """Execute an approved withdrawal on-chain.

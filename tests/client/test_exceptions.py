@@ -45,7 +45,6 @@ class TestFromErrorBody:
         "code",
         (
             "INVALID_SETTLEMENT_REQUEST",
-            "UNSUPPORTED_ACCOUNT",
             "SPOT_TRADE_REQUIRED",
             "TRIGGER_NOT_ALLOWED",
         ),

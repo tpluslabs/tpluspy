@@ -15,6 +15,7 @@ try:
     from web3.auto import w3 as _auto_w3
     from web3.exceptions import ContractCustomError
     from web3.exceptions import ContractLogicError as Web3ContractLogicError
+    from web3.logs import DISCARD
 except ImportError as err:  # pragma: no cover - depends on the optional extra
     raise ImportError(
         'The web3 backend requires web3.py. Install it with: pip install "tpluspy[evm]".'
@@ -196,6 +197,15 @@ class Web3Backend(EVMBackend):
 
     def get_code(self, address: str) -> bytes:
         return bytes(self.w3.eth.get_code(self._checksum(address)))
+
+    def get_event_args(self, receipt: Any, contract: Any, event_name: str) -> dict[str, Any]:
+        web3_contract = contract.contract if isinstance(contract, Web3ContractHandle) else contract
+        address = str(web3_contract.address).lower()
+        for log in web3_contract.events[event_name]().process_receipt(receipt, errors=DISCARD):
+            if str(log["address"]).lower() == address:
+                return dict(log["args"])
+
+        raise ValueError(f"no {event_name} event from {web3_contract.address} in the receipt")
 
     def convert_address(self, value: Any) -> str:
         if isinstance(value, ContractHandle | Web3Account):

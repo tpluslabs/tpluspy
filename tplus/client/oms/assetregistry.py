@@ -48,8 +48,12 @@ class AssetRegistryClient(AuthenticatedClient):
         Get the asset-netting table OMS is pricing against
         (`GET /registry/netting-parameters`).
 
-        Rows are `{asset, venue, venue_asset, cost, residual}` with `cost` and
-        `residual` ppm-encoded. An empty list means the table is synced and no
+        Rows are `{asset, venue, venue_asset, cost, residual,
+        margin_call_timeout_ns, allowance}`: `asset` and `venue_asset` are canonical
+        integer indices; `cost` and `residual` ppm-encoded,
+        `margin_call_timeout_ns` the pair's margin-call grace period (`0` grants
+        none), and `allowance` the shared offset allowance of a venue row as a
+        decimal string in inventory units (`"0"` grants none). An empty list means the table is synced and no
         offsetting is configured; a 503 means OMS has not received one from the
         clearing engine yet, and raises.
         """

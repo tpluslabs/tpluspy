@@ -5,20 +5,39 @@ import pytest
 web3_module = pytest.importorskip("web3")
 eth_account = pytest.importorskip("eth_account")
 web3_exceptions = pytest.importorskip("web3.exceptions")
+web3_abi = pytest.importorskip("web3._utils.abi")
 pytest.importorskip("eth_tester")
 from eth_account.messages import encode_defunct  # noqa: E402
+from eth_tester.exceptions import TransactionFailed  # noqa: E402
 
 from tplus.evm import _manifest, backends  # noqa: E402
 from tplus.evm import abi as abi_helpers  # noqa: E402
+from tplus.evm import contracts as evm_contracts  # noqa: E402
 from tplus.evm.backends import resolve_backend  # noqa: E402
 from tplus.evm.backends.web3 import Web3Backend, _encode_args, _translate_web3_error  # noqa: E402
 from tplus.evm.contracts import (  # noqa: E402
+    DEV_UNIVERSE_ID,
     CredentialManager,
     DepositVault,
     Registry,
     _decode_erc20_error,
+    build_dev_genesis,
 )
 from tplus.evm.exceptions import ContractLogicError  # noqa: E402
+from tplus.evm.governance import (  # noqa: E402
+    OperatorKey,
+    build_registry_operation,
+    compute_domain_separator,
+    convert_to_abi_value,
+)
+from tplus.model.asset_identifier import ChainAddress  # noqa: E402
+from tplus.model.config import ChainConfig  # noqa: E402
+from tplus.model.representation_rate import (  # noqa: E402
+    RegistryRepresentationConfig,
+    RepresentationSourceKind,
+)
+from tplus.model.risk_parameters import RiskParameters  # noqa: E402
+from tplus.model.withdrawal import WithdrawalDelayParameters  # noqa: E402
 
 
 def test_manifest_has_core_contracts():
@@ -43,21 +62,6 @@ def test_erc20_abi_helpers():
         e.get("name") for e in abi_helpers.get_mock_erc20_abi() if e.get("type") == "function"
     }
     assert "mint" in mock_names
-
-
-@pytest.fixture
-def web3_instance():
-    return web3_module.Web3(web3_module.EthereumTesterProvider())
-
-
-@pytest.fixture
-def web3_backend(web3_instance):
-    backends.reset_backend()
-    backend = backends.use_web3(web3=web3_instance, is_local=True)
-    try:
-        yield backend
-    finally:
-        backends.reset_backend()
 
 
 def test_use_web3_is_active(web3_backend):
@@ -151,27 +155,275 @@ def test_deploy_and_read_registry(web3_backend):
     assert isinstance(registry.getAssets(0, 1000), list)
 
 
-def test_deploy_credential_manager_and_vault(web3_backend):
+@pytest.fixture
+def operator_account(web3_backend):
+    operator = OperatorKey.create().account
+    web3_backend.w3.eth.send_transaction(
+        {"from": web3_backend.w3.eth.accounts[0], "to": operator.address, "value": 10**18}
+    )
+    return web3_backend.get_account(operator)
+
+
+@pytest.fixture
+def single_vault_page(mocker):
+    return mocker.patch("tplus.evm.contracts.VAULT_PAGE_SIZE", 1)
+
+
+def test_deploy_credential_manager_and_vault(web3_backend, operator_account, single_vault_page):
     registry = Registry.deploy_dev()
-    cm = CredentialManager.deploy_dev(registry=registry.address)
+    cm = CredentialManager.deploy_dev(sender=operator_account, registry=registry.address)
     assert cm.governance_nonce == 0
+    assert bytes(cm.contract.domainSeparator()) == compute_domain_separator(DEV_UNIVERSE_ID)
     assert cm.get_vaults() == []
 
+    vault_address = ChainAddress.from_evm_address(operator_account.address, cm.chain_id)
+    cm.add_vault(
+        vault_address,
+        ChainConfig.dev(),
+        operator_keys=[OperatorKey(operator_account.local)],
+        sender=operator_account,
+    )
+    assert cm.governance_nonce == 1
+    assert [int(vault.address, 16) for vault in cm.get_vaults()] == [
+        int(operator_account.address, 16)
+    ]
+
+    other_chain_vault = ChainAddress.from_evm_address(web3_backend.w3.eth.accounts[1], 10)
+    cm.add_vault(
+        other_chain_vault,
+        ChainConfig.dev(),
+        operator_keys=[OperatorKey(operator_account.local)],
+        sender=operator_account,
+    )
+    assert [vault.chain_id for vault in cm.get_vaults()] == [
+        vault_address.chain_id,
+        other_chain_vault.chain_id,
+    ]
+
     owner = web3_backend.default_test_account()
-    vault = DepositVault.deploy(owner, cm.address, sender=owner)
+    vault = DepositVault.deploy(owner, cm.address, build_dev_genesis(owner.address), sender=owner)
     assert vault.approved_settlers == []
     assert len(vault.domain_separator) == 32
     assert DepositVault.from_chain_address(vault.chain_address).address == vault.address
 
 
-def test_transact_updates_state(web3_backend):
-    registry = Registry.deploy_dev()
-    owner = web3_backend.default_test_account()  # the deployer == the admin
-    new_admin = web3_backend.convert_address(web3_backend.w3.eth.accounts[1])
+@pytest.fixture(scope="session")
+def risk_parameters():
+    return RiskParameters(
+        collateralFactor=80,
+        liabilityFactor=90,
+        maxCollateral=1_000_000,
+        maxOpenInterest=1_000_000,
+        maxSpotOpenInterest=1_000_000,
+        maxUtilization=10**18,
+        isolatedOnly=False,
+        interestKinks=[0, 1_000_000],
+        kinkInterestRates=[0, 1_000],
+        usdInterestKinks=[0, 1_000_000],
+        usdKinkInterestRates=[0, 1_000],
+        skewModifier=0,
+        skewCliff=0,
+        baseFundingRate=0,
+        premiumClamp=0,
+        initialMarginClamps=[0, 500_000],
+        initialMarginFactors=[100_000, 50_000],
+        maxFundingRate=0,
+        maxUtilizationRate=0,
+        bufferMultiple=1_000_000,
+    )
 
-    receipt = registry.setAdmin(new_admin, sender=owner)
-    assert receipt["status"] == 1
-    assert registry.admin() == new_admin
+
+def test_schedule_and_execute_if_due_executes_when_due(
+    web3_backend, operator_account, deploy_governed_registry, risk_parameters
+):
+    registry, credential_manager, council = deploy_governed_registry()
+    asset_address = ChainAddress.from_evm_address(
+        operator_account.address, credential_manager.chain_id
+    )
+
+    registry.set_asset(
+        0,
+        operator_account.address,
+        asset_address.chain_id,
+        100_000,
+        10_000,
+        1,
+        council=council,
+        sender=operator_account,
+    )
+    delay_parameters = WithdrawalDelayParameters(
+        minDelay=1, maxDelay=2, delayClamps=[0, 500_000], delayValues=[1, 2]
+    )
+    delay_schedule = registry.schedule_operation(
+        "WITHDRAWAL_DELAY_PARAMETERS", [delay_parameters], council=council, sender=operator_account
+    )
+    registry.execute_operation(
+        "WITHDRAWAL_DELAY_PARAMETERS",
+        [delay_parameters],
+        bytes(delay_schedule.op_id),
+        sender=operator_account,
+    )
+    risk_schedule = registry.schedule_operation(
+        "RISK_PARAMETERS", [0, risk_parameters], council=council, sender=operator_account
+    )
+    registry.execute_operation(
+        "RISK_PARAMETERS", [0, risk_parameters], bytes(risk_schedule.op_id), sender=operator_account
+    )
+
+    [record] = registry.get_asset_records()
+    assert record["chain_address"] == asset_address
+    assert (record["max_deposits"], record["max_1hr_deposits"], record["min_weight"]) == (
+        100_000,
+        10_000,
+        1,
+    )
+    applied_delay = registry.getWithdrawalDelayParameters()
+    assert WithdrawalDelayParameters.model_validate(applied_delay._asdict()) == delay_parameters
+    [applied_risk] = registry.getRiskParameters(0, 1)
+    assert RiskParameters.model_validate(applied_risk._asdict()) == risk_parameters
+
+
+@pytest.fixture
+def execute_then_revert(mocker):
+    execute = evm_contracts.execute_operation
+
+    def execute_and_revert(*args, **kwargs):
+        execute(*args, **kwargs)
+        raise ContractLogicError("NotPending")
+
+    return mocker.patch.object(evm_contracts, "execute_operation", side_effect=execute_and_revert)
+
+
+def test_schedule_and_execute_if_due_counts_another_callers_execute(
+    operator_account, deploy_governed_registry, execute_then_revert
+):
+    registry, credential_manager, council = deploy_governed_registry()
+    asset_data = Registry.build_asset_data(
+        0,
+        operator_account.address,
+        ChainAddress.from_evm_address(
+            operator_account.address, credential_manager.chain_id
+        ).chain_id,
+        100_000,
+        10_000,
+        1,
+    )
+
+    registry.schedule_and_execute_if_due(
+        "ASSET_DATA", [asset_data], council=council, sender=operator_account
+    )
+
+    assert execute_then_revert.call_count == 1
+    assert len(registry.get_asset_records()) == 1
+
+
+def test_schedule_and_execute_if_due_delayed(
+    web3_backend, operator_account, deploy_governed_registry
+):
+    registry, credential_manager, council = deploy_governed_registry(risk_param_delay_secs=3_600)
+    asset_data = Registry.build_asset_data(
+        0,
+        operator_account.address,
+        ChainAddress.from_evm_address(
+            operator_account.address, credential_manager.chain_id
+        ).chain_id,
+        100_000,
+        10_000,
+        1,
+    )
+
+    schedule_event = registry.schedule_and_execute_if_due(
+        "ASSET_DATA",
+        [asset_data],
+        council=council,
+        sender=operator_account,
+    )
+
+    _, pending_key, _ = build_registry_operation("ASSET_DATA", [asset_data])
+    assert bytes(registry.pendingId(pending_key)) == bytes(schedule_event.op_id)
+    assert registry.get_asset_records() == []
+    with pytest.raises(TransactionFailed, match="execution reverted"):
+        registry.execute_operation(
+            "ASSET_DATA", [asset_data], bytes(schedule_event.op_id), sender=operator_account
+        )
+
+
+def test_registry_set_representation_config_round_trips(
+    web3_backend, operator_account, deploy_governed_registry
+):
+    registry, credential_manager, council = deploy_governed_registry()
+    token = ChainAddress.from_evm_address(operator_account.address, credential_manager.chain_id)
+    registry.set_asset(
+        0,
+        operator_account.address,
+        token.chain_id,
+        100_000,
+        10_000,
+        1,
+        council=council,
+        sender=operator_account,
+    )
+    config = RegistryRepresentationConfig(
+        source_kind=RepresentationSourceKind.XSTOCKS_V2.registry_kind
+    )
+
+    registry.set_representation_config(
+        token.chain_id, operator_account.address, config, council=council, sender=operator_account
+    )
+    assert registry.get_representation_configs() == [(token, config)]
+
+    registry.set_representation_config(
+        token.chain_id,
+        operator_account.address,
+        RegistryRepresentationConfig.removed(),
+        council=council,
+        sender=operator_account,
+    )
+    assert registry.get_representation_configs() == [
+        (token, RegistryRepresentationConfig.removed())
+    ]
+
+
+@pytest.fixture(scope="session")
+def representation_config_fields():
+    return {
+        "providerContract": ("bytes32", b"\x01" * 32),
+        "staleAfterSecs": ("uint64", 400),
+        "maxRateJumpBps": ("uint32", 500),
+        "sourceKind": ("uint8", 2),
+    }
+
+
+@pytest.fixture(scope="session")
+def ape_representation_config(representation_config_fields):
+    ape_abi = pytest.importorskip("ape.utils.abi")
+    ethpm_abi = pytest.importorskip("ethpm_types.abi")
+    return ape_abi.create_struct(
+        "RepresentationConfig",
+        [
+            ethpm_abi.ABIType(name=name, type=abi_type)
+            for name, (abi_type, _) in representation_config_fields.items()
+        ],
+        [value for _, value in representation_config_fields.values()],
+    )
+
+
+@pytest.fixture(scope="session")
+def web3_representation_config(representation_config_fields):
+    return web3_abi.recursive_dict_to_namedtuple(
+        {name: value for name, (_, value) in representation_config_fields.items()}
+    )
+
+
+@pytest.mark.parametrize("backend", ["ape", "web3"])
+def test_registry_representation_config_from_struct(backend, request, representation_config_fields):
+    struct = request.getfixturevalue(f"{backend}_representation_config")
+
+    config = RegistryRepresentationConfig.from_struct(struct)
+
+    assert convert_to_abi_value(config) == {
+        name: value for name, (_, value) in representation_config_fields.items()
+    }
 
 
 def test_unknown_contract_method_is_attribute_error(web3_backend):

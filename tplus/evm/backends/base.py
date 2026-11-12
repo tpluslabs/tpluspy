@@ -108,6 +108,10 @@ class EVMBackend(ABC):
         """The deployed bytecode at ``address`` (empty when nothing is deployed)."""
         raise NotImplementedError("get_code is not supported by this backend.")
 
+    def get_event_args(self, receipt: Any, contract: Any, event_name: str) -> dict[str, Any]:
+        """The arguments of the first ``event_name`` log ``contract`` emitted in ``receipt``."""
+        raise NotImplementedError("get_event_args is not supported by this backend.")
+
     @abstractmethod
     def convert_address(self, value: Any) -> AddressType:
         """Coerce ``value`` (address str/bytes, contract handle, account, ...) to a checksum address."""

@@ -19,16 +19,19 @@ from tplus.cli_tools import (
     no_pager_option,
     output_format_option,
     render,
+    resolve_universe,
+    universe_option,
     vault_address_option,
 )
+from tplus.utils.universe import compute_universe_id
 
 if TYPE_CHECKING:
     from tplus.evm.managers.credential_manager import CredentialManagerOwner
     from tplus.evm.managers.vault import VaultOwner
+    from tplus.model.config import ChainConfig
 
 
 _EVM_AVAILABLE = importlib.util.find_spec("ape") is not None
-PROFILE_WINDOW_SECONDS = 7 * 24 * 60 * 60
 
 
 @click.group()
@@ -67,6 +70,11 @@ if _EVM_AVAILABLE:
     from ape.utils.misc import ZERO_ADDRESS
 
     from tplus.cli_tools import tplus_network_option
+    from tplus.evm.governance import (
+        OperatorKey,
+        compute_majority_threshold,
+        parse_operator_public_key,
+    )
 
     @vaults.command("list")
     @click.option(
@@ -144,15 +152,39 @@ if _EVM_AVAILABLE:
         is_flag=True,
         help="Reuse the latest CE-registered vault on this chain if live.",
     )
-    def _deploy(account, credential_manager: str, owner: str | None, skip_if_deployed: bool):
+    @click.option(
+        "--genesis-manager",
+        help=(
+            "CredentialManager the vault's genesis snapshot is read from. Defaults to"
+            " CREDENTIAL_MANAGER. Set it where that is a receiver, as on an L2."
+        ),
+    )
+    @click.option(
+        "--genesis-rpc-url",
+        help="RPC of the genesis manager's chain. Defaults to the connected chain.",
+    )
+    def _deploy(
+        account,
+        credential_manager: str,
+        owner: str | None,
+        skip_if_deployed: bool,
+        genesis_manager: str | None,
+        genesis_rpc_url: str | None,
+    ):
         """Deploy a new DepositVault pointing at CREDENTIAL_MANAGER."""
-        from tplus.evm.contracts import DepositVault
+        from tplus.evm.contracts import DepositVault, read_genesis
 
         if skip_if_deployed and (adopted := DepositVault()._adopt_ce_deployment()):
             click.echo(f"reused: {adopted.address}")
             return
 
-        instance = DepositVault.deploy(owner or account, credential_manager, sender=account)
+        genesis = None
+        if genesis_manager or genesis_rpc_url:
+            genesis = read_genesis(genesis_manager or credential_manager, rpc_url=genesis_rpc_url)
+
+        instance = DepositVault.deploy_proxy(
+            owner or account, credential_manager, sender=account, genesis=genesis
+        )
         click.echo(f"deployed: {instance.address}")
 
     @vaults.command("deploy-registry", cls=ConnectedProviderCommand)
@@ -163,53 +195,35 @@ if _EVM_AVAILABLE:
         "--operator",
         "operators",
         multiple=True,
-        help="Operator address. May be repeated. Defaults to the sender.",
+        help=(
+            "Operator as ADDRESS:PUBLIC_KEY, a 64-byte public key or an Ape account alias."
+            " May be repeated. Defaults to the sender."
+        ),
     )
-    @click.option(
-        "--quorum", type=int, help="Operator quorum threshold. Defaults to len(operators)."
-    )
-    @click.option(
-        "--measurement",
-        "measurements",
-        multiple=True,
-        help="Initial approved measurement (hex). May be repeated.",
-    )
+    @click.option("--quorum", type=int, help="Committee threshold. Defaults to the operator count.")
+    @universe_option(help="Governance universe. Required off the local network.")
     @click.option(
         "--automata-verifier",
         "automata_verifier",
         default=ZERO_ADDRESS,
         show_default=True,
-        help="Automata verifier contract address.",
+        help="Automata verifier contract address; zero accepts unverified attestation.",
     )
     @click.option(
-        "--attestation-test-mode",
+        "--allow-unverified-attestation",
         is_flag=True,
-        help="Accept unattested credentials. Dev only.",
+        help="Allow a zero Automata verifier off the local network.",
     )
     @click.option(
         "--council-member",
         "security_council",
         multiple=True,
-        help="Security council member address. May be repeated. Required off dev networks.",
+        help="Security council member address. May be repeated. Required off the local network.",
     )
     @click.option(
         "--council-threshold",
         type=int,
         help="Security council threshold. Defaults to a strict majority of the council.",
-    )
-    @click.option(
-        "--manage-profile-window",
-        type=int,
-        default=PROFILE_WINDOW_SECONDS,
-        show_default=True,
-        help="Seconds a measurement-profile change stays pending.",
-    )
-    @click.option(
-        "--signer-rotation-window",
-        type=int,
-        default=PROFILE_WINDOW_SECONDS,
-        show_default=True,
-        help="Seconds a signer rotation stays pending.",
     )
     @click.option(
         "--withdrawal-quorum",
@@ -228,13 +242,11 @@ if _EVM_AVAILABLE:
         registry_address: str,
         operators: tuple[str, ...],
         quorum: int | None,
-        measurements: tuple[str, ...],
+        universe: str | None,
         automata_verifier: str,
-        attestation_test_mode: bool,
+        allow_unverified_attestation: bool,
         security_council: tuple[str, ...],
         council_threshold: int | None,
-        manage_profile_window: int,
-        signer_rotation_window: int,
         withdrawal_quorum: int,
         skip_if_deployed: bool,
     ):
@@ -247,38 +259,67 @@ if _EVM_AVAILABLE:
             click.echo(f"reused: {adopted.address}")
             return
 
-        op_list = list(operators) or [account.address]
-        threshold = quorum if quorum is not None else len(op_list)
-        meas = [bytes.fromhex(m.removeprefix("0x")) for m in measurements]
-
-        council = list(security_council)
-        if not council:
-            # Defaulting the veto council to the operators would collapse the independent
-            # veto, so only a dev chain may fall back to it.
-            if not chain.provider.network.is_dev:
-                raise click.UsageError("--council-member is required off dev networks.")
-
-            council = op_list
-
-        # Strict majority, matching the contract's own 2k>n check.
-        council_threshold = council_threshold or (len(council) // 2 + 1)
-
+        is_local = chain.provider.network.is_local
+        operator_public_keys = _parse_operator_public_keys(operators, account)
+        universe = resolve_universe(universe, is_local)
+        _validate_attestation_verifier(automata_verifier, is_local, allow_unverified_attestation)
+        council = _resolve_security_council(security_council, account, is_local)
         instance = CredentialManager.deploy(
-            op_list,
-            threshold,
-            account,
-            registry_address,
-            meas,
-            automata_verifier,
-            attestation_test_mode,
-            council,
-            council_threshold,
-            manage_profile_window,
-            signer_rotation_window,
-            withdrawal_quorum,
             sender=account,
+            universe_id=bytes(compute_universe_id(universe)),
+            operator_public_keys=operator_public_keys,
+            committee_threshold=quorum or len(operator_public_keys),
+            security_council=council,
+            security_council_threshold=council_threshold
+            or compute_majority_threshold(len(council)),
+            automata_verifier=automata_verifier,
+            registry=registry_address,
+            withdrawal_quorum=withdrawal_quorum,
         )
         click.echo(f"deployed: {instance.address}")
+
+    def _parse_operator_public_keys(operators: tuple[str, ...], account) -> list[bytes]:
+        try:
+            operator_public_keys = [parse_operator_public_key(operator) for operator in operators]
+        except ValueError as err:
+            raise click.BadParameter(str(err), param_hint="--operator") from err
+
+        return operator_public_keys or [OperatorKey.from_ape_account(account).public_key]
+
+    def _validate_attestation_verifier(
+        automata_verifier: str, is_local: bool, allow_unverified_attestation: bool
+    ):
+        if automata_verifier == ZERO_ADDRESS and not is_local and not allow_unverified_attestation:
+            raise click.UsageError(
+                "--automata-verifier is required off the local network"
+                " (or pass --allow-unverified-attestation)."
+            )
+
+    def _require_mainnet_confirmations(
+        config: "ChainConfig", production: "ChainConfig | None", allow_zero_confirmations: bool
+    ):
+        from ape import chain
+
+        on_mainnet = production is not None or chain.provider.network.is_mainnet
+        if not on_mainnet or allow_zero_confirmations:
+            return
+
+        if unexpected := config.find_unexpected_zero_confirmations(production):
+            raise click.UsageError(
+                f"Zero {', '.join(unexpected)} on mainnet; pass non-zero counts or "
+                "--allow-zero-confirmations, since a zero count credits an event before reorgs settle."
+            )
+
+    def _resolve_security_council(
+        security_council: tuple[str, ...], account, is_local: bool
+    ) -> list[str]:
+        if security_council:
+            return list(security_council)
+
+        if not is_local:
+            raise click.UsageError("--council-member is required off the local network.")
+
+        return [account.address]
 
     def _build_credential_manager_owner(
         cli_ctx: CLIContext, signer, credential_manager_address: str | None = None
@@ -303,7 +344,6 @@ if _EVM_AVAILABLE:
             else None
         )
         return CredentialManagerOwner(
-            admin=signer,
             signers=[signer],
             credential_manager=credman,
             clearing_engine=ce,
@@ -325,26 +365,40 @@ if _EVM_AVAILABLE:
         type=int,
         help="Chain ID (EVM) if VAULT_ADDRESS doesn't include @chain.",
     )
-    @click.option("--block-time-ms", "block_time_ms", type=int, default=0, show_default=True)
     @click.option(
-        "--default-confirmations", "default_confirmations", type=int, default=0, show_default=True
+        "--block-time-ms",
+        "block_time_ms",
+        type=int,
+        help="Defaults to the chain's production value, or 0 for an unknown chain.",
     )
     @click.option(
-        "--deposit-confirmations", "deposit_confirmations", type=int, default=0, show_default=True
+        "--default-confirmations",
+        "default_confirmations",
+        type=int,
+        help="Defaults to the chain's production value, or 0 for an unknown chain.",
+    )
+    @click.option(
+        "--deposit-confirmations",
+        "deposit_confirmations",
+        type=int,
+        help="Defaults to the chain's production value, or 0 for an unknown chain.",
     )
     @click.option(
         "--withdrawal-confirmations",
         "withdrawal_confirmations",
         type=int,
-        default=0,
-        show_default=True,
+        help="Defaults to the chain's production value, or 0 for an unknown chain.",
     )
     @click.option(
         "--settlement-confirmations",
         "settlement_confirmations",
         type=int,
-        default=0,
-        show_default=True,
+        help="Defaults to the chain's production value, or 0 for an unknown chain.",
+    )
+    @click.option(
+        "--allow-zero-confirmations",
+        is_flag=True,
+        help="Allow a zero confirmation count on mainnet that the chain's production value does not set.",
     )
     @click.option("--wait/--no-wait", default=False, help="Wait for CE ingestion.")
     @pass_cli_context
@@ -353,11 +407,12 @@ if _EVM_AVAILABLE:
         account,
         vault_address: str,
         chain_id: int | None,
-        block_time_ms: int,
-        default_confirmations: int,
-        deposit_confirmations: int,
-        withdrawal_confirmations: int,
-        settlement_confirmations: int,
+        block_time_ms: int | None,
+        default_confirmations: int | None,
+        deposit_confirmations: int | None,
+        withdrawal_confirmations: int | None,
+        settlement_confirmations: int | None,
+        allow_zero_confirmations: bool,
         wait: bool,
         credential_manager_address: str | None,
     ):
@@ -372,18 +427,27 @@ if _EVM_AVAILABLE:
         else:
             raise click.UsageError("Pass --chain-id or include @<chain> in VAULT_ADDRESS.")
 
-        config = ChainConfig(
-            blockTimeMs=block_time_ms,
-            defaultConfirmations=default_confirmations,
-            depositIngestConfirmations=deposit_confirmations,
-            withdrawalIngestConfirmations=withdrawal_confirmations,
-            settlementIngestConfirmations=settlement_confirmations,
+        production = (
+            ChainConfig.for_evm_chain(chain_addr.chain_id.vm_id)
+            if chain_addr.chain_id.routing_id == 0
+            else None
         )
+        values = (production or ChainConfig.dev()).model_dump()
+        overrides = {
+            "blockTimeMs": block_time_ms,
+            "defaultConfirmations": default_confirmations,
+            "depositIngestConfirmations": deposit_confirmations,
+            "withdrawalIngestConfirmations": withdrawal_confirmations,
+            "settlementIngestConfirmations": settlement_confirmations,
+        }
+        values.update({name: value for name, value in overrides.items() if value is not None})
+        config = ChainConfig(**values)
+        _require_mainnet_confirmations(config, production, allow_zero_confirmations)
         owner = _build_credential_manager_owner(
             cli_ctx, account, credential_manager_address=credential_manager_address
         )
-        receipt = asyncio.run(owner.add_vault(chain_addr, config, sender=account, wait=wait))
-        click.echo(f"tx: {receipt.txn_hash}")
+        op_id = asyncio.run(owner.add_vault(chain_addr, config, sender=account, wait=wait))
+        click.echo(f"operation: {op_id.hex()}")
 
     @vaults.command("set-domain-separator", cls=ConnectedProviderCommand)
     @tplus_network_option()
@@ -471,36 +535,61 @@ if _EVM_AVAILABLE:
         }
         render([record], output_format)
 
-    @vaults.command("set-administrators", cls=ConnectedProviderCommand)
+    @vaults.command("attest-signer", cls=ConnectedProviderCommand)
     @tplus_network_option()
     @clearing_url_option()
     @ignore_ssl_option()
-    @vault_address_option()
+    @credential_manager_address_option()
     @tplus_account_option()
     @account_option()
     @click.option(
-        "--admin-key",
-        "admin_keys",
-        multiple=True,
-        help="Admin public key (hex). May be repeated. Defaults to the CE verifying key.",
+        "--signer-key",
+        help="Signer public key (hex). Defaults to the CE verifying key.",
     )
-    @click.option("--quorum", type=int, help="Withdrawal quorum. Defaults to number of admins.")
     @pass_cli_context
-    def _set_administrators(
+    def _attest_signer(
         cli_ctx: CLIContext,
         account,
-        admin_keys: tuple[str, ...],
-        quorum: int | None,
-        vault_address: str | None,
+        signer_key: str | None,
+        credential_manager_address: str | None,
     ):
-        """Set vault administrators."""
-        owner = _build_owner(cli_ctx, account, vault_address=vault_address)
-        receipt = asyncio.run(
-            owner.set_administrators(
-                admin_keys=list(admin_keys) if admin_keys else None,
-                withdrawal_quorum=quorum,
-            )
+        """Attest the CE signer for --account's operator, on a manager with no verifier.
+
+        The manager commits its first governance snapshot once attested keys reach the
+        withdrawal quorum, and a vault is deployed from that snapshot.
+        """
+        owner = _build_credential_manager_owner(
+            cli_ctx, account, credential_manager_address=credential_manager_address
         )
+        attested = asyncio.run(owner.attest_signer(signer_key, sender=account))
+        click.echo("attested" if attested else "unchanged")
+
+    @vaults.command("register-strategy", cls=ConnectedProviderCommand)
+    @tplus_network_option()
+    @credential_manager_address_option()
+    @tplus_account_option()
+    @account_option()
+    @pass_cli_context
+    def _register_strategy(cli_ctx: CLIContext, account, credential_manager_address: str | None):
+        """Register the strategy that delivers snapshots to a vault on the manager's chain."""
+        owner = _build_credential_manager_owner(
+            cli_ctx, account, credential_manager_address=credential_manager_address
+        )
+        strategy = owner.ensure_intra_chain_strategy(sender=account)
+        click.echo(f"registered: {strategy}" if strategy else "unchanged")
+
+    @vaults.command("sync", cls=ConnectedProviderCommand)
+    @tplus_network_option()
+    @credential_manager_address_option()
+    @tplus_account_option()
+    @account_option()
+    @pass_cli_context
+    def _sync(cli_ctx: CLIContext, account, credential_manager_address: str | None):
+        """Deliver the manager's governance snapshot to the vault on this chain."""
+        owner = _build_credential_manager_owner(
+            cli_ctx, account, credential_manager_address=credential_manager_address
+        )
+        receipt = owner.sync_vault(sender=account)
         click.echo(f"tx: {receipt.txn_hash}")
 
     @vaults.command("register-settler", cls=ConnectedProviderCommand)

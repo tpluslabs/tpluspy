@@ -6,11 +6,11 @@ from tplus.model.types import UserPublicKey
 
 
 class CancelOrder(BaseModel):
-    """Data that will be serialized and signed for a cancel order operation."""
+    """The order a cancel names."""
 
+    signer: UserPublicKey
     order_id: UserOrderId
-    asset_id: AssetIdentifier  # Or str if only string form is signed
-    signer: UserPublicKey  # Public key of the signer, included in the signed payload
+    asset_id: AssetIdentifier
     protocol_version: int = 1
 
 
@@ -18,5 +18,4 @@ class CancelOrderRequest(BaseModel):
     """The payload for ObRequest representing a cancel order operation."""
 
     cancel: CancelOrder
-    signature: list[int]  # Signature of the 'request' (ReplaceOrderDetails)
     post_sign_timestamp: int

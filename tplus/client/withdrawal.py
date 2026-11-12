@@ -1,9 +1,6 @@
 from tplus.client.auth import AuthenticatedClient
 from tplus.exceptions import OmsError
-from tplus.model.chain_address import ChainAddress
-from tplus.model.representation_rate import RepresentationPreviewResponse
 from tplus.model.withdrawal import (
-    CancelWithdrawalRequest,
     ResumeWithdrawalsRequest,
     WithdrawalRequest,
 )
@@ -22,17 +19,6 @@ class WithdrawalClient(AuthenticatedClient):
     ) -> None:
         super().__init__(base_url, **kwargs)
 
-    async def preview_representation(
-        self, asset: str | ChainAddress, canonical_amount: int
-    ) -> RepresentationPreviewResponse:
-        """
-        Preview the token amount a canonical withdrawal would pay out
-        (`POST /withdrawal/representation-preview`). Non-binding: approval re-resolves CE state.
-        """
-        json_data = {"asset": str(asset), "canonical_amount": str(canonical_amount)}
-        response = await self._post("withdrawal/representation-preview", json_data=json_data)
-        return RepresentationPreviewResponse.model_validate(response)
-
     async def init_withdrawal(self, withdrawal: dict | WithdrawalRequest) -> None:
         if isinstance(withdrawal, dict):
             withdrawal = WithdrawalRequest.model_validate(withdrawal)
@@ -47,12 +33,6 @@ class WithdrawalClient(AuthenticatedClient):
         if isinstance(response, dict) and response.get("success") is False:
             reason = response.get("details") or "Withdrawal initialization failed"
             raise RuntimeError(str(reason))
-
-    async def cancel_withdrawal(self, cancel_request: dict | CancelWithdrawalRequest) -> None:
-        if isinstance(cancel_request, dict):
-            cancel_request = CancelWithdrawalRequest.model_validate(cancel_request)
-        json_data = cancel_request.model_dump(mode="json")
-        await self._post("withdrawal/cancel", json_data=json_data)
 
     async def resume_withdrawals(self, request: dict | ResumeWithdrawalsRequest) -> None:
         """Lift ``request.inner.target_user``'s withdrawal suspension.
@@ -69,13 +49,13 @@ class WithdrawalClient(AuthenticatedClient):
             reason = response.get("details") or "Resuming withdrawals failed"
             raise RuntimeError(str(reason))
 
-    async def get_queued_withdrawals(self, user: str) -> list[dict]:
+    async def get_withdrawal_status(self, user: str) -> list[dict]:
         result = await self._get(
-            f"withdrawal/queue/{user}", request_timeout=_QUEUE_HTTP_TIMEOUT_SEC
+            f"withdrawal/status/{user}", request_timeout=_QUEUE_HTTP_TIMEOUT_SEC
         )
         if isinstance(result, list):
             return result
         if isinstance(result, dict) and "error" in result:
             raise RuntimeError(result["error"])
         self.logger.error(f"Unknown result format for withdrawal queue response: {result}.")
-        return result  # type: ignore[return-value]
+        raise ValueError("Expected an array of withdrawal status rows")

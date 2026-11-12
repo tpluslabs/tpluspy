@@ -61,6 +61,8 @@ def test_sync_taker_order_round_trips_through_order():
         base_token=WETH,
         nonce=0,
     )
+    assert TradeTarget().account == 1
+    assert request.order.target == TradeTarget.margin_account_spot_trade()
     payload = json.loads(request.order.signable_part())
     assert payload["details"]["SyncTaker"]["settlement"]["base_token"] == str(WETH)
     parsed = Order.model_validate(payload)

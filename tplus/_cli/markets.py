@@ -110,7 +110,6 @@ def _list(
                 "isolated_only": market.isolated_only,
                 "tick_size": market.tick_size,
                 "min_order_size": market.min_order_size,
-                "fee_account": fee_schedule.fee_account if fee_schedule else None,
                 "fee_tiers": (
                     f"{len(fee_schedule.global_)} global / {len(fee_schedule.per_asset)} per-asset"
                     if fee_schedule
@@ -121,6 +120,14 @@ def _list(
     render(records, output_format, no_pager=no_pager)
 
 
+def _symbol_map_group(market: MarketResponse) -> int:
+    """Markets with a symbol, then index ids missing from the symbol map, then address ids."""
+    if market.asset.symbol is not None:
+        return 0
+
+    return 1 if market.asset_id.indexed else 2
+
+
 @markets.command("symbol-map")
 @orderbook_url_option()
 @ignore_ssl_option()
@@ -129,24 +136,35 @@ def _list(
 @no_pager_option()
 @pass_cli_context
 def _symbol_map(cli_ctx: CLIContext, output_format: str, no_pager: bool):
-    """Show the canonical asset table served by the OMS."""
+    """Show each market's symbol-map identity, markets with a symbol first."""
     client = cli_ctx.orderbook_client()
-    symbol_map = asyncio.run(client.get_markets(include_symbol_map=True)).symbol_map or {}
+    markets = asyncio.run(_collect_markets(client, None, None))
+    # `sorted` is stable, so each group keeps the `/markets` order.
+    markets = sorted(markets, key=_symbol_map_group)
     if output_format == "raw":
-        raw = {str(index): asset.model_dump() for index, asset in symbol_map.items()}
+        raw = {str(market.asset_id): market.asset.model_dump() for market in markets}
         click.echo(json.dumps(raw, indent=2))
         return
 
-    records = [
-        {
-            "index": index,
-            "symbol": asset.symbol,
-            "name": asset.name,
-            "asset_class": asset.asset_class,
-            "representations": ", ".join(asset.representations),
-        }
-        for index, asset in sorted(symbol_map.items())
-    ]
+    records = []
+    for market in markets:
+        asset = market.asset
+        records.append(
+            {
+                "asset_id": str(market.asset_id),
+                "symbol": asset.symbol,
+                "name": asset.name,
+                "asset_class": asset.asset_class,
+                "representations": (
+                    ", ".join(asset.representations) if asset.representations is not None else None
+                ),
+                "chain_assets": (
+                    ", ".join(f"{chain.chain} {chain.address}" for chain in asset.chain_assets)
+                    if asset.chain_assets is not None
+                    else None
+                ),
+            }
+        )
     render(records, output_format, no_pager=no_pager)
 
 

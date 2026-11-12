@@ -131,7 +131,7 @@ async with OrderBookClient(base_url="http://127.0.0.1:8000", default_user=user) 
 | My margin breakdown           | `await client.get_user_margin_info(include_positions=True)`                                                    |
 | My solvency                   | `await client.get_user_solvency()`                                                                             |
 | Preview "close all positions" | `await client.get_close_all_positions_preview(sub_account_index=1)`                                            |
-| Transfer between sub-accounts | `await client.request_transfer_to_subaccount(source_index, target_index, asset, amount)`                       |
+| Transfer between sub-accounts | `await client.request_transfer(source, target, asset, amount, target_account_type)`; kind builders (`isolated`, `cross_margin`) live in `tplus.model.transfer`; account zero is funding. |
 | Stream order events           | `async for ev in client.stream_orders(): ...`                                                                  |
 | Stream my positions           | `async for update in client.stream_user_positions(): ...`                                                      |
 | Stream finalized trades       | `async for t in md_client.stream_finalized_trades(): ...` *(MarketDataClient)*                                  |
@@ -188,7 +188,7 @@ All on-the-wire quantities and prices are **integers in the book's native units*
 
 ## Signing model
 
-T+ uses its own **contract-defined signing scheme** across the board: Ed25519 over compact JSON (no spaces, sorted keys), produced by `User.sign()`. Every order, cancel, replace, transfer, approval, and settlement request carries this signature. On-chain payloads use a t+-specific structured-message variant of the same idea, also defined by the t+ contracts. There is no separate "wallet signing" path: an EVM-derived user signs requests with Ed25519 like any other — the wallet signature is only the seed the Ed25519 key is derived from.
+T+ uses its own **contract-defined signing scheme** across the board: Ed25519 over compact JSON (no spaces, sorted keys), produced by `User.sign()`. Every order, replace, transfer, approval, and settlement request carries this signature; cancels are not signed. On-chain payloads use a t+-specific structured-message variant of the same idea, also defined by the t+ contracts. There is no separate "wallet signing" path: an EVM-derived user signs requests with Ed25519 like any other. The wallet signature is only the seed the Ed25519 key is derived from.
 
 ## EVM extra (web3.py or Ape)
 

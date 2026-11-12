@@ -6,6 +6,7 @@ from pydantic_core.core_schema import (
     str_schema,
 )
 
+from tplus.model.registry_asset import RegistryChainId
 from tplus.utils.serializers import hex_serialize_no_prefix
 
 U64_MAX = (1 << 64) - 1
@@ -118,6 +119,10 @@ class ChainID(str):
             raise ValueError("vm_id must fit in 8 bytes")
 
         return cls(f"{routing_id:02x}{vm_id:016x}")
+
+    def to_registry_chain(self) -> RegistryChainId:
+        """The `ChainId` struct the Registry takes."""
+        return RegistryChainId(routingId=self.routing_id, vmId=self.vm_id)
 
     def to_bytes(self) -> bytes:
         return bytes.fromhex(self)

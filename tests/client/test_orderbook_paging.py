@@ -172,7 +172,7 @@ async def test_get_user_orders_parses_envelope():
 
 
 @pytest.mark.anyio
-async def test_get_markets_parses_page_and_symbol_map():
+async def test_get_markets_parses_page():
     envelope = {
         "markets": [
             {
@@ -182,7 +182,6 @@ async def test_get_markets_parses_page_and_symbol_map():
                 "max_leverage": "3.77",
                 "isolated_only": False,
                 "fee_schedule": {
-                    "fee_account": "ab" * 32,
                     "global": [
                         {
                             "min_rolling_volume_usd": 0,
@@ -202,24 +201,12 @@ async def test_get_markets_parses_page_and_symbol_map():
         "cursor_size": 1,
         "has_next_page": False,
         "next_page": None,
-        "symbol_map": {
-            "1": {
-                "index": 1,
-                "symbol": "ETH",
-                "name": "Ethereum",
-                "asset_class": "ETH",
-                "representations": ["WETH"],
-            }
-        },
     }
     client, captured = _client_returning(envelope)
-    page = await client.get_markets(include_symbol_map=True, page=2, limit=50)
+    page = await client.get_markets(page=2, limit=50)
     assert page[0].max_leverage == "3.77"
     assert len(page[0].fee_schedule.global_) == 1
-    assert page.symbol_map[1].symbol == "ETH"
-    assert page.symbol_map[1].name == "Ethereum"
-    assert page.symbol_map[1].representations == ["WETH"]
-    assert captured == [{"include_symbol_map": "true", "page": 2, "limit": 50}]
+    assert captured == [{"page": 2, "limit": 50}]
 
 
 @pytest.mark.anyio
@@ -235,8 +222,7 @@ async def test_get_markets_defaults_to_one_full_page():
         "next_page": None,
     }
     client, captured = _client_returning(envelope)
-    page = await client.get_markets()
-    assert page.symbol_map is None
+    await client.get_markets()
     assert captured == [{"page": 0, "limit": 1000}]
 
 

@@ -32,21 +32,14 @@ class AdminAssetRegistryClient(BaseClearingEngineClient):
         payload = registry_address.model_dump()
         await self._post("admin/registry/update-address", json_data=payload)
 
-    async def update_fee_account(self):
-        """
-        Request that the clearing engine update its fee account.
-        """
-        await self._post("fee-account/update")
-
-    async def get_fee_account(self) -> str:
-        """
-        Get the fee account.
-        """
-        account = await self._get("fee-account")
-        return f"{account}"
-
     async def update_withdrawal_delay_parameters(self):
         """
         Request that the clearing engine updates its registered withdrawal delay parameters.
         """
         await self._post("withdrawal-delay-params/update")
+
+    async def update_representation_configs(self):
+        """
+        Request that the clearing engine reads the registry's representation configs.
+        """
+        await self._post("representation-configs/update")

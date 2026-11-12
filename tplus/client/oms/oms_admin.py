@@ -1,8 +1,70 @@
+import time
+from typing import TYPE_CHECKING
+
 from tplus.client.auth import AuthenticatedClient
 from tplus.model.asset_identifier import AssetIdentifier
+from tplus.model.sync_book import CreateSyncBookResponse
+from tplus.utils.operator import load_operator_sk, sign_operator_payload
+from tplus.utils.user import to_user_public_key
+
+if TYPE_CHECKING:
+    from tplus.types import UserType
+
+
+def canonical_asset_id(asset_id: int | AssetIdentifier | str) -> str:
+    """``asset_id`` as the OMS prints it: a registry index in decimal, or a lowercase
+    32-byte address ``@`` its lowercase 9-byte chain. The OMS verifies an operator
+    signature over this form, whatever spelling the request carried.
+    """
+    asset = AssetIdentifier(asset_id) if not isinstance(asset_id, AssetIdentifier) else asset_id
+    if asset.indexed:
+        return str(int(asset.root))
+    return asset.root.lower()
 
 
 class OmsAdminClient(AuthenticatedClient):
+    async def create_sync_book(
+        self,
+        user: "UserType",
+        asset_id: int | AssetIdentifier | str,
+        operator_secret: str,
+        timestamp_ns: int | None = None,
+        nonce: int | None = None,
+    ) -> CreateSyncBookResponse:
+        """Create a market maker's sync book on one market (``POST /admin/sync-book``).
+
+        Signed with the OMS operator key, so the market maker does not have to call
+        ``POST /sync_book/create`` itself. ``user`` must be a registered market maker. The
+        reply says whether the book was ``CREATED`` or ``ALREADY_EXISTED``; a new book also
+        sends the market maker a ``SyncBookCreated`` account event.
+        """
+        ts = time.time_ns() if timestamp_ns is None else timestamp_ns
+        request_nonce = time.time_ns() if nonce is None else nonce
+        user_id = to_user_public_key(user)
+        asset = canonical_asset_id(asset_id)
+        payload = (
+            b"oms.admin.create_sync_book.v1"
+            + request_nonce.to_bytes(8, "big")
+            + ts.to_bytes(8, "big")
+            + bytes.fromhex(user_id)
+            + asset.encode()
+        )
+        signature = sign_operator_payload(payload, load_operator_sk(operator_secret))
+        resp = await self._post(
+            "admin/sync-book",
+            json_data={
+                "inner": {
+                    "timestamp_ns": ts,
+                    "nonce": request_nonce,
+                    "asset_id": asset,
+                    "user_id": user_id,
+                },
+                "signature": signature,
+            },
+            requires_auth=False,
+        )
+        return CreateSyncBookResponse.model_validate(resp)
+
     async def list_suspended_withdrawals(self) -> dict:
         """Every user whose withdrawals the clearing engine has suspended, oldest first.
 

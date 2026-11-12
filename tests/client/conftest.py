@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from tplus.client import BlockchainClient
+from tplus.client.clearingengine import ClearingEngineClient
 from tplus.client.orderbook import OrderBookClient
 from tplus.utils.user import User
 
@@ -40,6 +41,14 @@ class ControlWS:
 def blockchain_client(mocker):
     """A BlockchainClient with its HTTP ``_post`` mocked out."""
     client = BlockchainClient(base_url="http://127.0.0.1:8080")
+    mocker.patch.object(client, "_post", new=mocker.AsyncMock(return_value={}))
+    return client
+
+
+@pytest.fixture
+def clearing_engine_client(mocker):
+    """A ClearingEngineClient with its HTTP ``_post`` mocked out."""
+    client = ClearingEngineClient(base_url="http://127.0.0.1:3032")
     mocker.patch.object(client, "_post", new=mocker.AsyncMock(return_value={}))
     return client
 

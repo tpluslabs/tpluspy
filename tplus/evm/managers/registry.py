@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any
 
 from tplus.evm.contracts import AddressType, Registry
+from tplus.evm.governance import OperationScheduled, is_operation_due
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.types import ChainID
 from tplus.utils.timeout import wait_for_condition
@@ -11,12 +12,11 @@ if TYPE_CHECKING:
     from tplus.client import AssetRegistryClient
     from tplus.client.clearingengine import ClearingEngineClient
     from tplus.evm.backends.base import EVMBackend
-    from tplus.model.risk_parameters import RiskParameters
 
 
 class RegistryOwner(ChainConnectedManager):
     """
-    For registry (`Registry.sol`) operations using the owner of the contract.
+    For registry (`Registry.sol`) operations by the upgrade authority and the risk council.
     """
 
     def __init__(
@@ -27,10 +27,12 @@ class RegistryOwner(ChainConnectedManager):
         clearing_engine: "ClearingEngineClient | None" = None,
         asset_registry_client: "AssetRegistryClient | None" = None,
         *,
+        council: list | None = None,
         backend: "EVMBackend | None" = None,
     ):
         self._set_backend(backend)
         self.owner = self.backend.get_account(owner)
+        self.council = council or [self.owner]
         self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
 
         if registry is not None:
@@ -54,21 +56,22 @@ class RegistryOwner(ChainConnectedManager):
         min_weight: int,
         wait: bool = True,
         **tx_kwargs,
-    ) -> None:
+    ) -> OperationScheduled:
+        """Schedule asset entry `index`, executing it when its delay has already passed."""
         if "sender" not in tx_kwargs:
             tx_kwargs["sender"] = self.owner
 
-        self.registry.set_asset(
+        schedule_event = self.registry.set_asset(
             index,
             asset_address,
             chain_id,
             max_deposit,
             max_1hr_deposits,
             min_weight,
+            council=self.council,
             **tx_kwargs,
         )
-
-        if wait:
+        if wait and is_operation_due(schedule_event, self.registry.backend):
             if not (ce := self.ce):
                 raise ValueError("Must have clearing_engine to wait for asset registration.")
             if not (asset_registry := self.asset_registry):
@@ -84,24 +87,33 @@ class RegistryOwner(ChainConnectedManager):
                 error_msg=f"Asset registration failed (asset={index}).",
             )
 
-    def set_pending_risk_parameters(
-        self, index: int, params: "RiskParameters | dict", **tx_kwargs
+        return schedule_event
+
+    def initialize_risk_council(
+        self,
+        credential_manager: "AddressType | str",
+        universe_id: bytes,
+        members: "list[AddressType | str]",
+        threshold: int,
+        **tx_kwargs,
     ) -> Any:
         tx_kwargs.setdefault("sender", self.owner)
-        return self.registry.set_pending_risk_parameters(index, params, **tx_kwargs)
+        return self.registry.initialize_risk_council(
+            credential_manager, universe_id, members, threshold, **tx_kwargs
+        )
 
-    def apply_pending_risk_parameters(self, index: int, **tx_kwargs) -> Any:
+    def schedule_operation(self, name: str, values: list, **tx_kwargs) -> OperationScheduled:
         tx_kwargs.setdefault("sender", self.owner)
-        return self.registry.apply_pending_risk_parameters(index, **tx_kwargs)
+        return self.registry.schedule_operation(name, values, council=self.council, **tx_kwargs)
 
-    def set_pending_withdrawal_delay_parameters(self, params, **tx_kwargs) -> "ReceiptAPI":
+    def execute_operation(self, name: str, values: list, op_id: bytes, **tx_kwargs) -> Any:
         tx_kwargs.setdefault("sender", self.owner)
-        return self.registry.set_pending_withdrawal_delay_parameters(params, **tx_kwargs)
+        return self.registry.execute_operation(name, values, op_id, **tx_kwargs)
 
-    def apply_pending_withdrawal_delay_parameters(self, **tx_kwargs) -> "ReceiptAPI":
+    def schedule_and_execute_if_due(
+        self, name: str, values: list, **tx_kwargs
+    ) -> OperationScheduled:
         tx_kwargs.setdefault("sender", self.owner)
-        return self.registry.apply_pending_withdrawal_delay_parameters(**tx_kwargs)
-
-    def set_risk_manager_multisig(self, multisig: "AddressType | str", **tx_kwargs) -> "ReceiptAPI":
-        tx_kwargs.setdefault("sender", self.owner)
-        return self.registry.set_risk_manager_multisig(multisig, **tx_kwargs)
+        return self.registry.schedule_and_execute_if_due(
+            name, values, council=self.council, **tx_kwargs
+        )

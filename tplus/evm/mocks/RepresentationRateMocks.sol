@@ -1,24 +1,30 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// Ondo Global Markets `SyntheticSharesOracle`, reduced to the fields a rate read consumes.
+/// Ondo Global Markets `SyntheticSharesOracle`, reduced to the fields a rate read consumes. Like
+/// the deployed oracle, it answers a zero share value for a token it does not list.
 contract MockOndoSharesOracle {
-    uint128 private shareValue;
-    uint128 private pendingShareValue;
-    uint256 private pauseStartTime;
-
-    function setShareValue(uint128 value, uint128 pending, uint256 pauseAt) external {
-        shareValue = value;
-        pendingShareValue = pending;
-        pauseStartTime = pauseAt;
+    struct AssetData {
+        uint128 shareValue;
+        uint128 pendingShareValue;
+        uint256 pauseStartTime;
     }
 
-    function assetData(address)
+    mapping(address => AssetData) private assets;
+
+    function setShareValue(address asset, uint128 value, uint128 pending, uint256 pauseAt)
+        external
+    {
+        assets[asset] = AssetData(value, pending, pauseAt);
+    }
+
+    function assetData(address asset)
         external
         view
         returns (uint128, uint128, uint256, uint256, uint16, uint48)
     {
-        return (shareValue, pendingShareValue, 0, pauseStartTime, 0, 0);
+        AssetData memory data = assets[asset];
+        return (data.shareValue, data.pendingShareValue, 0, data.pauseStartTime, 0, 0);
     }
 }
 

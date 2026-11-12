@@ -36,7 +36,8 @@ def create_amend_order_ob_request_payload(
             "source": "User",
         },
         "user_id": user_id,
-        "target": {"account": 0, "is_spot": False},
+        # The book derives the actual target from the stored order.
+        "target": {"account": 1, "is_spot": False},
         "oms_operator_pubkey": "",
         "receive_timestamp_ns": None,
     }

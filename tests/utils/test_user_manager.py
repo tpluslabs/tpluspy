@@ -78,8 +78,9 @@ class TestUserManager:
 
     def test_load_from_evm_account_sub_account(self, manager, eth_account):
         main = manager.load_from_evm_account(eth_account)
-        second = manager.load_from_evm_account(eth_account, sub_account=1)
+        second = manager.load_from_evm_account(eth_account, sub_account=0)
 
         assert second is not main
-        assert second.sub_account == 1
+        assert main.sub_account == 1
+        assert second.sub_account == 0
         assert second.public_key == main.public_key

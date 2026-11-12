@@ -4,7 +4,7 @@ from tests.client.user_argument import (
     ASSET,
     check_read_call_uses_derived_user,
     check_read_call_with_per_call_user,
-    check_signed_call_uses_derived_key,
+    check_write_call_uses_derived_user,
 )
 
 
@@ -20,7 +20,7 @@ async def test_get_user_inventory_eth_account_as_user_argument(eth_account, buil
 
 @pytest.mark.anyio
 async def test_cancel_order_eth_account_as_default_user(eth_account, build_client):
-    await check_signed_call_uses_derived_key(eth_account, build_client)
+    await check_write_call_uses_derived_user(eth_account, build_client)
 
 
 @pytest.mark.anyio
@@ -32,6 +32,6 @@ async def test_get_user_inventory_public_key_still_accepted(eth_user, mock_clien
 
 
 @pytest.mark.anyio
-async def test_cancel_order_public_key_cannot_sign(eth_user, client):
+async def test_cancel_order_public_key_rejected(eth_user, client):
     with pytest.raises(TypeError, match="Cannot sign with"):
         await client.cancel_order("oid", ASSET, user=eth_user.public_key)  # type: ignore[arg-type]

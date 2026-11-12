@@ -11,7 +11,7 @@ from tplus.client import ClearingEngineClient
 from tplus.utils.user import load_user
 
 user = load_user("alice")
-ce = ClearingEngineClient(user, base_url="http://127.0.0.1:3032")
+ce = ClearingEngineClient(default_user=user, base_url="http://127.0.0.1:3032")
 
 # Or, for a local development instance running on the default port:
 ce = ClearingEngineClient.from_local(user)
@@ -23,7 +23,6 @@ The CE client groups its API into sub-clients exposed as cached properties:
 | ---------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `ce.settlements` | {py:class}`tplus.client.clearingengine.settlement.SettlementClient`       | Atomic settlement init, signature retrieval, approval streaming. |
 | `ce.deposits`    | {py:class}`tplus.client.clearingengine.deposit.DepositClient`             | Triggering deposit-vault rescans.                                        |
-| `ce.withdrawals` | {py:class}`tplus.client.clearingengine.withdrawal.WithdrawalClient`       | Cancel / queue / signatures.                                             |
 | `ce.assets`      | {py:class}`tplus.client.clearingengine.assetregistry.AssetRegistryClient` | Asset registry queries.                                                  |
 | `ce.vaults`      | {py:class}`tplus.client.clearingengine.vault.VaultClient`                 | Vault registration + balance refresh.                                    |
 | `ce.admin`       | {py:class}`tplus.client.clearingengine.admin.AdminClient`                 | Admin/test-only endpoints.                                               |
@@ -39,22 +38,23 @@ action is required.
 The withdrawal flow has two phases: initiation and signature retrieval.
 
 ```{code-block} python
-from tplus.client import WithdrawalClient
+from tplus.client import OrderBookClient, WithdrawalClient
 from tplus.model.withdrawal import WithdrawalRequest
 
-withdrawals = WithdrawalClient(user, base_url="http://127.0.0.1:8000")
+withdrawals = WithdrawalClient(default_user=user, base_url="http://127.0.0.1:8000")
+oms = OrderBookClient(default_user=user, base_url="http://127.0.0.1:8000")
 request = WithdrawalRequest(...)               # build/sign as appropriate
 await withdrawals.init_withdrawal(request)
 
-# Later, fetch approving signatures
-approvals = await withdrawals.get_withdrawal_signatures(user.public_key)
+# Read status after initialization, on signature hints and after acknowledged reconnects.
+rows = await withdrawals.get_withdrawal_status(user.public_key)
 ```
 
-You can also list a user's queued withdrawals or cancel one through OMS:
+Read withdrawal signature status or cancel a transfer remainder through OMS:
 
 ```{code-block} python
-queued = await withdrawals.get_queued_withdrawals(user.public_key)
-await withdrawals.cancel_withdrawal(cancel_request)
+status = await withdrawals.get_withdrawal_status(user.public_key)
+await oms.cancel_transfer(cancel_transfer_request)
 ```
 
 See [Withdrawals](./withdrawals.md) for the end-to-end story.
@@ -83,7 +83,6 @@ async for approval in ce.settlements.stream_approvals(user.public_key):
 ```{code-block} python
 chain_addresses = await ce.vaults.get()
 await ce.vaults.update()                    # re-read the registry
-await ce.vaults.update_balance(asset_addr)  # refresh a balance (debug CE builds only)
 ```
 
 ## Admin

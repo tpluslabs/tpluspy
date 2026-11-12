@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.pagination import PageMeta
+from tplus.model.user_margin import NettingAllocationInfo
 
 PositionSide = Literal["long", "short", "closed"]
 
@@ -25,6 +26,10 @@ class PositionResponse(BaseModel):
     base_liabilities: Decimal
     quote_credits: Decimal
     quote_liabilities: Decimal
+    # Quantity netting pairs away from this position; None when nothing nets it.
+    netting_offset: Decimal | None = None
+    # Shared-allowance offsets the sub-account holds in this position's basket.
+    netting_allocations: list[NettingAllocationInfo] = []
 
 
 class UserPositionsPage(PageMeta):

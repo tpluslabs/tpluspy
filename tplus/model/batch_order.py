@@ -66,6 +66,12 @@ def parse_batch_replace_response(
     )
 
 
+class BatchCancelRequest(BaseModel):
+    """Body of ``DELETE /orders/cancel-batch`` / the ``BatchCancelRequest`` control message."""
+
+    order_ids: list[str]
+
+
 class BatchCancelStatus(str, Enum):
     ACCEPTED = "accepted"
     PARTIAL = "partial"
@@ -77,6 +83,18 @@ class BatchCancelResponse(BaseModel):
     status: BatchCancelStatus
     dispatched: int
     failures: list[str] | None = None
+
+
+class BatchCancelSubmission(BaseModel):
+    """The ``submitted`` acknowledgement of a ``BatchCancelRequest`` on the ``/control`` channel.
+
+    The OMS acknowledges the batch once, then streams one ``CancelOrderResponse`` per
+    dispatched order on the same connection; IDs it does not own get no response. Read
+    them with :meth:`tplus.client.OrderBookClient.control_responses` by ``request_id``.
+    """
+
+    request_id: str
+    status: str
 
 
 class BatchAmendOrderRequest(BaseModel):

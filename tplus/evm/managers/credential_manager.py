@@ -1,12 +1,8 @@
-from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from eip712 import EIP712Domain, EIP712Message
-from eth_abi import encode
-from eth_pydantic_types.abi import bytes32, uint256
-from eth_utils import keccak
-
+from tplus.evm.address import public_key_to_address
 from tplus.evm.contracts import AddressType, CredentialManager, DepositVault
+from tplus.evm.governance import to_operator_key
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.config import ChainConfig
@@ -19,46 +15,13 @@ if TYPE_CHECKING:
     from tplus.evm.backends.base import EVMBackend
 
 
-OP_ADD_VAULT = keccak(b"OP_ADD_VAULT")
-
-
-def create_domain(credential_manager: AddressType, chain_id: int | ChainID) -> EIP712Domain:
-    if isinstance(chain_id, ChainID):
-        chain_id = chain_id.vm_id
-
-    return EIP712Domain(
-        name="CredentialManager",
-        version="1",
-        chainId=chain_id,
-        verifyingContract=credential_manager,
-    )
-
-
-def create_action(
-    op_type: bytes, params_hash: bytes, nonce: int, domain: EIP712Domain
-) -> EIP712Message:
-    class Action(EIP712Message):
-        eip712_domain = domain
-
-        opType: bytes32
-        paramsHash: bytes32
-        nonce: uint256
-
-    return Action(opType=op_type, paramsHash=params_hash, nonce=nonce)
-
-
-def sort_accounts(accounts: list) -> list:
-    return sorted(accounts, key=lambda a: int(getattr(a, "address", a), 16))
-
-
 class CredentialManagerOwner(ChainConnectedManager):
     """
-    Owner utilities for the credential manager
+    Committee utilities for the credential manager: operations signed by the operator keys.
     """
 
     def __init__(
         self,
-        admin: AddressType,
         signers: list,
         credential_manager: CredentialManager | None = None,
         chain_id: ChainID | None = None,
@@ -68,8 +31,7 @@ class CredentialManagerOwner(ChainConnectedManager):
         backend: "EVMBackend | None" = None,
     ):
         self._set_backend(backend)
-        self.admin = admin
-        self.signers = [self.backend.get_account(s) for s in signers]
+        self.operator_keys = [to_operator_key(signer) for signer in signers]
         self.chain_id = chain_id or ChainID.evm(self.backend.chain_id)
 
         if credential_manager is not None:
@@ -91,46 +53,33 @@ class CredentialManagerOwner(ChainConnectedManager):
     def governance_nonce(self) -> int:
         return self.credential_manager.governance_nonce
 
-    @cached_property
-    def domain(self) -> EIP712Domain:
-        return create_domain(self.credential_manager.address, self.chain_id)
-
     async def add_vault(
         self,
         vault: ChainAddress | DepositVault,
         chain_config: ChainConfig,
         wait: bool = False,
+        *,
+        sender: AddressType,
         **tx_kwargs,
     ):
         """
-        Add a vault to the registry.
+        Register a vault through a committee-signed operation.
 
         Args:
             vault (ChainAddress): The address and chain of the vault.
             chain_config (ChainConfig): The chain configuration for the chain the vault is deployed on.
             wait (bool): If true and the CE exists, will wait for the vault to be registered in the CE.
-            tx_kwargs: Additional tx kwargs.
+            sender: The funded account that sends the operation.
+            tx_kwargs: Additional tx kwargs, such as ``gas``.
 
         Returns:
-            The transaction receipt.
+            The operation ID.
         """
         if isinstance(vault, DepositVault):
             vault = vault.chain_address
 
-        sender = tx_kwargs["sender"]
-        if self._is_admin(sender):
-            signers: list = []
-            signatures: list = []
-        else:
-            params_hash = self._encode_add_vault_params(vault, chain_config)
-            signers = sort_accounts(self.signers)
-            signatures = self._get_signatures(
-                OP_ADD_VAULT,
-                params_hash,
-            )
-
-        tx = self.credential_manager.add_vault(
-            vault, chain_config, signers, signatures, **tx_kwargs
+        op_id = self.credential_manager.add_vault(
+            vault, chain_config, operator_keys=self.operator_keys, sender=sender, **tx_kwargs
         )
 
         if wait:
@@ -150,51 +99,56 @@ class CredentialManagerOwner(ChainConnectedManager):
                 error_msg=f"Vault registration failed (vault={vault}).",
             )
 
-        return tx
+        return op_id
 
-    def _is_admin(self, sender: Any) -> bool:
-        try:
-            return self.backend.convert_address(sender) == self.backend.convert_address(self.admin)
-        except Exception:
-            return getattr(sender, "address", sender) == self.admin
+    async def attest_signer(
+        self, signer_key: str | None = None, *, sender: AddressType, **tx_kwargs
+    ) -> bool:
+        """
+        Attest the clearing engine's signer for the first operator key over a mock quote, on a
+        manager with no attestation verifier. Does nothing while the operator already holds it.
 
-    def _encode_add_vault_params(self, vault: ChainAddress, chain_config: ChainConfig) -> bytes:
-        encoded = encode(
-            ["uint256", "uint256", "address", "(" + ",".join(chain_config.abi_types) + ")"],
-            [
-                vault.chain_id.routing_id,
-                vault.chain_id.vm_id,
-                vault.evm_address,
-                tuple(chain_config.abi_values),
-            ],
+        Args:
+            signer_key: The signer's public key. Defaults to the connected clearing engine's.
+            sender: The funded account that sends the attestation and executes the rotation.
+            tx_kwargs: Additional tx kwargs, such as ``gas``.
+
+        Returns:
+            Whether a new key was attested.
+        """
+        if signer_key is None:
+            if self.ce is None:
+                raise ValueError("Either signer_key or clearing_engine must be specified")
+
+            signer_key = await self.ce.admin.get_verifying_key()
+
+        return self.credential_manager.attest_signer(
+            self.operator_keys[0], public_key_to_address(signer_key), sender=sender, **tx_kwargs
         )
-        return keccak(encoded)
 
-    def _get_signatures(
-        self,
-        op_type: bytes,
-        params_hash: bytes,
-        count: int | None = None,
-    ) -> list[bytes]:
-        action = self._create_action(op_type, params_hash)
-        signers = sort_accounts(self.signers)
-        if count is None:
-            count = len(self.signers)
+    def ensure_intra_chain_strategy(
+        self, chain_id: ChainID | None = None, *, sender: AddressType, **tx_kwargs
+    ) -> AddressType | None:
+        """
+        Register the strategy that delivers snapshots to a vault on the manager's own chain,
+        unless ``chain_id`` already has one.
 
-        signatures = []
-        for acct in signers[:count]:
-            if signature := self.backend.sign_message(acct, action):
-                signatures.append(signature)
+        Returns:
+            The new strategy's address, or None while ``chain_id`` already has a strategy.
+        """
+        chain_id = chain_id or self.chain_id
+        registered = self.credential_manager.adminUpdateStrategies(
+            chain_id.routing_id, chain_id.vm_id
+        )
+        if int(str(registered), 16) != 0:
+            return None
 
-        return signatures
+        return self.credential_manager.register_intra_chain_strategy(
+            chain_id, operator_keys=self.operator_keys, sender=sender, **tx_kwargs
+        )
 
-    def _create_action(
-        self,
-        op_type: bytes,
-        params_hash: bytes,
-        nonce: int | None = None,
-    ) -> EIP712Message:
-        if nonce is None:
-            nonce = self.governance_nonce
-
-        return create_action(op_type, params_hash, nonce, self.domain)
+    def sync_vault(self, chain_id: ChainID | None = None, *, sender: AddressType, **tx_kwargs):
+        """Deliver the manager's committed governance snapshot to the vault on ``chain_id``."""
+        return self.credential_manager.sync_vault_governance_snapshot(
+            chain_id or self.chain_id, sender=sender, **tx_kwargs
+        )

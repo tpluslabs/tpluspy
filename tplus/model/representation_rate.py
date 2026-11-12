@@ -1,27 +1,27 @@
-"""Representation-rate mapping: which provider contract a token's rate is read from."""
+"""Representation rates: which provider contract a token's rate is read from, and its readings."""
 
-import struct
-from collections.abc import Callable, Sequence
 from enum import Enum
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from eth_pydantic_types.hex.bytes import HexBytes32
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tplus.model.asset_identifier import Address32
 from tplus.model.chain_address import ChainAddress
-from tplus.model.council import CouncilEnvelope, CouncilSig, sign_council_payload
 
-DEFAULT_HEARTBEAT_SECS = 30
 DEFAULT_STALE_AFTER_SECS = 300
 DEFAULT_MAX_RATE_JUMP_BPS = 1_000
+REGISTRY_SOURCE_KINDS = {"XStocksV2": 1, "OndoSharesOracle": 2}
 
 
 class RepresentationSourceKind(str, Enum):
     XSTOCKS_V2 = "XStocksV2"
     ONDO_SHARES_ORACLE = "OndoSharesOracle"
 
-    def bincode(self) -> bytes:
-        order = list(RepresentationSourceKind)
-        return struct.pack("<I", order.index(self))
+    @property
+    def registry_kind(self) -> int:
+        """The `sourceKind` the Registry stores for this kind."""
+        return REGISTRY_SOURCE_KINDS[self.value]
 
 
 class RepresentationSource(BaseModel):
@@ -31,94 +31,35 @@ class RepresentationSource(BaseModel):
     """Contract the rate is read from, on the same chain as the token the mapping keys it by."""
     provider_contract: Address32 | None = None
 
-    def bincode(self) -> bytes:
-        out = self.kind.bincode()
-        if self.provider_contract is None:
-            return out + b"\x00"
 
-        return out + b"\x01" + bytes.fromhex(str(self.provider_contract).removeprefix("0x"))
+class RegistryRepresentationConfig(BaseModel):
+    """Mirror of `Registry.RepresentationConfig`; all zeros removes a token's config."""
 
+    model_config = ConfigDict(populate_by_name=True)
 
-class RepresentationConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    provider_contract: HexBytes32 = Field(
+        default=HexBytes32(b"\x00" * 32), alias="providerContract"
+    )
+    """The contract the rate is read from, on the token's chain and encoded like its token
+    address (left-aligned on EVM chains, or the token is unavailable); required for kind 2."""
 
-    source: RepresentationSource
-    heartbeat_secs: int
-    stale_after_secs: int
-    max_rate_jump_bps: int
+    stale_after_secs: int = Field(default=DEFAULT_STALE_AFTER_SECS, alias="staleAfterSecs")
+    """Age past which a rate stops converting; more than 60, or the token is unavailable."""
 
-    def bincode(self) -> bytes:
-        return (
-            self.source.bincode()
-            + struct.pack("<Q", self.heartbeat_secs)
-            + struct.pack("<Q", self.stale_after_secs)
-            + struct.pack("<I", self.max_rate_jump_bps)
-        )
+    max_rate_jump_bps: int = Field(default=DEFAULT_MAX_RATE_JUMP_BPS, alias="maxRateJumpBps")
+    """Largest move a read may report before the token is quarantined, 1 to 4999 basis points."""
 
-
-class RepresentationRateMappingSnapshot(BaseModel):
-    """Addresses that are not identity. Everything absent here converts one to one."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    representations: dict[ChainAddress, RepresentationConfig] = {}
-
-    def bincode(self) -> bytes:
-        # A BTreeMap serializes in ascending key order, so the bytes match on both sides.
-        ordered = sorted(
-            self.representations, key=lambda token: bytes.fromhex(str(token).replace("@", ""))
-        )
-        out = struct.pack("<Q", len(ordered))
-        for token in ordered:
-            out += bytes(token) + self.representations[token].bincode()
-
-        return out
-
-
-SET_REPRESENTATION_RATE_MAPPING_DOMAIN = b"tplus.ce.set_representation_rate_mapping.v1"
-
-
-def bincode_mapping(mapping: RepresentationRateMappingSnapshot | None) -> bytes:
-    """The council signs ``bincode(Option<RepresentationRateMappingSnapshot>)``."""
-    if mapping is None:
-        return b"\x00"
-
-    return b"\x01" + mapping.bincode()
-
-
-class SetRepresentationRateMappingPayload(CouncilEnvelope):
-    mapping: RepresentationRateMappingSnapshot | None = None
-
-
-class SetRepresentationRateMappingRequest(BaseModel):
-    payload: SetRepresentationRateMappingPayload
-    sigs: list[CouncilSig]
+    source_kind: int = Field(alias="sourceKind")
+    """0 unset (the token converts 1:1), 1 xStocks v2, 2 Ondo shares oracle."""
 
     @classmethod
-    def signed(
-        cls,
-        mapping: RepresentationRateMappingSnapshot | None,
-        envelope: CouncilEnvelope,
-        signers: Sequence[str],
-        sign: Callable[[str, bytes], str],
-    ) -> "SetRepresentationRateMappingRequest":
-        """A rotation the council has signed, over the encoding the clearing engine verifies."""
-        sigs = sign_council_payload(
-            envelope,
-            SET_REPRESENTATION_RATE_MAPPING_DOMAIN,
-            bincode_mapping(mapping),
-            signers,
-            sign,
-        )
-        return cls(
-            payload=SetRepresentationRateMappingPayload(
-                min_seq=envelope.min_seq,
-                max_seq=envelope.max_seq,
-                committee_hash=envelope.committee_hash,
-                mapping=mapping,
-            ),
-            sigs=sigs,
-        )
+    def removed(cls) -> "RegistryRepresentationConfig":
+        return cls(staleAfterSecs=0, maxRateJumpBps=0, sourceKind=0)
+
+    @classmethod
+    def from_struct(cls, struct: Any) -> "RegistryRepresentationConfig":
+        """Parse the decoded `Registry.RepresentationConfig` struct of either EVM backend."""
+        return cls.model_validate(struct, from_attributes=True)
 
 
 class RepresentationRateHealth(str, Enum):
@@ -129,7 +70,8 @@ class RepresentationRateHealth(str, Enum):
     STALE = "Stale"
     REFUSED = "Refused"
     QUARANTINED = "Quarantined"
-    MAPPING_CLEARED = "MappingCleared"
+    AWAITING_REGISTRY = "AwaitingRegistry"
+    INVALID_CONFIG = "InvalidConfig"
 
     def converts(self) -> bool:
         return self is RepresentationRateHealth.CONVERTING
@@ -138,7 +80,7 @@ class RepresentationRateHealth(str, Enum):
 class PreviewUnavailable(str, Enum):
     """Why a preview names no representation amount."""
 
-    MAPPING_CLEARED = "MAPPING_CLEARED"
+    AWAITING_REGISTRY = "AWAITING_REGISTRY"
     RATE_UNHEALTHY = "RATE_UNHEALTHY"
     DECIMALS_UNKNOWN = "DECIMALS_UNKNOWN"
     ROUNDS_TO_ZERO = "ROUNDS_TO_ZERO"

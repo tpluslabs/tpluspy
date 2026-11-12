@@ -135,5 +135,5 @@ def test_delegated_cancel_uses_authenticated_account_without_additional_signers(
     )
 
     assert request.cancel.signer == account.public_key
-    assert request.signature == []
+    assert "signature" not in request.model_dump(mode="json")
     assert "additional_signers" not in request.model_dump(mode="json")

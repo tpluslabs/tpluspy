@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import click
 
 if TYPE_CHECKING:
+    from tplus.evm.governance import OperationScheduled
     from tplus.model.chain_address import ChainAddress
 
 PAGER_THRESHOLD = 10
@@ -17,6 +18,14 @@ def chain_address_record(chain_addr: "ChainAddress") -> dict:
         "routing_id": chain_id.routing_id,
         "vm_id": chain_id.vm_id,
     }
+
+
+def describe_schedule_event(schedule_event: "OperationScheduled") -> str:
+    """The operation ID a schedule event names and when it can execute."""
+    return (
+        f"scheduled 0x{bytes(schedule_event.op_id).hex()}, "
+        f"executable from {schedule_event.upper_eta_secs} (unix secs)"
+    )
 
 
 def echo_with_pager(

@@ -6,6 +6,7 @@ from tplus.client.clearingengine.admin_settlement import AdminSettlementClient
 from tplus.client.clearingengine.assetregistry import AdminAssetRegistryClient
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.client.clearingengine.cross_venue import CrossVenueClient
+from tplus.client.clearingengine.fee_accounts import FeeAccountClient
 from tplus.client.clearingengine.vault import VaultClient
 
 if TYPE_CHECKING:
@@ -22,6 +23,12 @@ class ClearingEngineClient(BaseClearingEngineClient):
     def from_local(cls, user: "UserLike", port: int = 3032, **kwargs):
         return cls(base_url=f"http://127.0.0.1:{port}", default_user=user, **kwargs)
 
+    async def update_governance_authorities(self):
+        """
+        Request that the CE sync its operator committee and risk council from chain.
+        """
+        await self._post("governance-authorities/update")
+
     @cached_property
     def admin_settlements(self) -> AdminSettlementClient:
         """
@@ -35,6 +42,11 @@ class ClearingEngineClient(BaseClearingEngineClient):
         Admin APIs related to registered assets.
         """
         return AdminAssetRegistryClient.from_client(self)
+
+    @cached_property
+    def fee_accounts(self) -> FeeAccountClient:
+        """Signed fee recipient settings and their current replicated values."""
+        return FeeAccountClient.from_client(self)
 
     @cached_property
     def vaults(self) -> VaultClient:

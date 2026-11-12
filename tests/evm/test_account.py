@@ -10,7 +10,7 @@ pytest.importorskip("ape")
 from tests.client.user_argument import (
     check_read_call_uses_derived_user,
     check_read_call_with_per_call_user,
-    check_signed_call_uses_derived_key,
+    check_write_call_uses_derived_user,
 )
 from tplus.client.clearingengine import ClearingEngineClient
 from tplus.evm.managers.deposit import DepositManager
@@ -51,7 +51,7 @@ async def test_get_user_inventory_ape_account_as_user_argument(signer, build_cli
 
 @pytest.mark.anyio
 async def test_cancel_order_ape_account_as_default_user(signer, build_client):
-    await check_signed_call_uses_derived_key(signer, build_client)
+    await check_write_call_uses_derived_user(signer, build_client)
 
 
 def test_chain_signing_manager_derives_user_from_ape_account(signer):

@@ -135,7 +135,7 @@ Prefer scripts for anything multi-step or programmatic — re-derive the `User` 
 | Place a limit order | `await client.create_limit_order(quantity=…, price=…, side="Buy", time_in_force=GTC(), asset_id=…)` |
 | Place a market order | `await client.create_market_order(side="Buy", base_quantity=…, asset_id=…)` |
 | Cancel / replace | `await client.cancel_order(order_id, asset_id)` / `await client.replace_order(...)` |
-| Transfer between sub-accounts | `await client.request_transfer_to_subaccount(source_index, target_index, asset, amount)` |
+| Transfer between sub-accounts | `await client.request_transfer(source, target, asset, amount, target_account_type)`; kind builders (`isolated`, `cross_margin`) live in `tplus.model.transfer`; account zero is funding. |
 | Stream my trade events | `async for ev in client.stream_user_trade_events(): ...` |
 
 ## A first order, end to end

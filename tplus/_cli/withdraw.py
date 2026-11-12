@@ -31,24 +31,25 @@ def withdraw():
     """Withdraw T+ assets."""
 
 
-@withdraw.command("cancel")
+@withdraw.command("cancel-transfer")
 @orderbook_url_option()
 @ignore_ssl_option()
 @tplus_account_option()
 @click.option("--asset", "asset_address", required=True, help="Asset address.")
+@click.option("--source-index", type=click.IntRange(min=1), required=True)
 @click.option("--nonce", type=int, required=True)
 @pass_cli_context
-def _cancel(cli_ctx: CLIContext, asset_address: str, nonce: int):
-    """Cancel a queued withdrawal."""
-    from tplus.model.withdrawal import CancelWithdrawalRequest
+def _cancel(cli_ctx: CLIContext, asset_address: str, source_index: int, nonce: int):
+    """Cancel the remainder of a queued transfer."""
+    from tplus.model.withdrawal import CancelTransferRequest
 
     user = cli_ctx.load_user()
-    request = CancelWithdrawalRequest.create_signed(
-        signer=user, asset_address=asset_address, nonce=nonce
+    request = CancelTransferRequest.create_signed(
+        signer=user, source=source_index, token=asset_address, nonce=nonce
     )
-    client = cli_ctx.withdrawal_client()
-    asyncio.run(client.cancel_withdrawal(request))
-    click.echo("Withdrawal cancelled.")
+    client = cli_ctx.orderbook_client()
+    result = asyncio.run(client.cancel_transfer(request))
+    click.echo(json.dumps(result))
 
 
 @withdraw.command("list")
@@ -63,7 +64,7 @@ def _list(cli_ctx: CLIContext, output_format: str, no_pager: bool, user_pubkey: 
     """List queued withdrawals."""
     pubkey = user_pubkey or cli_ctx.load_user().public_key
     client = cli_ctx.withdrawal_client()
-    queued = asyncio.run(client.get_queued_withdrawals(pubkey))
+    queued = asyncio.run(client.get_withdrawal_status(pubkey))
     if not queued:
         click.echo("No queued withdrawals.")
         return
@@ -103,7 +104,7 @@ def _signatures(cli_ctx: CLIContext, user_pubkey: str | None, nonce: int | None)
     """Show approval signatures for approved withdrawals."""
     pubkey = user_pubkey or cli_ctx.load_user().public_key
     client = cli_ctx.withdrawal_client()
-    queued = asyncio.run(client.get_queued_withdrawals(pubkey))
+    queued = asyncio.run(client.get_withdrawal_status(pubkey))
 
     result = {}
     for wd in queued:

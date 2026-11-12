@@ -8,6 +8,11 @@ class RiskParameters(BaseModel):
     Field names use snake_case in Python; aliases match the Solidity struct so
     `model_dump(by_alias=True)` produces a dict that ape will encode against the
     contract ABI directly.
+
+    Hourly rates (kink_interest_rates, usd_kink_interest_rates,
+    max_utilization_rate, base_funding_rate, max_funding_rate) use a denominator
+    of 100,000,000. Utilization kinks, margin factors, skew and premium fields
+    retain their denominator of 1,000,000. Values are passed through unchanged.
     """
 
     model_config = ConfigDict(populate_by_name=True)

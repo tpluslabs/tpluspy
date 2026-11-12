@@ -24,14 +24,14 @@ class TradeTarget(BaseModel):
     Corresponds to the Rust TradeTarget struct in orderbook_messages.
     """
 
-    account: int = 0
-    """Offset into trader's subaccounts (0 = main account, 1 = margin account)."""
+    account: int = 1
+    """Offset into trader's subaccounts (0 = funding (no orders), 1 = default cross-margin)."""
     is_spot: bool = True
     """Whether to spend from spot balance (True) or margin balance (False)."""
 
     @classmethod
     def main_account_spot_trade(cls) -> "TradeTarget":
-        """Trade target set to main account spending spot balance."""
+        """Explicit funding target for negative tests; the OMS refuses orders on it."""
         return cls(account=0, is_spot=True)
 
     @classmethod
