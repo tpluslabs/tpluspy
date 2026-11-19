@@ -30,6 +30,11 @@ class Address32(HexStr32):
     def __eth_pydantic_validate__(cls, value, info=None, **kwargs):
         return super().__eth_pydantic_validate__(value, info=info, prefixed=False, **kwargs)
 
+    @classmethod
+    def from_evm_address(cls, address: "EvmAddress | str") -> "Address32":
+        address_hex = to_evm_address(address).removeprefix("0x").lower()
+        return cls(address_hex.ljust(cls.size * 2, "0"))
+
     @cached_property
     def evm_address(self) -> "EvmAddress":
         return to_evm_address(self)

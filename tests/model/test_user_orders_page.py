@@ -11,9 +11,9 @@ def _historical_order() -> dict:
         "limit_price": "100.5",
         "quantity": "2",
         "amount": None,
-        "confirmed_filled_quantity": "1",
-        "confirmed_filled_amount": "100.5",
-        "confirmed_trading_fees_amount": "0.1",
+        "finalized_filled_quantity": "1",
+        "finalized_filled_amount": "100.5",
+        "finalized_trading_fees_amount": "0.1",
         "good_until_timestamp_ns": None,
         "timestamp_ns": 10,
         "is_immediate_or_cancel": False,
@@ -51,7 +51,7 @@ def test_parse_user_orders_page_accepts_compact_history_shape():
 
     assert len(page) == 1
     assert page[0].order_id == "order-1"
-    assert page[0].confirmed_filled_quantity == 1
+    assert page[0].finalized_filled_quantity == 1
 
 
 def test_parse_user_orders_page_tolerates_bare_list():
@@ -75,3 +75,14 @@ def test_user_orders_page_is_list_like():
     assert not page
     assert list(page) == []
     assert page[:] == []
+
+
+def test_parse_user_orders_page_keeps_the_tplus_order_id():
+    with_id = {
+        **_historical_order(),
+        "tplus_order_id": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    }
+    page = parse_user_orders_page({"orders": [with_id, _historical_order()]})
+
+    assert page[0].tplus_order_id == "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+    assert page[1].tplus_order_id is None

@@ -152,15 +152,31 @@ def test_get_erc20_decimals_non_evm_asset(manager):
 
 
 @pytest.mark.anyio
-async def test_execute_withdrawal_uses_approval_amount(manager):
-    info = WithdrawalInfo(
-        asset=USDC,
-        amount=ONE_THOUSAND_INVENTORY,
-        nonce=4,
-        target=TARGET,
-        chain_id=CHAIN_ID,
-    )
-    approvals = [
+@pytest.mark.parametrize(
+    "asset",
+    (
+        pytest.param(
+            AssetAddress.from_str(f"{'ab' * 32}@{ChainID.from_parts(1, 101)}"), id="solana"
+        ),
+        pytest.param(
+            AssetAddress.from_evm_address(
+                "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", ChainID.evm(8453)
+            ),
+            id="another-evm-chain",
+        ),
+    ),
+)
+async def test_init_withdrawal_rejects_asset_on_another_chain(manager, asset):
+    with pytest.raises(ValueError, match="this manager withdraws on chain"):
+        await manager.init_withdrawal(asset, 1)
+
+    manager.vault.get_withdrawal_count.assert_not_called()
+    manager.withdrawals.init_withdrawal.assert_not_awaited()
+
+
+@pytest.fixture
+def approvals():
+    return [
         WithdrawalApproval.model_validate(
             {
                 "inner": {"nonce": 4, "signature": "00"},
@@ -178,6 +194,50 @@ async def test_execute_withdrawal_uses_approval_amount(manager):
             }
         )
     ]
+
+
+@pytest.mark.anyio
+async def test_init_withdrawal_rejects_non_evm_target(manager):
+    target = Address32("11" * 32)
+
+    with pytest.raises(ValueError, match="is not an EVM address"):
+        await manager.init_withdrawal(USDC, 1, target=target)
+
+    manager.vault.get_withdrawal_count.assert_not_called()
+    manager.withdrawals.init_withdrawal.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("explicit_target", (False, True), ids=("default", "explicit"))
+@pytest.mark.parametrize(
+    "root_address",
+    (
+        pytest.param("0x0A2c84E944f97F4A4f60221E6fb5d5dBAe49C7AA", id="0x0"),
+        pytest.param("0x00000000219ab540356cBB839Cbe05303d7705Fa", id="0x00"),
+    ),
+)
+async def test_execute_withdrawal_pays_zero_prefixed_root_account(
+    manager, approvals, root_address, explicit_target
+):
+    manager.account.address = root_address
+    target = root_address if explicit_target else None
+
+    info = await manager.init_withdrawal(USDC, ONE_THOUSAND_INVENTORY, target=target)
+    await manager.execute_withdrawal(info, approvals, user=manager.default_user)
+
+    _, _, target, _, _, _ = manager.vault.withdraw.call_args.args
+    assert target == root_address
+
+
+@pytest.mark.anyio
+async def test_execute_withdrawal_uses_approval_amount(manager, approvals):
+    info = WithdrawalInfo(
+        asset=USDC,
+        amount=ONE_THOUSAND_INVENTORY,
+        nonce=4,
+        target=TARGET,
+        chain_id=CHAIN_ID,
+    )
 
     await manager.execute_withdrawal(info, approvals)
 

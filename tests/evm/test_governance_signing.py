@@ -18,11 +18,8 @@ def test_sign_bundle_is_accepted_by_every_governance_host(
 ):
     members = [OperatorKey.create() for _ in range(member_count)]
     signers = sorted(members, key=lambda member: int(member.address, 16), reverse=True)[:threshold]
-    owner, registry, manager = manager_factory(members, threshold)
     member_addresses = [member.address for member in members]
-    registry.initialize_risk_council(
-        manager.address, DEV_UNIVERSE_ID, member_addresses, threshold, sender=owner
-    )
+    owner, registry, manager = manager_factory(members, threshold, council=member_addresses)
     profile_registry = MeasurementProfileRegistry.deploy(
         sender=owner, credential_manager=manager.address, universe_id=DEV_UNIVERSE_ID
     )
@@ -31,9 +28,9 @@ def test_sign_bundle_is_accepted_by_every_governance_host(
     council_event = registry.schedule_and_execute_if_due(
         "RISK_COUNCIL", [member_addresses, threshold], council=signers, sender=owner
     )
-    profile_event = profile_registry.schedule_profile(
+    profile_event = profile_registry.schedule_profiles(
         MeasurementProfileRegistry.CLEARING_ENGINE_KIND,
-        measurement_profile,
+        [measurement_profile],
         operator_keys=signers,
         sender=owner,
     )

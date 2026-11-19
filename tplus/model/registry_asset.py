@@ -28,11 +28,11 @@ class AssetData(BaseModel):
     chain_id: RegistryChainId = Field(alias="chainId")
     """The chain the asset lives on."""
 
-    max_deposits: int = Field(alias="maxDeposits")
-    """Cap on deposits (collateral cap)."""
+    admission_cap: int = Field(alias="admissionCap")
+    """Admission cap (collateral cap)."""
 
-    max_1hr_deposits: int = Field(alias="max1hrDeposits")
-    """Cap on fungible deposits over one hour."""
+    admission_cap_1hr: int = Field(alias="admissionCap1hr")
+    """Admission cap over one hour."""
 
     min_weight: int = Field(alias="minWeight")
     """Raw weight value (not percentage)."""

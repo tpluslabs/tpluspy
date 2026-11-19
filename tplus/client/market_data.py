@@ -148,7 +148,7 @@ class MarketDataClient(AuthenticatedClient):
         return parse_open_interest(response)
 
     async def get_trades(self, page: int | None = None, limit: int | None = None) -> list[Trade]:
-        """Confirmed trades across all markets."""
+        """Finalized trades across all markets."""
         response = await self._get("/trades", params=page_params(page, limit), requires_auth=False)
         if not isinstance(response, list):
             raise ValueError(f"Invalid response from get_trades: {response}")
@@ -158,7 +158,7 @@ class MarketDataClient(AuthenticatedClient):
     async def get_trades_for_asset(
         self, asset_id: AssetIdentifier, page: int | None = None, limit: int | None = None
     ) -> list[Trade]:
-        """Confirmed trades for `asset_id`."""
+        """Finalized trades for `asset_id`."""
         response = await self._get(
             f"/trades/{asset_id}", params=page_params(page, limit), requires_auth=False
         )
@@ -291,13 +291,15 @@ class MarketDataClient(AuthenticatedClient):
         end_time: int | None = None,
         side: str | None = None,
         status: str | None = None,
+        order_id: str | None = None,
     ) -> UserOrdersPage:
         """
         Orders for `user`, newest first; empty unless the user's data is exported to MDS.
 
         `start_time`/`end_time` are inclusive nanosecond Unix timestamps; `side` is
         `"buy"` or `"sell"`; `status` is one of `pending`, `open`, `partial`, `cancelled`, `closed`,
-        `completed`. All are case-insensitive.
+        `completed`, both case-insensitive. `order_id`, matched exactly, keeps every order placed
+        under that client order id, one per order that reused it, told apart by `tplus_order_id`.
         """
         return await self._get_user_orders(
             user=user,
@@ -308,6 +310,7 @@ class MarketDataClient(AuthenticatedClient):
             end_time=end_time,
             side=side,
             status=status,
+            order_id=order_id,
         )
 
     async def get_user_orders_for_asset(
@@ -322,13 +325,15 @@ class MarketDataClient(AuthenticatedClient):
         end_time: int | None = None,
         side: str | None = None,
         status: str | None = None,
+        order_id: str | None = None,
     ) -> UserOrdersPage:
         """
         Orders for `user` on `asset_id`, newest first.
 
         `start_time`/`end_time` are inclusive nanosecond Unix timestamps; `side` is
         `"buy"` or `"sell"`; `status` is one of `pending`, `open`, `partial`, `cancelled`, `closed`,
-        `completed`. All are case-insensitive.
+        `completed`, both case-insensitive. `order_id`, matched exactly, keeps every order placed
+        under that client order id, one per order that reused it, told apart by `tplus_order_id`.
         """
         return await self._get_user_orders(
             asset_id=asset_id,
@@ -340,6 +345,7 @@ class MarketDataClient(AuthenticatedClient):
             end_time=end_time,
             side=side,
             status=status,
+            order_id=order_id,
         )
 
     async def _get_user_orders(
@@ -353,6 +359,7 @@ class MarketDataClient(AuthenticatedClient):
         end_time: int | None = None,
         side: str | None = None,
         status: str | None = None,
+        order_id: str | None = None,
         user: UserType | None = None,
     ) -> UserOrdersPage:
         public_key = self._validate_user_public_key(user=user)
@@ -368,6 +375,7 @@ class MarketDataClient(AuthenticatedClient):
             end_time=end_time,
             side=side,
             status=status,
+            order_id=order_id,
         )
         try:
             data = await self._get(endpoint, params=params, requires_auth=True, user=user)
@@ -450,7 +458,7 @@ class MarketDataClient(AuthenticatedClient):
         await self._post("/debug/clear-db", requires_auth=False)
 
     async def stream_finalized_trades(self) -> AsyncIterator[Trade]:
-        """Confirmed/finalized trades."""
+        """Finalized trades."""
         async for trade in self._stream_ws("/trades", parse_single_trade, requires_auth=False):
             yield trade
 

@@ -64,8 +64,8 @@ def _list_via_oms(cli_ctx: CLIContext, include_risk: bool, output_format: str, n
             chain_addr_str, fields = next(iter(v.items()))
             rec.update(chain_address_record(ChainAddress.from_str(chain_addr_str)))
             if isinstance(fields, dict):
-                rec["max_deposits"] = fields.get("max_deposits")
-                rec["max_1hr_deposits"] = fields.get("max_1hr_deposits")
+                rec["admission_cap"] = fields.get("admission_cap")
+                rec["admission_cap_1hr"] = fields.get("admission_cap_1hr")
         else:
             rec["asset"] = v
         if include_risk:
@@ -162,8 +162,8 @@ if _EVM_AVAILABLE:
                 rec = {
                     "index": idx,
                     **chain_address_record(asset["chain_address"]),
-                    "max_deposits": asset["max_deposits"],
-                    "max_1hr_deposits": asset["max_1hr_deposits"],
+                    "admission_cap": asset["admission_cap"],
+                    "admission_cap_1hr": asset["admission_cap_1hr"],
                 }
                 if include_risk and idx < len(risks):
                     rec["risk_parameters"] = risks[idx].model_dump()
@@ -183,12 +183,8 @@ if _EVM_AVAILABLE:
         registry = cast("Registry", Registry.at(registry_address)) if registry_address else None
         return RegistryOwner(owner=signer, registry=registry, clearing_engine=ce)
 
-    @assets.command("init-risk-council", cls=ConnectedProviderCommand)
+    @assets.command("deploy-registry", cls=ConnectedProviderCommand)
     @tplus_network_option()
-    @clearing_url_option()
-    @ignore_ssl_option()
-    @registry_address_option()
-    @tplus_account_option()
     @account_option()
     @click.argument("credential_manager")
     @universe_option(
@@ -201,42 +197,6 @@ if _EVM_AVAILABLE:
         help="Risk council member address. May be repeated. Defaults to the sender.",
     )
     @click.option("--threshold", type=int, help="Defaults to a strict majority of the members.")
-    @pass_cli_context
-    def _init_risk_council(
-        cli_ctx: CLIContext,
-        account,
-        credential_manager: str,
-        universe: str | None,
-        members: "Iterable[str]",
-        threshold: int | None,
-        registry_address: str | None,
-        provider,
-    ):
-        """Install the Registry's risk council, governed by CREDENTIAL_MANAGER."""
-        from tplus.evm.contracts import ZERO_ADDRESS
-        from tplus.evm.governance import compute_majority_threshold
-
-        owner = _build_owner(cli_ctx, account, registry_address=registry_address)
-        if owner.registry.get_credential_manager() != ZERO_ADDRESS:
-            click.echo("risk council already installed")
-            return
-
-        universe_id = bytes(
-            compute_universe_id(resolve_universe(universe, provider.network.is_local))
-        )
-
-        council = list(members) or [account.address]
-        receipt = owner.initialize_risk_council(
-            credential_manager,
-            universe_id,
-            council,
-            threshold or compute_majority_threshold(len(council)),
-        )
-        click.echo(f"tx: {receipt.txn_hash}")
-
-    @assets.command("deploy-registry", cls=ConnectedProviderCommand)
-    @tplus_network_option()
-    @account_option()
     @click.option(
         "--risk-param-delay",
         "risk_param_delay",
@@ -272,15 +232,25 @@ if _EVM_AVAILABLE:
     def _deploy_registry(
         provider,
         account,
+        credential_manager: str,
+        universe: str | None,
+        members: "Iterable[str]",
+        threshold: int | None,
         risk_param_delay: int,
         upgrade_delay: int,
         allow_zero_upgrade_delay: bool,
         skip_if_deployed: bool,
     ):
-        """Deploy a new Registry behind an ERC1967 proxy."""
+        """Deploy a new Registry behind an ERC1967 proxy, governed under CREDENTIAL_MANAGER."""
         from tplus.evm.contracts import Registry
+        from tplus.evm.governance import compute_majority_threshold
 
         if skip_if_deployed and (adopted := Registry()._adopt_ce_deployment()):
+            try:
+                cast("Registry", adopted).validate_credential_manager(credential_manager)
+            except ValueError as err:
+                raise click.UsageError(str(err)) from err
+
             click.echo(f"reused: {adopted.address}")
             return
 
@@ -288,7 +258,7 @@ if _EVM_AVAILABLE:
             if not allow_zero_upgrade_delay:
                 raise click.UsageError(
                     "Pass a non-zero --upgrade-delay on mainnet, or --allow-zero-upgrade-delay "
-                    "for bootstrap; with a zero delay the admin can upgrade the Registry at once."
+                    "for bootstrap; with a zero delay the operator committee can upgrade the Registry at once."
                 )
 
             click.echo(
@@ -296,8 +266,17 @@ if _EVM_AVAILABLE:
                 "upgrade timelock."
             )
 
+        council = list(members) or [account.address]
         instance = Registry.deploy_proxy(
-            sender=account, risk_param_delay_secs=risk_param_delay, upgrade_delay_secs=upgrade_delay
+            sender=account,
+            credential_manager=credential_manager,
+            universe_id=bytes(
+                compute_universe_id(resolve_universe(universe, provider.network.is_local))
+            ),
+            council=council,
+            council_threshold=threshold or compute_majority_threshold(len(council)),
+            risk_param_delay_secs=risk_param_delay,
+            upgrade_delay_secs=upgrade_delay,
         )
         click.echo(f"deployed: {instance.address}")
 
@@ -317,8 +296,8 @@ if _EVM_AVAILABLE:
         index: int,
         asset_address: str,
         chain_id: int,
-        max_deposit: int,
-        max_1hr_deposits: int,
+        admission_cap: int,
+        admission_cap_1hr: int,
         min_weight: int,
         no_wait: bool,
         registry_address: str | None,
@@ -333,8 +312,8 @@ if _EVM_AVAILABLE:
                 index=index,
                 asset_address=cast("AddressType", asset_address),
                 chain_id=ChainID.evm(chain_id),
-                max_deposit=max_deposit,
-                max_1hr_deposits=max_1hr_deposits,
+                admission_cap=admission_cap,
+                admission_cap_1hr=admission_cap_1hr,
                 min_weight=min_weight,
                 wait=not no_wait,
             )
@@ -360,8 +339,8 @@ if _EVM_AVAILABLE:
         index: int,
         asset_address: str,
         chain_id: int,
-        max_deposit: int,
-        max_1hr_deposits: int,
+        admission_cap: int,
+        admission_cap_1hr: int,
         min_weight: int,
         op_id: bytes,
         registry_address: str | None,
@@ -375,11 +354,12 @@ if _EVM_AVAILABLE:
             index,
             cast("AddressType", asset_address),
             ChainID.evm(chain_id),
-            max_deposit,
-            max_1hr_deposits,
+            admission_cap,
+            admission_cap_1hr,
             min_weight,
         )
-        receipt = owner.execute_operation("ASSET_DATA", [data], op_id)
+        operation_name, values = owner.registry.build_asset_operation(data)
+        receipt = owner.execute_operation(operation_name, values, op_id)
         click.echo(f"tx: {receipt.txn_hash}")
         if ce := owner.ce:
             asyncio.run(ce.assets.update())

@@ -51,8 +51,8 @@ class RegistryOwner(ChainConnectedManager):
         index: int,
         asset_address: "HexBytes32 | AddressType",
         chain_id: ChainID,
-        max_deposit: int,
-        max_1hr_deposits: int,
+        admission_cap: int,
+        admission_cap_1hr: int,
         min_weight: int,
         wait: bool = True,
         **tx_kwargs,
@@ -65,8 +65,8 @@ class RegistryOwner(ChainConnectedManager):
             index,
             asset_address,
             chain_id,
-            max_deposit,
-            max_1hr_deposits,
+            admission_cap,
+            admission_cap_1hr,
             min_weight,
             council=self.council,
             **tx_kwargs,
@@ -88,19 +88,6 @@ class RegistryOwner(ChainConnectedManager):
             )
 
         return schedule_event
-
-    def initialize_risk_council(
-        self,
-        credential_manager: "AddressType | str",
-        universe_id: bytes,
-        members: "list[AddressType | str]",
-        threshold: int,
-        **tx_kwargs,
-    ) -> Any:
-        tx_kwargs.setdefault("sender", self.owner)
-        return self.registry.initialize_risk_council(
-            credential_manager, universe_id, members, threshold, **tx_kwargs
-        )
 
     def schedule_operation(self, name: str, values: list, **tx_kwargs) -> OperationScheduled:
         tx_kwargs.setdefault("sender", self.owner)

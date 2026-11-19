@@ -17,7 +17,7 @@ MARGIN_RESPONSE = {
             "maintenance_margin_surplus": "10000.0",
             "mm_requirement": "5000.0",
             "account_leverage": "4.0",
-            "is_solvent": True,
+            "above_im_requirement": True,
             "is_liquidatable": False,
             "total_upnl": "250.0",
             "im_surplus": None,
@@ -54,7 +54,7 @@ def test_parse_user_margin_info_preserves_complete_oms_response():
     assert account.maintenance_margin_surplus == Decimal("10000.0")
     assert account.mm_requirement == Decimal("5000.0")
     assert account.account_leverage == Decimal("4.0")
-    assert account.is_solvent is True
+    assert account.above_im_requirement is True
     assert account.is_liquidatable is False
     assert account.total_upnl == Decimal("250.0")
     assert account.im_surplus is None

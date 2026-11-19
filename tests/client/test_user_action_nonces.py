@@ -25,11 +25,11 @@ def test_subaccount_transfer_builder_signs_nonce():
     assert len(payload["signature"]) == 64
 
 
-def test_close_position_builder_signs_nonce():
+def test_clear_position_builder_signs_nonce():
     user = User()
     client = OrderBookClient(default_user=user)
 
-    payload = client._build_close_position_request(1, "200", nonce=43, user=user)
+    payload = client._build_clear_position_request(1, "200", nonce=43, user=user)
 
     assert payload["inner"]["nonce"] == 43
     assert len(payload["signature"]) == 64
@@ -60,13 +60,13 @@ def test_delegated_subaccount_transfer_targets_account_and_adds_signer():
     )
 
 
-def test_delegated_close_position_targets_account_and_adds_signer():
+def test_delegated_clear_position_targets_account_and_adds_signer():
     account = User()
     signer = User()
     delegated = DelegatedUser(account.public_key, signer)
     client = OrderBookClient(default_user=delegated)
 
-    payload = client._build_close_position_request(
+    payload = client._build_clear_position_request(
         1,
         "200",
         nonce=45,
@@ -83,12 +83,12 @@ def test_delegated_close_position_targets_account_and_adds_signer():
     )
 
 
-def test_custody_repayment_signs_exact_fields_and_supports_delegation():
+def test_token_liability_repayment_signs_exact_fields_and_supports_delegation():
     owner = User()
     signer = User()
     for user in (owner, DelegatedUser(owner.public_key, signer)):
         client = OrderBookClient(default_user=user)
-        payload = client._build_custody_repayment(0, "token", 12, nonce=42)
+        payload = client._build_token_liability_repayment(0, "token", 12, nonce=42)
         assert list(payload["inner"]) == ["user", "repayment", "nonce"]
         assert payload["inner"]["repayment"] == {
             "source": "Funding",
@@ -106,14 +106,14 @@ def test_custody_repayment_signs_exact_fields_and_supports_delegation():
 
 
 @pytest.mark.asyncio
-async def test_custody_repayment_posts_signed_payload_and_returns_ce_amounts():
+async def test_token_liability_repayment_posts_signed_payload_and_returns_ce_amounts():
     user = User()
     client = OrderBookClient(default_user=user)
     reply = {"success": True, "repaid": "12", "remaining_liability": "3"}
     with patch.object(client, "_post", new_callable=AsyncMock, return_value=reply) as post:
-        assert await client.request_custody_repayment(0, "token", 12, nonce=42) == reply
+        assert await client.request_token_liability_repayment(0, "token", 12, nonce=42) == reply
     args = post.call_args
-    assert args.args == ("/account/transfer/custody-repayment",)
+    assert args.args == ("/account/transfer/token-liability-repayment",)
     payload = args.kwargs["json_data"]
     user.vk.verify(
         bytes(payload["signature"]), json.dumps(payload["inner"], separators=(",", ":")).encode()

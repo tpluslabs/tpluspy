@@ -1,13 +1,15 @@
 """Operator-committee signed CE fee account settings."""
 
-import hashlib
 from typing import Any
 
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-
 from tplus.client.clearingengine.base import BaseClearingEngineClient
+from tplus.model.council import CouncilEnvelope, build_council_request
 from tplus.model.types import UserPublicKey
-from tplus.utils.operator import load_operator_sk, sign_operator_payload
+from tplus.utils.operator import load_operator_signers
+
+
+class SetFeeAccountPayload(CouncilEnvelope):
+    fee_account: str
 
 
 def build_set_fee_account_request(
@@ -26,37 +28,17 @@ def build_set_fee_account_request(
     against its installed operator committee.
     """
     account = UserPublicKey.__validate_user__(fee_account)
-    keys = [load_operator_sk(secret) for secret in operator_secrets]
-    public_keys = [
-        key.public_key().public_bytes(Encoding.X962, PublicFormat.CompressedPoint).hex()
-        for key in keys
-    ]
-    committee_hash = hashlib.sha256(
-        "".join(sorted(public_keys)).encode("ascii") + threshold.to_bytes(8, "big")
-    ).digest()
     domain = b"tplus.ce.set_trading_fee_account.v1" if trading else b"tplus.ce.set_fee_account.v1"
-    value = bytes.fromhex(account)
-    signing_bytes = (
-        min_seq.to_bytes(8, "big")
-        + max_seq.to_bytes(8, "big")
-        + committee_hash
-        + len(domain).to_bytes(8, "big")
-        + domain
-        + len(value).to_bytes(8, "big")
-        + value
-    )
-    return {
-        "payload": {
-            "min_seq": min_seq,
-            "max_seq": max_seq,
-            "committee_hash": committee_hash.hex(),
-            "fee_account": account,
-        },
-        "sigs": [
-            {"signer": public_key, "signature": sign_operator_payload(signing_bytes, key)}
-            for public_key, key in zip(public_keys, keys, strict=True)
-        ],
-    }
+    return build_council_request(
+        SetFeeAccountPayload,
+        {"fee_account": account},
+        domain,
+        bytes.fromhex(account),
+        load_operator_signers(operator_secrets),
+        threshold,
+        min_seq,
+        max_seq,
+    ).model_dump(mode="json")
 
 
 class FeeAccountClient(BaseClearingEngineClient):

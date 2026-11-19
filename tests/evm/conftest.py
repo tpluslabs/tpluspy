@@ -62,15 +62,21 @@ def web3_backend(web3_instance):
 
 @pytest.fixture
 def manager_factory(web3_backend):
-    def build_manager(operator_keys, committee_threshold, universe_id=DEV_UNIVERSE_ID):
+    def build_manager(
+        operator_keys, committee_threshold, universe_id=DEV_UNIVERSE_ID, council=None
+    ):
         owner = web3_backend.default_test_account()
-        registry = Registry.deploy_dev(sender=owner)
         manager = CredentialManager.deploy_dev(
             sender=owner,
             operators=operator_keys,
             committee_threshold=committee_threshold,
-            registry=registry.address,
             universe_id=universe_id,
+        )
+        registry = Registry.deploy_dev(
+            sender=owner,
+            credential_manager=manager.address,
+            universe_id=universe_id,
+            council=council,
         )
         return owner, registry, manager
 
@@ -148,16 +154,11 @@ def expected_packet_signature() -> bytes:
 @pytest.fixture
 def deploy_governed_registry(operator_account):
     def deploy(**registry_kwargs):
-        registry = Registry.deploy_dev(sender=operator_account, **registry_kwargs)
-        credential_manager = CredentialManager.deploy_dev(
-            sender=operator_account, registry=registry.address
-        )
-        registry.initialize_risk_council(
-            credential_manager.address,
-            DEV_UNIVERSE_ID,
-            [operator_account.address],
-            1,
+        credential_manager = CredentialManager.deploy_dev(sender=operator_account)
+        registry = Registry.deploy_dev(
             sender=operator_account,
+            credential_manager=credential_manager.address,
+            **registry_kwargs,
         )
         return registry, credential_manager, [OperatorKey(operator_account.local)]
 

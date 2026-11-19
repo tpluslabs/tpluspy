@@ -27,7 +27,7 @@ _CORE_COMMANDS = {
     "trades": "tplus._cli.trades:trades",
     "vaults": "tplus._cli.vaults:vaults",
     "withdraw": "tplus._cli.withdraw:withdraw",
-    "withdrawal": "tplus._cli.withdrawal:withdrawal",
+    "redemption-delay": "tplus._cli.redemption_delay:redemption_delay",
 }
 
 _EVM_COMMANDS = {
@@ -107,7 +107,7 @@ def cli():
 if not _evm_available():
     cli.epilog = (
         "On-chain commands (deposit, settle) and on-chain subcommands of "
-        "assets/vault/params/withdraw/withdrawal (deploy, set, register, init, "
+        "assets/vault/params/withdraw/redemption-delay (deploy, set, register, init, "
         "execute, ...) require the 'evm' extra: pip install 'tpluspy[evm]'. "
         "Read-only CE-backed subcommands (e.g. 'list', 'get', 'update-ce') "
         "remain available."

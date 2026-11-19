@@ -154,7 +154,7 @@ class ResumeWithdrawalsRequest(BaseModel):
         return self.inner.signing_payload()
 
 
-class WithdrawalDelayParameters(BaseModel):
+class RedemptionDelayParameters(BaseModel):
     min_delay: int = Field(alias="minDelay")
     max_delay: int = Field(alias="maxDelay")
     delay_clamps: list[int] = Field(alias="delayClamps")

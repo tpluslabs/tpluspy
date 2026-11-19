@@ -1,9 +1,10 @@
 """Council k-of-n multisig envelope shared by the clearing engine's rotation endpoints."""
 
 import hashlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SerializeAsAny
 
 
 class CouncilSig(BaseModel):
@@ -17,6 +18,14 @@ class CouncilEnvelope(BaseModel):
     min_seq: int
     max_seq: int
     committee_hash: str
+
+
+PayloadT = TypeVar("PayloadT", bound=CouncilEnvelope)
+
+
+class CouncilRequest(BaseModel, Generic[PayloadT]):
+    payload: SerializeAsAny[PayloadT]
+    sigs: list[CouncilSig]
 
 
 def committee_hash(council_pubkeys: Sequence[str], k: int) -> bytes:
@@ -52,3 +61,29 @@ def sign_council_payload(
     """
     digest = council_digest(envelope, domain, value)
     return [CouncilSig(signer=signer, signature=sign(signer, digest)) for signer in signers]
+
+
+def build_council_request(
+    payload_type: type[PayloadT],
+    fields: dict[str, Any],
+    domain: bytes,
+    value: bytes,
+    signers: Mapping[str, Callable[[bytes], str]],
+    threshold: int,
+    min_seq: int,
+    max_seq: int,
+) -> CouncilRequest[PayloadT]:
+    """A council-signed request whose payload carries ``fields`` beside the envelope.
+
+    Args:
+        signers: Digest signers keyed by compressed public key hex, together the committee.
+    """
+    envelope = CouncilEnvelope(
+        min_seq=min_seq,
+        max_seq=max_seq,
+        committee_hash=committee_hash(list(signers), threshold).hex(),
+    )
+    sigs = sign_council_payload(
+        envelope, domain, value, list(signers), lambda signer, digest: signers[signer](digest)
+    )
+    return CouncilRequest(payload=payload_type(**envelope.model_dump(), **fields), sigs=sigs)

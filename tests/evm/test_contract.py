@@ -97,7 +97,7 @@ class TestDepositVaultDeploy:
             sender=owner,
         )
         assert instance.address
-        assert instance.owner() == evm_backend.convert_address(owner)
+        assert instance.settlementAdmin() == evm_backend.convert_address(owner)
 
     def test_deploy_different_owner(self, evm_backend, test_accounts):
         owner = test_accounts[0]
@@ -111,7 +111,7 @@ class TestDepositVaultDeploy:
             sender=sender,
         )
         assert instance.address
-        assert instance.owner() == evm_backend.convert_address(owner)
+        assert instance.settlementAdmin() == evm_backend.convert_address(owner)
         assert sender.nonce > nonce_before
 
     def test_domain_separator(self, evm_backend, test_accounts):
@@ -125,7 +125,6 @@ class TestDepositVaultDeploy:
             sender=owner,
         )
         expected = get_dstack_domain(instance.chain_address)
-        instance.set_domain_separator(expected, sender=owner)
 
         # Reads using ``eth_getStorageAt`` -- backend-neutral.
         assert instance.domain_separator == expected

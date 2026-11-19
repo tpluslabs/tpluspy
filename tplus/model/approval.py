@@ -24,6 +24,11 @@ class SettlementApproval(BaseModel):
     conversion: ConversionInfo
     """What the token-out leg became under the rate this approval was signed at."""
 
+    reserved_fee: int | None = None
+    """The rebalancing fee the settlement holds off the lock owner's balance until its
+    payout, in canonical units of the outgoing asset at 1e18; the payout collects at most
+    this and returns the rest. ``None`` when it reserved nothing."""
+
 
 class WithdrawalApproval(BaseModel):
     inner: InnerApproval

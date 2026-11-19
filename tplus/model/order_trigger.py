@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, model_serializer
+from pydantic import BaseModel, SerializeAsAny, model_serializer
 
 from tplus.model.order_id import UserOrderId
 
@@ -27,9 +27,13 @@ class TriggerBelow(BaseModel):
         return {"PriceBelow": data}
 
 
+# Keep `SerializeAsAny`, each trigger must use its own serializer or a below-trigger signs as above.
+TriggerCondition = SerializeAsAny[TriggerAbove | TriggerBelow]
+
+
 class OrderTrigger(BaseModel):
     parent_order_id: UserOrderId | None
-    trigger: TriggerAbove | TriggerBelow
+    trigger: TriggerCondition
 
     @model_serializer
     def serialize_model(self) -> dict[str, dict[str, Any] | str | None]:

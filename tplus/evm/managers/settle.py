@@ -211,6 +211,7 @@ class SettlementManager(ChainSigningManager):
         then_execute: bool = False,
         executor_contract: "ContractInstance | None" = None,
         max_fee: int | None = None,
+        nonce: int | None = None,
     ) -> tuple[SettlementInfo, SettlementApproval]:
         """
         Initialize a settlement and return its approval synchronously.
@@ -233,6 +234,8 @@ class SettlementManager(ChainSigningManager):
             max_fee: The most the settlement may reserve for the rebalancing fee of its outgoing leg, in
               CE-internal 1e18 units of ``asset_out``. The CE refuses a request priced above it;
               ``None`` accepts whatever the protocol reserves.
+            nonce: The settlement nonce. Defaults to the vault's count for the account; pass the next
+              one to approve a settlement while an earlier one is still to execute.
 
         Returns:
             tuple[SettlementInfo, SettlementApproval]: Settlement metadata and the approval returned by CE.
@@ -247,9 +250,10 @@ class SettlementManager(ChainSigningManager):
 
         # NB: nonce is per (user, account); read it for the settlement's own account_index,
         # not user.sub_account, so a non-default-account settlement gets the right nonce.
-        expected_nonce = self.vault.settlementCounts(
-            user.public_key,
-            account_index,
+        expected_nonce = (
+            nonce
+            if nonce is not None
+            else self.vault.settlementCounts(user.public_key, account_index)
         )
 
         amount_in_normalized = amount_in.to_inventory_amount("up")

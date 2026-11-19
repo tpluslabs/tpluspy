@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from tplus.client.clearingengine.admin import AdminClient
 from tplus.client.clearingengine.admin_settlement import AdminSettlementClient
+from tplus.client.clearingengine.approval_durations import ApprovalDurationsClient
 from tplus.client.clearingengine.assetregistry import AdminAssetRegistryClient
 from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.client.clearingengine.cross_venue import CrossVenueClient
@@ -35,6 +36,11 @@ class ClearingEngineClient(BaseClearingEngineClient):
         APIs related to settlements.
         """
         return AdminSettlementClient.from_client(self)
+
+    @cached_property
+    def approval_durations(self) -> ApprovalDurationsClient:
+        """Per-chain withdrawal and settlement approval durations, set by the operator council."""
+        return ApprovalDurationsClient.from_client(self)
 
     @cached_property
     def assets(self) -> AdminAssetRegistryClient:

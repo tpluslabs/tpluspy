@@ -87,7 +87,7 @@ def test_trading_account_kinds():
         {
             "success": True,
             "state": "completed",
-            "debited": {"Custody": {"amount": "10"}},
+            "debited": {"Token": {"amount": "10"}},
             "credited": {"Canonical": {"amount": "30"}},
         },
     ],

@@ -97,8 +97,8 @@ class DeveloperEnvironment(ManagerAccessMixin):
 
         raise NotImplementedError(f"Token not yet implemented {symbol}")
 
-    async def disable_withdrawal_delay(self):
-        await self.ce_client.admin.set_withdrawal_delay_params(
+    async def disable_redemption_delay(self):
+        await self.ce_client.admin.set_redemption_delay_params(
             min_delay=0,
             max_delay=0,
             delay_clamps=[0, 1_000_000],
@@ -151,6 +151,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
         sub_account: int | None = None,
         mode: SettlementMode = SettlementMode.MARGIN,
         max_fee: int | None = None,
+        nonce: int | None = None,
     ):
         user = to_user(user) if user is not None else self.default_user
         key = f"{user.public_key}"
@@ -168,6 +169,7 @@ class DeveloperEnvironment(ManagerAccessMixin):
                 account_index=sub_account,
                 mode=mode,
                 max_fee=max_fee,
+                nonce=nonce,
             )
         except SettlementError as err:
             self._pending_settlement_errors[key] = err

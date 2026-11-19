@@ -44,7 +44,7 @@ export WEB3_PROVIDER_URI="https://arb1.arbitrum.io/rpc"
 from tplus.evm.contracts import registry, vault
 
 registry.getAssets(0, 1000)
-registry.admin()
+registry.getRiskCouncil()
 vault.getApprovedSettlers()
 ```
 
@@ -102,7 +102,7 @@ Inside the console you have ready-made handles (provided by `ape_console_extras.
 
 ```{code-block} python
 In [1]: from tplus.evm.contracts import registry, vault, credential_manager
-In [2]: registry.admin()
+In [2]: registry.credentialManager()
 Out[2]: '0x467a95fC5359edE5d5dDc4f10A1F4B680694858E'
 ```
 

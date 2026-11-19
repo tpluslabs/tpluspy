@@ -165,7 +165,7 @@ class User:
             seeds and 64-byte ``seed || pubkey`` concatenations are
             accepted. If ``None``, a fresh keypair is generated.
         sub_account: Optional sub-account index. Defaults to the trading
-            sub-account (``1``); an explicit ``0`` selects funding custody.
+            sub-account (``1``); an explicit ``0`` selects the funding token balance.
     """
 
     _evm_address: str | None = None

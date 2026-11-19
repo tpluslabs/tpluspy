@@ -10,7 +10,7 @@ class RiskParameters(BaseModel):
     contract ABI directly.
 
     Hourly rates (kink_interest_rates, usd_kink_interest_rates,
-    max_utilization_rate, base_funding_rate, max_funding_rate) use a denominator
+    max_borrow_rate, base_funding_rate, max_funding_rate) use a denominator
     of 100,000,000. Utilization kinks, margin factors, skew and premium fields
     retain their denominator of 1,000,000. Values are passed through unchanged.
     """
@@ -35,7 +35,7 @@ class RiskParameters(BaseModel):
     initial_margin_clamps: list[int] = Field(alias="initialMarginClamps")
     initial_margin_factors: list[int] = Field(alias="initialMarginFactors")
     max_funding_rate: int = Field(alias="maxFundingRate")
-    max_utilization_rate: int = Field(alias="maxUtilizationRate")
+    max_borrow_rate: int = Field(alias="maxBorrowRate")
     buffer_multiple: int = Field(alias="bufferMultiple")
     min_sub_account_balance: int = Field(default=0, alias="minSubAccountBalance")
     # Max ADL notional (USD, 18 decimals). Zero disables auto-deleverage for the asset.

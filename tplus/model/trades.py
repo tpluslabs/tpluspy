@@ -15,7 +15,7 @@ class Trade(BaseModel):
     quantity: Decimal
     timestamp_ns: int
     buyer_is_maker: bool = Field(..., description="True if the buyer was the maker")
-    status: Literal["Pending", "Confirmed", "Rollbacked"] = "Confirmed"
+    status: Literal["Confirmed", "Finalized", "Rollbacked"] = "Finalized"
 
 
 class UserTrade(BaseModel):
@@ -29,7 +29,7 @@ class UserTrade(BaseModel):
     timestamp_ns: int
     is_maker: bool = Field(..., description="True if this user was the maker")
     is_buyer: bool = Field(..., description="True if this user was the buyer")
-    status: Literal["Pending", "Confirmed", "Rollbacked"]
+    status: Literal["Confirmed", "Finalized", "Rollbacked"]
     rollback_reason: str | None = None
     is_liquidation: bool = False
     is_auto_deleverage: bool = False
@@ -40,6 +40,10 @@ class UserTrade(BaseModel):
         default=Decimal(0),
         description="Trading fee in USD; positive=paid, negative=rebate",
     )
+    #: The T+ order id of this user's order in the trade, ``"0x"`` and 32 lowercase hex digits,
+    #: as the orderbook assigned it at admission; ``None`` for a trade recorded before the id
+    #: existed.
+    tplus_order_id: str | None = None
 
     @property
     def buyer_is_maker(self) -> bool:
@@ -61,12 +65,13 @@ class HistoricalUserTrade(BaseModel):
     timestamp_ns: int
     is_maker: bool
     is_buyer: bool
-    status: Literal["Pending", "Confirmed", "Rollbacked"]
+    status: Literal["Confirmed", "Finalized", "Rollbacked"]
     rollback_reason: str | None = None
     is_liquidation: bool
     is_auto_deleverage: bool
     sub_account: int
     trading_fee: Decimal
+    tplus_order_id: str | None = None
 
     @property
     def buyer_is_maker(self) -> bool:
@@ -83,7 +88,7 @@ def parse_trades(data: list[dict]) -> list[Trade]:
             quantity=Decimal(item["quantity"]),
             timestamp_ns=int(item["timestamp_ns"]),
             buyer_is_maker=item.get("buyer_is_maker", item.get("is_maker", False)),
-            status=item.get("status", "Confirmed"),
+            status=item.get("status", "Finalized"),
         )
         for item in data
     ]
@@ -150,17 +155,17 @@ class BaseTradeEvent(BaseModel):
     event_type: str
 
 
-class TradePendingEvent(BaseTradeEvent):
-    """Represents a trade that has occurred but is awaiting final confirmation."""
+class TradeConfirmedEvent(BaseTradeEvent):
+    """Represents a trade that has occurred but is awaiting finalization."""
 
-    event_type: Literal["Pending"] = Field(default="Pending")
+    event_type: Literal["Confirmed"] = Field(default="Confirmed")
     trade: Trade
 
 
-class TradeConfirmedEvent(BaseTradeEvent):
+class TradeFinalizedEvent(BaseTradeEvent):
     """Represents a finalized trade."""
 
-    event_type: Literal["Confirmed"] = Field(default="Confirmed")
+    event_type: Literal["Finalized"] = Field(default="Finalized")
     trade: Trade
 
 
@@ -171,7 +176,7 @@ class TradeRollbackedEvent(BaseTradeEvent):
     trade: Trade
 
 
-TradeEvent = TradePendingEvent | TradeConfirmedEvent | TradeRollbackedEvent
+TradeEvent = TradeConfirmedEvent | TradeFinalizedEvent | TradeRollbackedEvent
 
 
 def parse_single_trade(item: dict[str, Any]) -> Trade:
@@ -200,6 +205,7 @@ def parse_single_user_trade(item: dict[str, Any]) -> UserTrade:
             is_auto_deleverage=bool(item.get("is_auto_deleverage", False)),
             sub_account=int(item.get("sub_account", 0)),
             trading_fee=Decimal(str(item.get("trading_fee", 0))),
+            tplus_order_id=item.get("tplus_order_id"),
         )
     except (KeyError, ValueError, TypeError) as e:
         raise ValueError(f"Invalid user trade data: {item}") from e
@@ -211,7 +217,7 @@ def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
         raise ValueError("Empty trade event")
 
     event_type = list(data.keys())[0]
-    if not event_type or event_type not in ["Confirmed", "Pending", "Rollbacked"]:
+    if not event_type or event_type not in ["Finalized", "Confirmed", "Rollbacked"]:
         raise ValueError(f"Invalid trade event structure: {data}")
 
     if not (payload := data.get(event_type)):
@@ -219,10 +225,10 @@ def parse_trade_event(data: dict[str, Any]) -> TradeEvent:
 
     try:
         parsed_trade = parse_single_trade(payload)
-        if event_type == "Pending":
-            return TradePendingEvent(trade=parsed_trade)
-        elif event_type == "Confirmed":
+        if event_type == "Confirmed":
             return TradeConfirmedEvent(trade=parsed_trade)
+        elif event_type == "Finalized":
+            return TradeFinalizedEvent(trade=parsed_trade)
 
         # No other option, already validated above.
         return TradeRollbackedEvent(trade=parsed_trade)

@@ -37,6 +37,7 @@ OPERATION_PARAM_TYPES = {
     **CHAIN_KEYED_PARAM_TYPES,
     "SET_WITHDRAWAL_QUORUM": ["uint256"],
     "SET_PROFILE_REGISTRY": ["address"],
+    "SET_REGISTRY": ["address"],
 }
 STRATEGY_OP_NAMES = ("REGISTER_STRATEGY", "REPLACE_STRATEGY")
 REGISTRY_CONTRACT_NAME = "Registry"
@@ -44,8 +45,9 @@ REGISTRY_TOKEN_LIMIT_PARAM_TYPES = ["struct Registry.ChainId", "uint16", "bytes3
 REGISTRY_OPERATION_PARAM_TYPES = {
     "RISK_PARAMETERS": ["uint16", "struct Registry.RiskParameters"],
     "ORACLE_CONFIG": ["uint16", "struct Registry.OracleConfig"],
-    "WITHDRAWAL_DELAY_PARAMETERS": ["struct Registry.WithdrawalDelayParameters"],
-    "ASSET_DATA": ["struct Registry.AssetData"],
+    "WITHDRAWAL_DELAY_PARAMETERS": ["struct Registry.RedemptionDelayParameters"],
+    "ADD_NEW_ASSET": ["struct Registry.AssetData[]"],
+    "ADD_FUNGIBLE_ASSET_LISTING": ["struct Registry.AssetData"],
     "MAX_DEPOSITS": REGISTRY_TOKEN_LIMIT_PARAM_TYPES,
     "MAX_1HR_DEPOSITS": REGISTRY_TOKEN_LIMIT_PARAM_TYPES,
     "MIN_WEIGHT": REGISTRY_TOKEN_LIMIT_PARAM_TYPES,
@@ -194,6 +196,15 @@ class OperatorKey:
             PUBLIC_KEY_RECOVERY_DIGEST, self.sign_digest(PUBLIC_KEY_RECOVERY_DIGEST)
         )
 
+    @cached_property
+    def compressed_public_key(self) -> str:
+        """The compressed public key hex the CE names a council signer by."""
+        return keys.PublicKey(self.public_key).to_compressed_bytes().hex()
+
+    def sign_compact_digest(self, digest: bytes) -> str:
+        """The 64-byte low-S `r || s` hex the CE verifies."""
+        return self.sign_digest(digest)[:64].hex()
+
     def sign_digest(self, digest: bytes) -> bytes:
         if not is_ape_account(self.account):
             signature = self.account.unsafe_sign_hash(digest)
@@ -282,6 +293,12 @@ def compute_majority_threshold(member_count: int) -> int:
 
 
 def compute_op_type(name: str, contract_name: str = CREDENTIAL_MANAGER_CONTRACT_NAME) -> bytes:
+    if contract_name == REGISTRY_CONTRACT_NAME:
+        name = {
+            "WITHDRAWAL_DELAY_PARAMETERS": "REDEMPTION_DELAY_PARAMETERS",
+            "MAX_DEPOSITS": "ADMISSION_CAP",
+            "MAX_1HR_DEPOSITS": "ADMISSION_CAP_1HR",
+        }.get(name, name)
     return keccak(text=f"{contract_name}.{name}")
 
 
@@ -329,6 +346,9 @@ def align_params(contract_name: str, type_names: list[str], values: list) -> Ali
 
 def convert_to_abi_value(value: Any) -> Any:
     """A model as the dict of its aliased fields, keeping byte values as bytes."""
+    if isinstance(value, list):
+        return [convert_to_abi_value(item) for item in value]
+
     if not isinstance(value, BaseModel):
         return value
 
@@ -343,11 +363,13 @@ def build_param_abi(abi: list[dict[str, Any]], type_name: str) -> dict[str, Any]
     if not type_name.startswith(STRUCT_TYPE_PREFIX):
         return {"type": type_name}
 
+    struct_name = type_name.removesuffix("[]")
+    array_suffix = type_name.removeprefix(struct_name)
     for entry in abi:
         for param in [*entry.get("inputs", []), *entry.get("outputs", [])]:
-            if param.get("internalType", "").removesuffix("[]") == type_name:
+            if param.get("internalType", "").removesuffix("[]") == struct_name:
                 return {
-                    "type": param["type"].removesuffix("[]"),
+                    "type": f"{param['type'].removesuffix('[]')}{array_suffix}",
                     "internalType": type_name,
                     "components": param["components"],
                 }
@@ -357,9 +379,13 @@ def build_param_abi(abi: list[dict[str, Any]], type_name: str) -> dict[str, Any]
 
 def compute_registry_operation_key(name: str, op_type: bytes, values: list) -> bytes:
     if name in REGISTRY_INDEX_KEYED_OP_NAMES:
-        return keccak(encode(["bytes32", "uint16"], [op_type, values[0]]))
+        return compute_registry_index_key(op_type, values[0])
 
-    if name == "ASSET_DATA":
+    if name == "ADD_NEW_ASSET":
+        first_listing = values[0][0]
+        return compute_registry_index_key(op_type, first_listing[0])
+
+    if name == "ADD_FUNGIBLE_ASSET_LISTING":
         index, asset_address, chain = values[0][:3]
         return compute_registry_token_key(op_type, chain, index, asset_address)
 
@@ -372,6 +398,10 @@ def compute_registry_operation_key(name: str, op_type: bytes, values: list) -> b
         return compute_registry_representation_key(op_type, chain, token)
 
     return op_type
+
+
+def compute_registry_index_key(op_type: bytes, index: int) -> bytes:
+    return keccak(encode(["bytes32", "uint16"], [op_type, index]))
 
 
 def compute_registry_token_key(op_type: bytes, chain: list, index: int, asset_address) -> bytes:

@@ -5,8 +5,6 @@ from tplus.evm.contracts import DepositVault
 from tplus.evm.managers.evm import ChainConnectedManager
 from tplus.model.chain_address import ChainAddress
 from tplus.model.types import ChainID, UserPublicKey
-from tplus.utils.address import to_evm_address
-from tplus.utils.domain import get_dstack_domain
 from tplus.utils.timeout import wait_for_condition
 from tplus.utils.user import User
 
@@ -42,18 +40,6 @@ class VaultOwner(ChainConnectedManager):
                 self.vault = DepositVault(chain_id=self.chain_id, backend=self.backend)
 
         self.ce = clearing_engine
-
-    def set_domain_separator(self, domain_separator: bytes | None = None, **tx_kwargs) -> Any:
-        tx_kwargs.setdefault("sender", self.owner)
-
-        domain_separator = domain_separator or get_dstack_domain(self.vault.chain_address)
-
-        return self.vault.set_domain_separator(domain_separator, **tx_kwargs)
-
-    def set_credential_manager(self, new_credential_manager: Any, **tx_kwargs) -> Any:
-        tx_kwargs.setdefault("sender", self.owner)
-        address = getattr(new_credential_manager, "address", new_credential_manager)
-        return self.vault.set_credential_manager(to_evm_address(address), **tx_kwargs)
 
     async def register_settler(
         self,

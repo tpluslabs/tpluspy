@@ -25,6 +25,8 @@ class SingleOrderStatusFromBatch(BaseModel):
     order_id: str
     status: str
     reason: str | None
+    #: On an accepted create, the order's T+ order id, ``"0x"`` and 32 lowercase hex digits.
+    tplus_order_id: str | None = None
 
 
 class BatchCreateOrderRequestResponse(BaseModel):
@@ -38,7 +40,10 @@ def parse_batch_order_response(
     results = parsed_batch_order_response["results"]
     for result in results:
         single_order_from_batch = SingleOrderStatusFromBatch(
-            order_id=result["order_id"], status=result["status"], reason=result["reason"]
+            order_id=result["order_id"],
+            status=result["status"],
+            reason=result["reason"],
+            tplus_order_id=result.get("tplus_order_id"),
         )
         list_of_single_orders_from_batch.append(single_order_from_batch)
 

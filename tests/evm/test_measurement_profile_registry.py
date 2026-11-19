@@ -1,8 +1,8 @@
-from tplus.evm.contracts import DEV_UNIVERSE_ID, MeasurementProfileRegistry
+from tplus.evm.contracts import DEV_UNIVERSE_ID, MeasurementProfile, MeasurementProfileRegistry
 from tplus.evm.governance import OperatorKey
 
 
-def test_measurement_profile_registry_sets_a_profile_through_the_committee(
+def test_measurement_profile_registry_sets_profiles_through_the_committee(
     manager_factory, measurement_profile
 ):
     operator_keys = [OperatorKey.create()]
@@ -14,24 +14,24 @@ def test_measurement_profile_registry_sets_a_profile_through_the_committee(
         profile_registry.address, operator_keys=operator_keys, sender=owner
     )
 
-    schedule_event = profile_registry.schedule_profile(
+    second_profile = MeasurementProfile(*(bytes([register]) * 32 for register in range(6, 11)))
+    profiles = [measurement_profile, second_profile]
+    schedule_event = profile_registry.schedule_profiles(
         MeasurementProfileRegistry.CLEARING_ENGINE_KIND,
-        measurement_profile,
+        profiles,
         operator_keys=operator_keys,
         sender=owner,
     )
-    profile_registry.execute_profile(
+    profile_registry.execute_profiles(
         bytes(schedule_event.op_id),
         MeasurementProfileRegistry.CLEARING_ENGINE_KIND,
-        measurement_profile,
+        profiles,
         sender=owner,
     )
 
     assert manager.measurementProfileRegistry() == profile_registry.address
-    assert (
-        tuple(map(bytes, profile_registry.profile(MeasurementProfileRegistry.CLEARING_ENGINE_KIND)))
-        == measurement_profile
-    )
-    assert not any(
-        bytes(profile_registry.profile(MeasurementProfileRegistry.CLEARING_ENGINE_KIND + 1)[0])
-    )
+    assert [
+        tuple(map(bytes, profile))
+        for profile in profile_registry.profiles(MeasurementProfileRegistry.CLEARING_ENGINE_KIND)
+    ] == profiles
+    assert not profile_registry.profiles(MeasurementProfileRegistry.CLEARING_ENGINE_KIND + 1)

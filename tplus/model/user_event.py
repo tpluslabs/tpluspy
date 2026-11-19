@@ -64,11 +64,17 @@ class SettlementCompleted(BaseModel):
     amount_out: str
     chain_id: str
     settlement_nonce: int
+    fee_collected: str
+    """The rebalancing fee this ingestion collected for the fee account, in canonical units
+    of `asset_out` at 1e18 as a base-10 string; "0" when it moved nothing."""
+    fee_returned: str
+    """What the approval's hold returned to the balance it was held off, in the same units;
+    "0" when it moved nothing."""
     timestamp_ns: int
 
 
 class PositionCleared(BaseModel):
-    """A margin position was cleared via the close-position flow.
+    """A margin position was cleared via the clear-position flow.
 
     Realized PnL was moved to/from the spot balance and the position was
     removed from the sub-account. Distinct from "closing a position" by
@@ -172,11 +178,11 @@ class InterestPayment(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     funding_amount: Decimal
-    utilization_amount: Decimal
-    quote_utilization_amount: Decimal
+    borrow_interest_amount: Decimal
+    quote_borrow_interest_amount: Decimal
     funding_rate: Decimal
-    utilization_rate: Decimal
-    quote_utilization_rate: Decimal
+    borrow_rate: Decimal
+    quote_borrow_rate: Decimal
 
 
 class InterestEpochOccurred(BaseModel):

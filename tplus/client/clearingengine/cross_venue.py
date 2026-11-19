@@ -45,9 +45,9 @@ class CrossVenueClient(BaseClearingEngineClient):
         ``{venue_present, allocation_bps, assigned_to, locked, usd_balance,
         limit, balance}`` —
         ``venue_present`` flips true once the adapter binding reaches the CE,
-        ``allocation_bps`` is non-zero once the credit line is applied, and
+        ``allocation_bps`` is non-zero once the XVM allocation is applied, and
         ``assigned_to`` is its sub-account index under ``user`` (or ``None``
-        before a credit line exists). ``balance`` is ``None`` only for an absent
+        before an XVM allocation exists). ``balance`` is ``None`` only for an absent
         venue. Otherwise, it contains the latest canonical ``spot`` and
         ``margins`` maps keyed by canonical asset-identifier strings; monetary
         values are base-10 strings in 1e18 units. ``timestamp_ms`` is the source
@@ -65,7 +65,7 @@ class CrossVenueClient(BaseClearingEngineClient):
         user = self._resolve_user(user)
         ts = time.time_ns()
         sep = b"\x1f"
-        # Must match `xm_venue_state_signing_payload` in the CE creditline route.
+        # Must match `xm_venue_state_signing_payload` in the CE xvm_allocation route.
         payload = (
             b"xm_venue_state_query_v1"
             + sep

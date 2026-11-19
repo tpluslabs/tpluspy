@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, model_serializer
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.multisig import AdditionalSigner
 from tplus.model.order_id import UserOrderId
-from tplus.model.order_trigger import TriggerAbove, TriggerBelow
+from tplus.model.order_trigger import TriggerCondition
 
 
 class ReplaceOrderDetails(BaseModel):
@@ -28,7 +28,7 @@ class ReplaceOrderDetails(BaseModel):
     new_quantity: int  # Effective LIFETIME-TOTAL quantity (not the remaining part)
     # Effective trigger state. ``None`` means "no trigger", NOT "leave the trigger alone" —
     # a replacement that keeps a trigger must restate it.
-    new_trigger: TriggerAbove | TriggerBelow | None = None
+    new_trigger: TriggerCondition | None = None
     book_quantity_decimals: int  # i8 in Rust
     book_price_decimals: int  # i8 in Rust
     protocol_version: int = 1

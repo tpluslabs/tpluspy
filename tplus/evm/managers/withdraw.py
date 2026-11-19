@@ -173,13 +173,23 @@ class WithdrawalManager(ChainSigningManager):
                 it and fails the withdrawal if its approval prices above it; ``None``
                 accepts whatever the protocol reserves.
         """
+        if asset.chain_id != self.chain_id:
+            raise ValueError(
+                f"Asset '{asset}' is on chain {asset.chain_id}; "
+                f"this manager withdraws on chain {self.chain_id}."
+            )
+
+        if target is None:
+            # Defaults to root account.
+            target = self.account.address
+            self.logger.info(f"Withdrawing to the root account {self.account.address}.")
+
+        target = Address32.from_evm_address(target)
+
         user = to_user(user) if user is not None else await self.resolve_default_user()
 
         if nonce is None:
             nonce = self.vault.get_withdrawal_count(user)
-
-        if target is None:
-            target = Address32(self.account.address)
 
         if isinstance(amount, Amount):
             request_amount = amount.to_inventory_amount("down")
@@ -347,7 +357,7 @@ class WithdrawalManager(ChainSigningManager):
         first = approvals[0]
         resolved_target = target
         if resolved_target is None:
-            resolved_target = to_evm_address(f"0x{str(info.target)[:40]}")
+            resolved_target = to_evm_address(info.target)
 
         asset_address = (
             info.asset.evm_address

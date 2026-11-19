@@ -140,7 +140,7 @@ def resolve_universe(universe: str | None, is_local: bool) -> str:
     return build_dev_universe_name(DEV_UNIVERSE_ENVIRONMENT)
 
 
-def withdrawal_delay_options() -> Callable:
+def redemption_delay_options() -> Callable:
     def decorate(command: Callable) -> Callable:
         for option in reversed(
             (
@@ -179,8 +179,8 @@ def asset_data_options() -> Callable:
                 click.argument("index", type=int),
                 click.argument("asset_address"),
                 click.option("--chain-id", "chain_id", type=int, required=True),
-                click.option("--max-deposit", "max_deposit", type=int, required=True),
-                click.option("--max-1hr", "max_1hr_deposits", type=int, required=True),
+                click.option("--admission-cap", "admission_cap", type=int, required=True),
+                click.option("--admission-cap-1hr", "admission_cap_1hr", type=int, required=True),
                 click.option("--min-weight", "min_weight", type=int, required=True),
             )
         ):

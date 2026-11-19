@@ -144,7 +144,7 @@ class AccountMarginInfo(BaseModel):
         account_leverage: total_notional / equity. None if equity is zero or negative.
             Represents how leveraged the account is relative to its equity.
 
-        is_solvent: Whether the account passes the IM solvency check.
+        above_im_requirement: Whether the account passes the IM solvency check.
             True means available_margin >= 0.
 
         is_liquidatable: Whether the account can be liquidated.
@@ -165,7 +165,7 @@ class AccountMarginInfo(BaseModel):
     maintenance_margin_surplus: Decimal
     mm_requirement: Decimal | None
     account_leverage: Decimal | None
-    is_solvent: bool
+    above_im_requirement: bool
     is_liquidatable: bool
     total_upnl: Decimal
     im_surplus: Decimal | None
@@ -230,7 +230,7 @@ def parse_account_margin_info(data: dict) -> AccountMarginInfo:
         maintenance_margin_surplus=Decimal(data["maintenance_margin_surplus"]),
         mm_requirement=mm_requirement,
         account_leverage=leverage,
-        is_solvent=data["is_solvent"],
+        above_im_requirement=data["above_im_requirement"],
         is_liquidatable=data["is_liquidatable"],
         total_upnl=Decimal(data["total_upnl"]),
         im_surplus=im_surplus,

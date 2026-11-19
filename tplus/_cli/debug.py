@@ -50,7 +50,7 @@ def _set_credential_manager_address(cli_ctx: CLIContext, address: str, chain_id:
     click.echo(f"CredentialManager address set: {chain_addr}")
 
 
-@debug.command("set-withdrawal-delay")
+@debug.command("set-redemption-delay")
 @click.option("--min-delay", "min_delay", type=int, default=0, show_default=True)
 @click.option("--max-delay", "max_delay", type=int, default=0, show_default=True)
 @click.option(
@@ -71,7 +71,7 @@ def _set_credential_manager_address(cli_ctx: CLIContext, address: str, chain_id:
 @clearing_url_option()
 @ignore_ssl_option()
 @pass_cli_context
-def _set_withdrawal_delay(
+def _set_redemption_delay(
     cli_ctx: CLIContext,
     min_delay: int,
     max_delay: int,
@@ -79,12 +79,12 @@ def _set_withdrawal_delay(
     delay_values: tuple[int, ...],
     cap_floor: int,
 ):
-    """Set the CE's withdrawal-delay parameters."""
+    """Set the CE's redemption-delay parameters."""
     clamps = list(delay_clamps) if delay_clamps else [0, 1_000_000]
     values = list(delay_values) if delay_values else [0, 0]
     client = cli_ctx.clearing_engine_client(anonymous=True)
     asyncio.run(
-        client.admin.set_withdrawal_delay_params(
+        client.admin.set_redemption_delay_params(
             min_delay=min_delay,
             max_delay=max_delay,
             delay_clamps=clamps,
@@ -92,7 +92,7 @@ def _set_withdrawal_delay(
             cap_floor=cap_floor,
         )
     )
-    click.echo("Withdrawal delay parameters updated.")
+    click.echo("Redemption delay parameters updated.")
 
 
 @debug.command("sync-vault-events")

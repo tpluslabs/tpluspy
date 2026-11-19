@@ -78,6 +78,21 @@ async def test_get_user_orders_omits_unset_filters(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.anyio
+async def test_get_user_orders_sends_the_client_order_id(mocker):
+    client = MarketDataClient(base_url="http://127.0.0.1:8011")
+    get = mocker.patch.object(client, "_get", new=mocker.AsyncMock(return_value={"orders": []}))
+    user = User()
+
+    await client.get_user_orders(user=user, order_id="reused")
+    await client.get_user_orders_for_asset(AssetIdentifier("2"), user=user, order_id="reused")
+
+    assert [(call.args[0], call.kwargs["params"]) for call in get.await_args_list] == [
+        (f"/orders/user/{user.public_key}", {"order_id": "reused"}),
+        (f"/orders/user/{user.public_key}/2", {"order_id": "reused"}),
+    ]
+
+
+@pytest.mark.anyio
 async def test_public_endpoint_is_anonymous(monkeypatch: pytest.MonkeyPatch):
     client = MarketDataClient(base_url="http://127.0.0.1:8011")
     captured: dict[str, Any] = {}

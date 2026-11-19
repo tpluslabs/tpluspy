@@ -150,15 +150,15 @@ def _transfer(
     click.echo(json.dumps(response, indent=2, default=str))
 
 
-@orders.command("close")
+@orders.command("clear")
 @orderbook_url_option()
 @ignore_ssl_option()
 @tplus_account_option()
 @click.option("--account", "account_index", type=int, required=True, help="Sub-account index.")
 @click.option("--asset", "asset_id", required=True, help="Asset identifier of the position.")
 @pass_cli_context
-def _close(cli_ctx: CLIContext, account_index: int, asset_id: str):
-    """Close a position on a sub-account.
+def _clear(cli_ctx: CLIContext, account_index: int, asset_id: str):
+    """Clear a position on a sub-account.
 
     Spot of the asset is first squashed into the position's base liabilities
     (any asset, not only USD), but only while the quote leg is exactly zero: a
@@ -169,7 +169,7 @@ def _close(cli_ctx: CLIContext, account_index: int, asset_id: str):
     ``No settled PnL while the short is open``.
     """
     client = cli_ctx.orderbook_client()
-    response = asyncio.run(client.request_close_position(account_index, asset_id))
+    response = asyncio.run(client.request_clear_position(account_index, asset_id))
     click.echo(json.dumps(response, indent=2, default=str))
 
 
