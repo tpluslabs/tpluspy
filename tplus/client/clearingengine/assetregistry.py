@@ -32,11 +32,11 @@ class AdminAssetRegistryClient(BaseClearingEngineClient):
         payload = registry_address.model_dump()
         await self._post("admin/registry/update-address", json_data=payload)
 
-    async def update_withdrawal_delay_parameters(self):
+    async def update_redemption_delay_parameters(self):
         """
-        Request that the clearing engine updates its registered withdrawal delay parameters.
+        Request that the clearing engine updates its registered redemption delay parameters.
         """
-        await self._post("withdrawal-delay-params/update")
+        await self._post("redemption-delay-params/update")
 
     async def update_representation_configs(self):
         """

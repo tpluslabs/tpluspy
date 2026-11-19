@@ -17,6 +17,7 @@ from tplus.evm.backends import resolve_backend  # noqa: E402
 from tplus.evm.backends.web3 import Web3Backend, _encode_args, _translate_web3_error  # noqa: E402
 from tplus.evm.contracts import (  # noqa: E402
     DEV_UNIVERSE_ID,
+    ZERO_ADDRESS,
     CredentialManager,
     DepositVault,
     Registry,
@@ -37,7 +38,7 @@ from tplus.model.representation_rate import (  # noqa: E402
     RepresentationSourceKind,
 )
 from tplus.model.risk_parameters import RiskParameters  # noqa: E402
-from tplus.model.withdrawal import WithdrawalDelayParameters  # noqa: E402
+from tplus.model.withdrawal import RedemptionDelayParameters  # noqa: E402
 
 
 def test_manifest_has_core_contracts():
@@ -146,10 +147,10 @@ def test_sign_message_rejects_unlocked_account(web3_backend):
         web3_backend.sign_message(unlocked, b"nope")
 
 
-def test_deploy_and_read_registry(web3_backend):
-    registry = Registry.deploy_dev()
-    assert registry.address
-    assert registry.admin() == web3_backend.default_test_account().address
+def test_deploy_and_read_registry(operator_account, deploy_governed_registry):
+    registry, credential_manager, _ = deploy_governed_registry()
+    assert registry.get_credential_manager() == credential_manager.address
+    assert registry.getRiskCouncil() == ([operator_account.address], 1)
     assert registry.get_assets() == []
     # ABI-driven attribute dispatch: a raw view method goes straight through.
     assert isinstance(registry.getAssets(0, 1000), list)
@@ -170,8 +171,7 @@ def single_vault_page(mocker):
 
 
 def test_deploy_credential_manager_and_vault(web3_backend, operator_account, single_vault_page):
-    registry = Registry.deploy_dev()
-    cm = CredentialManager.deploy_dev(sender=operator_account, registry=registry.address)
+    cm = CredentialManager.deploy_dev(sender=operator_account)
     assert cm.governance_nonce == 0
     assert bytes(cm.contract.domainSeparator()) == compute_domain_separator(DEV_UNIVERSE_ID)
     assert cm.get_vaults() == []
@@ -228,7 +228,7 @@ def risk_parameters():
         initialMarginClamps=[0, 500_000],
         initialMarginFactors=[100_000, 50_000],
         maxFundingRate=0,
-        maxUtilizationRate=0,
+        maxBorrowRate=0,
         bufferMultiple=1_000_000,
     )
 
@@ -251,7 +251,7 @@ def test_schedule_and_execute_if_due_executes_when_due(
         council=council,
         sender=operator_account,
     )
-    delay_parameters = WithdrawalDelayParameters(
+    delay_parameters = RedemptionDelayParameters(
         minDelay=1, maxDelay=2, delayClamps=[0, 500_000], delayValues=[1, 2]
     )
     delay_schedule = registry.schedule_operation(
@@ -272,13 +272,13 @@ def test_schedule_and_execute_if_due_executes_when_due(
 
     [record] = registry.get_asset_records()
     assert record["chain_address"] == asset_address
-    assert (record["max_deposits"], record["max_1hr_deposits"], record["min_weight"]) == (
+    assert (record["admission_cap"], record["admission_cap_1hr"], record["min_weight"]) == (
         100_000,
         10_000,
         1,
     )
-    applied_delay = registry.getWithdrawalDelayParameters()
-    assert WithdrawalDelayParameters.model_validate(applied_delay._asdict()) == delay_parameters
+    applied_delay = registry.getRedemptionDelayParameters()
+    assert RedemptionDelayParameters.model_validate(applied_delay._asdict()) == delay_parameters
     [applied_risk] = registry.getRiskParameters(0, 1)
     assert RiskParameters.model_validate(applied_risk._asdict()) == risk_parameters
 
@@ -310,7 +310,7 @@ def test_schedule_and_execute_if_due_counts_another_callers_execute(
     )
 
     registry.schedule_and_execute_if_due(
-        "ASSET_DATA", [asset_data], council=council, sender=operator_account
+        "ADD_NEW_ASSET", [[asset_data]], council=council, sender=operator_account
     )
 
     assert execute_then_revert.call_count == 1
@@ -333,19 +333,55 @@ def test_schedule_and_execute_if_due_delayed(
     )
 
     schedule_event = registry.schedule_and_execute_if_due(
-        "ASSET_DATA",
-        [asset_data],
+        "ADD_NEW_ASSET",
+        [[asset_data]],
         council=council,
         sender=operator_account,
     )
 
-    _, pending_key, _ = build_registry_operation("ASSET_DATA", [asset_data])
+    _, pending_key, _ = build_registry_operation("ADD_NEW_ASSET", [[asset_data]])
     assert bytes(registry.pendingId(pending_key)) == bytes(schedule_event.op_id)
     assert registry.get_asset_records() == []
     with pytest.raises(TransactionFailed, match="execution reverted"):
         registry.execute_operation(
-            "ASSET_DATA", [asset_data], bytes(schedule_event.op_id), sender=operator_account
+            "ADD_NEW_ASSET", [[asset_data]], bytes(schedule_event.op_id), sender=operator_account
         )
+
+
+def test_set_asset_updates_an_existing_listing(operator_account, deploy_governed_registry):
+    registry, credential_manager, council = deploy_governed_registry()
+    token = ChainAddress.from_evm_address(operator_account.address, credential_manager.chain_id)
+    for admission_cap in (100_000, 200_000):
+        registry.set_asset(
+            0,
+            operator_account.address,
+            token.chain_id,
+            admission_cap,
+            10_000,
+            1,
+            council=council,
+            sender=operator_account,
+        )
+
+    assert [record["admission_cap"] for record in registry.get_asset_records()] == [200_000]
+
+
+def test_add_new_asset_with_two_listings(operator_account, deploy_governed_registry):
+    registry, credential_manager, council = deploy_governed_registry()
+    chain_id = ChainAddress.from_evm_address(
+        operator_account.address, credential_manager.chain_id
+    ).chain_id
+    listings = [
+        Registry.build_asset_data(0, token, chain_id, 100_000, 10_000, 1)
+        for token in (operator_account.address, credential_manager.address)
+    ]
+
+    registry.add_new_asset(listings, council=council, sender=operator_account)
+
+    assert [record["chain_address"].evm_address for record in registry.get_asset_records()] == [
+        operator_account.address,
+        credential_manager.address,
+    ]
 
 
 def test_registry_set_representation_config_round_trips(
@@ -426,15 +462,15 @@ def test_registry_representation_config_from_struct(backend, request, representa
     }
 
 
-def test_unknown_contract_method_is_attribute_error(web3_backend):
-    registry = Registry.deploy_dev()
+def test_unknown_contract_method_is_attribute_error(web3_backend, deploy_governed_registry):
+    registry, _, _ = deploy_governed_registry()
     handle = web3_backend.get_contract("Registry", registry.address)
     with pytest.raises(AttributeError, match="has no method 'definitelyNotAMethod'"):
         handle.definitelyNotAMethod()
 
 
-def test_struct_results_decode_to_named_tuples(web3_backend):
-    registry = Registry.deploy_dev()
+def test_struct_results_decode_to_named_tuples(deploy_governed_registry):
+    registry, _, _ = deploy_governed_registry()
     data = registry.getAssetData({"routingId": 0, "vmId": 0}, 0, b"\x00" * 32)
     # Nested struct -> attribute access on both levels.
     assert data.index == 0
@@ -491,7 +527,7 @@ def test_get_deployment_address_predicts_create_address(web3_backend):
     predicted = owner.get_deployment_address()
     # Deploying from this account at its current nonce yields exactly that address,
     # which is what DepositVault.deploy's domain-separator check relies on.
-    registry = Registry.deploy(owner, 0, sender=owner)
+    registry = Registry.deploy(0, ZERO_ADDRESS, bytes(32), [], 0, sender=owner)
     assert registry.address == predicted
 
 

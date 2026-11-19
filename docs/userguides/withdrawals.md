@@ -47,9 +47,9 @@ await withdrawals.init_withdrawal(request)
 Once accepted, the request locks concrete tokens on Funding (account 0).
 There is no chain-withdrawal delay or cancel operation. If the balance is on
 account 1, first use `OrderBookClient.request_transfer(1, 0,
-token_identifier, amount)` and wait for its actual token credit. Nonzero trading
-custody for that token must cover the entire amount; otherwise the request is
-refused. Only zero custody selects canonical redemption, whose gross debit
+token_identifier, amount)` and wait for its actual token credit. A nonzero trading
+token balance for that token must cover the entire amount; otherwise the request is
+refused. Only a zero token balance selects canonical redemption, whose gross debit
 includes the fee.
 A queued transfer response is acceptance, not completion.
 

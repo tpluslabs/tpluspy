@@ -1,13 +1,12 @@
 import time
 from typing import TYPE_CHECKING
 
-from tplus.model.asset_identifier import AssetAddress, AssetIdentifier
+from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC, GTD, IOC, LimitOrderDetails
 from tplus.model.order import CreateOrderRequest, Order, Side, TradeTarget
 from tplus.model.order_trigger import OrderTrigger
 from tplus.model.sync_order import (
-    SyncMakerOrderDetails,
-    SyncSettlementTerms,
+    SyncQuoteOrderDetails,
     SyncTakerOrderDetails,
     SyncTimeInForce,
 )
@@ -77,8 +76,6 @@ def create_sync_taker_order_ob_request_payload(
     book_price_decimals: int,
     asset_identifier: AssetIdentifier,
     order_id: str,
-    base_token: AssetAddress,
-    nonce: int,
     target: TradeTarget | None = None,
     max_trading_fees_rate: int | None = None,
 ) -> CreateOrderRequest:
@@ -87,18 +84,13 @@ def create_sync_taker_order_ob_request_payload(
     the sync-book share settles on chain with that maker as settler. Sync liquidity is not
     taken first: execution can run main, then sync, then main again.
 
-    ``base_token`` is the token of the market's base asset that moves on chain (address and
-    chain); ``nonce`` is the vault settlement nonce of the signer's sub-account on that chain
-    (``DepositVault.settlementCounts``). The trade must use spot on a nonzero account;
-    the default target is the cross-margin account (1).
+    The clearing engine settles the market's own token against USD on that token's chain and
+    picks the vault settlement nonce. The trade must use spot on a nonzero account; the
+    default target is the cross-margin account (1).
     """
     signer = to_user(signer)
     side_normalized = Side(side)
-    details = SyncTakerOrderDetails(
-        limit_price=price,
-        quantity=quantity,
-        settlement=SyncSettlementTerms(base_token=base_token, nonce=nonce),
-    )
+    details = SyncTakerOrderDetails(limit_price=price, quantity=quantity)
     order = Order(
         signer=signer.public_key,
         order_id=order_id,
@@ -122,7 +114,7 @@ def create_sync_taker_order_ob_request_payload(
     )
 
 
-def create_sync_maker_order_ob_request_payload(
+def create_sync_quote_order_ob_request_payload(
     quantity: int,
     price: int,
     side: str,
@@ -137,7 +129,7 @@ def create_sync_maker_order_ob_request_payload(
     """Build and sign a market maker's quote for its own sync book (GTC unless given)."""
     signer = to_user(signer)
     side_normalized = Side(side)
-    details = SyncMakerOrderDetails(limit_price=price, quantity=quantity)
+    details = SyncQuoteOrderDetails(limit_price=price, quantity=quantity)
     if time_in_force is not None:
         details.time_in_force = time_in_force
     order = Order(

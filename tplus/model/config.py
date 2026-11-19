@@ -50,6 +50,7 @@ class ChainConfig(BaseModel):
             42_161: (1_000, 15),
             143: (400, 15),
             8_453: (2_000, 10),
+            4_663: (1_000, 40),
         }
         if chain_id not in policies:
             return None

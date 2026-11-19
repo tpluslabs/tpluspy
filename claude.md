@@ -198,7 +198,7 @@ web3.py backend — point it at a node via `WEB3_PROVIDER_URI` (or `tplus.evm.us
 
 ```python
 from tplus.evm.contracts import vault, registry
-registry.admin()
+registry.getRiskCouncil()
 registry.getAssets()
 vault.getApprovedSettlers()
 ```

@@ -3,21 +3,6 @@ from typing import Any
 from eth_utils import is_checksum_address, is_hex_address, to_normalized_address
 from pydantic import BaseModel, field_validator, model_serializer, model_validator
 
-from tplus.model.asset_identifier import AssetAddress
-
-
-class SyncSettlementTerms(BaseModel):
-    """
-    Settlement terms committed by a sync taker: which token of the market's base asset moves
-    on which chain (``hex_address@hex_chain``; a fungible asset such as BTC can be backed by
-    several tokens), and the per-(user, sub-account) vault settlement nonce the CE approval
-    must consume. The quote leg is always USD; the CE picks the USD token. Amounts and
-    counterparty come from the fill itself.
-    """
-
-    base_token: AssetAddress
-    nonce: int
-
 
 class SyncGTC(BaseModel):
     """Good-til-cancel; the Rust ``SyncTimeInForce::GoodTilCancel`` unit variant, on the wire ``"GTC"``."""
@@ -58,7 +43,7 @@ class SyncGTD(BaseModel):
 SyncTimeInForce = SyncGTC | SyncGTD
 
 
-class SyncMakerOrderDetails(BaseModel):
+class SyncQuoteOrderDetails(BaseModel):
     """
     A market maker's quote, resting in that maker's own sync book (``POST /sync_book/create``).
     """
@@ -72,8 +57,8 @@ class SyncMakerOrderDetails(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _unwrap_data(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "SyncMaker" in data and len(data) == 1:
-            return data["SyncMaker"]
+        if isinstance(data, dict) and "SyncQuote" in data and len(data) == 1:
+            return data["SyncQuote"]
         return data
 
     @field_validator("executor_address", mode="before")
@@ -93,7 +78,7 @@ class SyncMakerOrderDetails(BaseModel):
     @model_serializer
     def serialize_model(self) -> dict[str, dict[str, Any]]:
         return {
-            "SyncMaker": {
+            "SyncQuote": {
                 "limit_price": self.limit_price,
                 "quantity": self.quantity,
                 "time_in_force": self.time_in_force.model_dump(),
@@ -109,12 +94,13 @@ class SyncTakerOrderDetails(BaseModel):
     book and the main book together by price, the main book winning equal-price ties. The
     sync-book share fills as one leg that settles on chain with that market maker as
     settler; the main-book share fills as regular fills. Sync liquidity is not taken first:
-    execution can run main, then sync, then main again.
+    execution can run main, then sync, then main again. The order names no settlement
+    terms: the clearing engine settles the market's own token against USD on that token's
+    chain, and picks the vault settlement nonce.
     """
 
     limit_price: int
     quantity: int
-    settlement: SyncSettlementTerms
 
     @model_validator(mode="before")
     @classmethod
@@ -131,9 +117,5 @@ class SyncTakerOrderDetails(BaseModel):
             "SyncTaker": {
                 "limit_price": self.limit_price,
                 "quantity": self.quantity,
-                "settlement": {
-                    "base_token": str(self.settlement.base_token),
-                    "nonce": self.settlement.nonce,
-                },
             }
         }

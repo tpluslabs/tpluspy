@@ -8,12 +8,12 @@ from tplus.cli_tools.options import (
     no_pager_option,
     op_id_option,
     output_format_option,
+    redemption_delay_options,
     registry_address_option,
     resolve_universe,
     tplus_network_option,
     universe_option,
     vault_address_option,
-    withdrawal_delay_options,
 )
 from tplus.cli_tools.output import (
     chain_address_record,
@@ -35,7 +35,7 @@ __all__ = [
     "no_pager_option",
     "output_format_option",
     "op_id_option",
-    "withdrawal_delay_options",
+    "redemption_delay_options",
     "registry_address_option",
     "render",
     "resolve_universe",

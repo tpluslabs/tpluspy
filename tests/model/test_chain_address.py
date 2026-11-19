@@ -28,6 +28,30 @@ class TestChainAddress:
         """
         assert chain_address.evm_address == "0x62622E77D1349Face943C6e7D5c01C61465FE1dc"
 
+    @pytest.mark.parametrize(
+        "key,expected",
+        (
+            pytest.param(
+                bytes.fromhex("62622e77d1349face943c6e7d5c01c61465fe1dc"), True, id="20-bytes"
+            ),
+            pytest.param("0x62622E77D1349Face943C6e7D5c01C61465FE1dc", True, id="checksummed-str"),
+            pytest.param(
+                bytes.fromhex("62622e77d1349face943c6e7d5c01c61465fe1dc".ljust(64, "0")),
+                True,
+                id="left-aligned-32-bytes",
+            ),
+            pytest.param(
+                bytes.fromhex("62622e77d1349face943c6e7d5c01c61465fe1dc".rjust(64, "0")),
+                False,
+                id="right-aligned-32-bytes",
+            ),
+            pytest.param(bytes.fromhex("11" * 20), False, id="other-address"),
+            pytest.param(1, False, id="not-an-address"),
+        ),
+    )
+    def test_contains(self, chain_address, key, expected):
+        assert (key in chain_address) is expected
+
     def test_chain_id(self, chain_address):
         assert chain_address.chain_id.vm_id == 11155111
 
@@ -54,3 +78,21 @@ class TestChainAddress:
         assert chain_address.chain_id.routing_id == 1
         assert chain_address.address == "ab" * 32
         assert chain_address.chain_hex == "010000000000000065"
+
+    @pytest.mark.parametrize(
+        "solana_hex",
+        (
+            pytest.param("ab" * 32, id="no-leading-zero"),
+            pytest.param("00" + "ab" * 31, id="leading-zero-byte"),
+            pytest.param("02" + "ab" * 31, id="leading-02"),
+        ),
+    )
+    def test_evm_address_non_evm(self, solana_hex):
+        solana_address = ChainAddress.from_str(f"{solana_hex}@010000000000000065")
+
+        with pytest.raises(ValueError, match="not an EVM address"):
+            _ = solana_address.evm_address
+
+        assert solana_address.address == solana_hex
+        assert bytes.fromhex(solana_hex) in solana_address
+        assert bytes.fromhex(solana_hex)[:20] not in solana_address

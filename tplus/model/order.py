@@ -12,7 +12,7 @@ from tplus.model.multisig import AdditionalSigner
 from tplus.model.order_id import UserOrderId
 from tplus.model.order_trigger import OrderTrigger
 from tplus.model.pagination import PageContinuation
-from tplus.model.sync_order import SyncMakerOrderDetails, SyncTakerOrderDetails
+from tplus.model.sync_order import SyncQuoteOrderDetails, SyncTakerOrderDetails
 from tplus.model.types import UserPublicKey
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class Order(BaseModel):
     base_asset: AssetIdentifier
     book_price_decimals: int
     book_quantity_decimals: int
-    details: LimitOrderDetails | MarketOrderDetails | SyncMakerOrderDetails | SyncTakerOrderDetails
+    details: LimitOrderDetails | MarketOrderDetails | SyncQuoteOrderDetails | SyncTakerOrderDetails
     side: Side
     trigger: OrderTrigger | None = None
     creation_timestamp_ns: int
@@ -86,7 +86,7 @@ class Order(BaseModel):
 
     @field_serializer("details")
     def serialize_details(self, details, _info):
-        # The detail models overlap in fields (e.g. `Limit` and `SyncMaker` both carry
+        # The detail models overlap in fields (e.g. `Limit` and `SyncQuote` both carry
         # `limit_price`/`quantity`/`time_in_force`), so pydantic's union serializer can pick
         # the wrong variant's wrapper key; dispatch on the concrete class instead.
         return details.model_dump()
@@ -108,12 +108,12 @@ class OrderResponse(BaseModel):
     amount: Decimal | None
     max_sellable_amount: Decimal | None
     max_sellable_quantity: Decimal | None
+    finalized_filled_quantity: Decimal
     confirmed_filled_quantity: Decimal
-    pending_filled_quantity: Decimal
+    finalized_filled_amount: Decimal
     confirmed_filled_amount: Decimal
-    pending_filled_amount: Decimal
+    finalized_trading_fees_amount: Decimal
     confirmed_trading_fees_amount: Decimal
-    pending_trading_fees_amount: Decimal
     good_until_timestamp_ns: int | None
     timestamp_ns: int
     in_flight: bool | None = None
@@ -123,12 +123,20 @@ class OrderResponse(BaseModel):
     trigger_below_price: Decimal | None
     trigger_touched: bool | None = None
     parent_id: str | None = None
+    #: The order's T+ order id, ``"0x"`` and 32 lowercase hex digits, assigned by the orderbook
+    #: at admission (the position of the admitting entry in the market's replicated history);
+    #: ``None`` until the orderbook admits the order.
+    tplus_order_id: str | None = None
     last_update_timestamp_ns: int | None
     is_immediate_or_cancel: bool | None = None
     is_fill_or_kill: bool | None = None
     is_liquidation: bool | None = None
     is_auto_deleverage: bool | None = None
     is_reduce_only: bool | None = None
+    is_post_only: bool | None = None
+    """The order only rests as a maker and never takes liquidity."""
+    is_sync_order: bool | None = None
+    """A sync order: with ``is_post_only`` a market maker's sync quote, otherwise a sync taker."""
     trigger_enabled_quantity: Decimal | None = None
 
 
@@ -143,9 +151,9 @@ class HistoricalUserOrder(BaseModel):
     limit_price: Decimal | None
     quantity: Decimal | None
     amount: Decimal | None
-    confirmed_filled_quantity: Decimal
-    confirmed_filled_amount: Decimal
-    confirmed_trading_fees_amount: Decimal
+    finalized_filled_quantity: Decimal
+    finalized_filled_amount: Decimal
+    finalized_trading_fees_amount: Decimal
     good_until_timestamp_ns: int | None
     timestamp_ns: int
     is_immediate_or_cancel: bool
@@ -161,6 +169,7 @@ class HistoricalUserOrder(BaseModel):
     trigger_enabled_quantity: Decimal | None
     parent_id: str | None
     last_update_timestamp_ns: int
+    tplus_order_id: str | None = None
 
 
 def parse_orders(orders_data: list[dict[str, Any]]) -> list[OrderResponse]:
@@ -249,6 +258,9 @@ class OrderCreatedEvent(BaseOrderEvent):
     trigger_touched: bool | None = None
     is_liquidation: bool = False
     is_auto_deleverage: bool = False
+    #: The order's T+ order id, ``"0x"`` and 32 lowercase hex digits, the same on every event of
+    #: the order.
+    tplus_order_id: str | None = None
 
     @property
     def order_id(self) -> str:
@@ -283,6 +295,11 @@ class OrderCancelledEvent(BaseOrderEvent):
     #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
     #: ``0`` when the event predates sequencing.
     sequence: int = 0
+    #: The order's T+ order id, ``"0x"`` and 32 lowercase hex digits, the same on every event of
+    #: the order; ``None`` when the order had none: a create still in flight cancelled by its
+    #: book's start or stop, or a cancel of an order the book no longer holds (match those by
+    #: ``asset_id`` and ``order_id``).
+    tplus_order_id: str | None = None
 
 
 class OrderRemovedEvent(BaseOrderEvent):
@@ -300,15 +317,18 @@ class OrderRemovedEvent(BaseOrderEvent):
     operator_pubkey: str | None = None
     reason: str
     filled_quantity: int = 0
-    confirmed_quantity: int = 0
+    finalized_quantity: int = 0
     filled_amount: int = 0
-    confirmed_amount: int = 0
+    finalized_amount: int = 0
     book_quantity_decimals: int = 0
     initial_receive_timestamp_ns: int | None = None
     #: Book-wide orderbook event sequence; strictly increasing across the events the
     #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
     #: ``0`` when the event predates sequencing.
     sequence: int = 0
+    #: The order's T+ order id, ``"0x"`` and 32 lowercase hex digits, the same on every event of
+    #: the order.
+    tplus_order_id: str | None = None
 
 
 class OrderReplacedEvent(BaseOrderEvent):
@@ -328,6 +348,9 @@ class OrderReplacedEvent(BaseOrderEvent):
     #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
     #: ``0`` when the event predates sequencing.
     sequence: int = 0
+    #: The order's T+ order id, ``"0x"`` and 32 lowercase hex digits, the same on every event of
+    #: the order.
+    tplus_order_id: str | None = None
 
 
 class OrderAmendedEvent(BaseOrderEvent):
@@ -347,6 +370,9 @@ class OrderAmendedEvent(BaseOrderEvent):
     #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
     #: ``0`` when the event predates sequencing.
     sequence: int = 0
+    #: The order's T+ order id, ``"0x"`` and 32 lowercase hex digits, the same on every event of
+    #: the order.
+    tplus_order_id: str | None = None
 
 
 class OrderTriggeredEvent(BaseOrderEvent):
@@ -364,6 +390,9 @@ class OrderTriggeredEvent(BaseOrderEvent):
     #: book emits, so it orders this order's events that share a frozen ``timestamp_ns``.
     #: ``0`` when the event predates sequencing.
     sequence: int = 0
+    #: The order's T+ order id, ``"0x"`` and 32 lowercase hex digits, the same on every event of
+    #: the order.
+    tplus_order_id: str | None = None
 
 
 class OrderCreateFailedEvent(BaseOrderEvent):
@@ -508,3 +537,5 @@ class OrderOperationResponse(BaseModel):
     status: OperationStatus
     reason: str | None = None
     processed_at_ns: int | None = None
+    #: On an accepted create, the order's T+ order id, ``"0x"`` and 32 lowercase hex digits.
+    tplus_order_id: str | None = None

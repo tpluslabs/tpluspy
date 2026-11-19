@@ -125,7 +125,7 @@ def env(tplus_cli, settler_user, cli_env):
         usdc = dev_env.usdc
         weth = dev_env.weth
 
-        # Any deposit above ``max_deposits`` gets downgraded to
+        # Any deposit above ``admission_cap`` gets downgraded to
         # ``AssetIdentifier::Address`` (isolated) by the CE, which then
         # resolves to default risk params (``max_collateral=0``).
         huge_raw_cap = 10**30
@@ -138,9 +138,9 @@ def env(tplus_cli, settler_user, cli_env):
                     token.address,
                     "--chain-id",
                     str(CHAIN_ID_EVM),
-                    "--max-deposit",
+                    "--admission-cap",
                     str(huge_raw_cap),
-                    "--max-1hr",
+                    "--admission-cap-1hr",
                     str(huge_raw_cap),
                     "--min-weight",
                     "1200000",
@@ -253,6 +253,6 @@ def _permissive_risk_params_struct() -> dict:
         "initialMarginClamps": [0, 500000],
         "initialMarginFactors": [980000, 0],
         "maxFundingRate": 100000,
-        "maxUtilizationRate": 100000,
+        "maxBorrowRate": 100000,
         "bufferMultiple": 1200000,
     }

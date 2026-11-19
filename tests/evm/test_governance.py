@@ -9,6 +9,7 @@ from tplus.evm.governance import (
     OperatorKey,
     apply_operation,
     build_attestation_packet,
+    compute_op_type,
     compute_operator_address,
     convert_to_abi_value,
     encode_low_s_signature,
@@ -254,3 +255,15 @@ def test_registry_representation_config_removed_dumps_the_all_zero_struct():
         "maxRateJumpBps": 0,
         "sourceKind": 0,
     }
+
+
+@pytest.mark.parametrize(
+    "python_name, contract_name",
+    [
+        ("WITHDRAWAL_DELAY_PARAMETERS", "REDEMPTION_DELAY_PARAMETERS"),
+        ("MAX_DEPOSITS", "ADMISSION_CAP"),
+        ("MAX_1HR_DEPOSITS", "ADMISSION_CAP_1HR"),
+    ],
+)
+def test_registry_operation_name_mapping(python_name, contract_name):
+    assert compute_op_type(python_name, "Registry") == keccak(text=f"Registry.{contract_name}")

@@ -6,9 +6,10 @@ import pytest
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.trades import (
     TradeConfirmedEvent,
-    TradePendingEvent,
+    TradeFinalizedEvent,
     TradeRollbackedEvent,
     parse_single_trade,
+    parse_single_user_trade,
     parse_trade_event,
     parse_user_trades_page,
 )
@@ -23,13 +24,21 @@ def _user_trade(trade_id: int, timestamp_ns: int) -> dict:
         "timestamp_ns": timestamp_ns,
         "is_maker": False,
         "is_buyer": True,
-        "status": "Confirmed",
+        "status": "Finalized",
         "rollback_reason": None,
         "is_liquidation": False,
         "is_auto_deleverage": False,
         "sub_account": 1,
         "trading_fee": "0.1",
     }
+
+
+def test_parse_single_user_trade_keeps_the_tplus_order_id():
+    item = {**_user_trade(7, 1_000), "trade_id": 7, "tplus_order_id": "0x" + "ab" * 16}
+    assert parse_single_user_trade(item).tplus_order_id == "0x" + "ab" * 16
+    # A trade recorded before the id existed carries none.
+    legacy = {**_user_trade(8, 1_000), "trade_id": 8}
+    assert parse_single_user_trade(legacy).tplus_order_id is None
 
 
 def test_parse_user_trades_page_parses_envelope():
@@ -80,7 +89,9 @@ def assert_trade(evt, type: str):
     assert evt.trade.status == type
 
 
-@pytest.mark.parametrize("evt_type", (TradeConfirmedEvent, TradePendingEvent, TradeRollbackedEvent))
+@pytest.mark.parametrize(
+    "evt_type", (TradeFinalizedEvent, TradeConfirmedEvent, TradeRollbackedEvent)
+)
 def test_parse_trade_event(evt_type, make_trade):
     evt_str = evt_type.model_fields["event_type"].default
     trade = make_trade(evt_str)
@@ -90,7 +101,7 @@ def test_parse_trade_event(evt_type, make_trade):
     assert_trade(evt, evt_str)
 
 
-@pytest.mark.parametrize("evt_type", ("Pending", "Confirmed", "Rollbacked"))
+@pytest.mark.parametrize("evt_type", ("Confirmed", "Finalized", "Rollbacked"))
 def test_parse_single_trade(evt_type, make_trade):
     data = json.loads(make_trade(evt_type))
     trade = parse_single_trade(data)

@@ -21,7 +21,7 @@ def _risk_params_payload() -> dict:
         "initialMarginClamps": [0, 500_000],
         "initialMarginFactors": [980_000, 0],
         "maxFundingRate": 1_000,
-        "maxUtilizationRate": 1_000,
+        "maxBorrowRate": 1_000,
         "bufferMultiple": 1_200_000,
     }
 

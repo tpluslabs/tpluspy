@@ -10,6 +10,7 @@ from tplus.model.config import ChainConfig
         pytest.param(42_161, 1_000, 15, id="arbitrum"),
         pytest.param(143, 400, 15, id="monad"),
         pytest.param(8_453, 2_000, 10, id="base"),
+        pytest.param(4_663, 1_000, 40, id="robinhood"),
     ],
 )
 def test_for_evm_chain_matches_production(chain_id, block_time_ms, confirmations):

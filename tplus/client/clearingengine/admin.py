@@ -7,7 +7,6 @@ from tplus.client.clearingengine.base import BaseClearingEngineClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.interest_rates import InterestRates
 from tplus.model.types import UserPublicKey
-from tplus.model.vault import RebalancingBacking
 from tplus.utils.operator import load_operator_sk, sign_operator_payload
 from tplus.utils.serializers import to_u256_str
 from tplus.utils.user import to_user_public_key
@@ -163,13 +162,6 @@ class AdminClient(BaseClearingEngineClient):
         """
         await self._post("admin/representation-rates/read", json_data={})
 
-    async def get_rebalancing_backing(self, token: str) -> RebalancingBacking:
-        """
-        Admin-only API for a token's rebalancing anchor and backing at 18 decimals.
-        """
-        response = await self._get(f"admin/rebalancing-backing/{token}")
-        return RebalancingBacking.model_validate(response)
-
     async def set_rebalancing_anchor(self, token: str, anchor: int | None) -> None:
         """
         Debug-only: open, move or, with ``None``, close a token's rebalancing anchor at 18 decimals.
@@ -183,16 +175,16 @@ class AdminClient(BaseClearingEngineClient):
         self,
         asset_id: int | AssetIdentifier | str,
         chain_id: str,
-        max_deposits: str | int,
+        admission_cap: str | int,
         address: str,
-        max_1hr_deposits: str | int,
+        admission_cap_1hr: str | int,
         min_weight: str | int,
     ):
         asset_index = _asset_id_to_index(asset_id)
         config = {
             "address": address,
-            "max_deposits": to_u256_str(max_deposits),
-            "max_1hr_deposits": to_u256_str(max_1hr_deposits),
+            "admission_cap": to_u256_str(admission_cap),
+            "admission_cap_1hr": to_u256_str(admission_cap_1hr),
             "min_weight": to_u256_str(min_weight),
         }
 
@@ -214,7 +206,7 @@ class AdminClient(BaseClearingEngineClient):
         initial_margin_clamps: list[int],
         initial_margin_factors: list[int],
         max_funding_rate: int,
-        max_utilization_rate: int,
+        max_borrow_rate: int,
         utilization_kinks: list[int],
         rate_at_kinks: list[int],
         quote_utilization_kinks: list[int],
@@ -239,7 +231,7 @@ class AdminClient(BaseClearingEngineClient):
             "initial_margin_clamps": initial_margin_clamps,
             "initial_margin_factors": initial_margin_factors,
             "max_funding_rate": max_funding_rate,
-            "max_utilization_rate": max_utilization_rate,
+            "max_borrow_rate": max_borrow_rate,
             "utilization_kinks": utilization_kinks,
             "rate_at_kinks": rate_at_kinks,
             "quote_utilization_kinks": quote_utilization_kinks,
@@ -261,7 +253,7 @@ class AdminClient(BaseClearingEngineClient):
             },
         )
 
-    async def set_withdrawal_delay_params(
+    async def set_redemption_delay_params(
         self,
         min_delay: int,
         max_delay: int,
@@ -270,9 +262,9 @@ class AdminClient(BaseClearingEngineClient):
         cap_floor: int = 50_000,
     ):
         await self._post(
-            "admin/withdrawal-delay-parameters/modify",
+            "admin/redemption-delay-parameters/modify",
             json_data={
-                "withdrawal_delay_parameters": {
+                "redemption_delay_parameters": {
                     "min_delay": min_delay,
                     "max_delay": max_delay,
                     "delay_clamps": delay_clamps,
@@ -559,9 +551,10 @@ class AdminClient(BaseClearingEngineClient):
     ):
         """Lock one cross-venue link with an explicit creation time (debug only).
 
-        A venue's netting offset decays toward nothing over the lock's age, so
-        tests backdate ``locked_at_ns`` to observe a partly-decayed offset
-        without waiting hours or days of real downtime.
+        A locked venue's value and netting offset fade to nothing over the
+        lock's age, so tests backdate ``locked_at_ns`` to observe a partly
+        faded venue without waiting out real downtime. Replaces any lock the
+        link already holds, start time included.
         """
         await self._post(
             "admin/xm/lock-venue",
@@ -577,7 +570,7 @@ class AdminClient(BaseClearingEngineClient):
         """Force-expire every cross-venue (Hyperliquid) state-lock now (debug only).
 
         Simulates the inaccessible-/downtime-timeout cliff: each locked venue
-        balance is zeroed and the (now smaller) credit line is gossiped to the
+        balance is zeroed and the (now smaller) XVM allocation is gossiped to the
         OMS. Lets e2e tests observe the post-timeout solvency drop without
         waiting the real 7-day ``VENUE_INACCESSIBLE_TIMEOUT_NS``.
         """

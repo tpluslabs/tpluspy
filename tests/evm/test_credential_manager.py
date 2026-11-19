@@ -11,17 +11,20 @@ from tplus.evm.contracts import (
 )
 from tplus.evm.governance import OperationScheduled, OperatorKey, build_mock_quote
 from tplus.model.config import ChainConfig
+from tplus.utils.universe import Universe
 
 
 @pytest.fixture
 def vault_factory():
-    def deploy_registered_vault(owner, manager, operator_keys):
+    def deploy_registered_vault(owner, manager, operator_keys, universe_id):
         # A vault's genesis is the manager's committed snapshot, which exists once attested
         # keys reach the withdrawal quorum. Each operator starts with its own address as key.
         for operator_key in operator_keys:
             manager.attest_signer(operator_key, operator_key.address, sender=owner)
 
-        vault = DepositVault.deploy_proxy(owner, manager.address, sender=owner)
+        vault = DepositVault.deploy_proxy(
+            owner, manager.address, sender=owner, universe_id=universe_id
+        )
         manager.add_vault(
             vault.chain_address, ChainConfig.dev(), operator_keys=operator_keys, sender=owner
         )
@@ -34,7 +37,7 @@ def vault_factory():
 def manager_stack_factory(manager_factory, vault_factory):
     def build_manager_stack(operator_keys, universe_id=DEV_UNIVERSE_ID):
         owner, _, manager = manager_factory(operator_keys, len(operator_keys), universe_id)
-        vault = vault_factory(owner, manager, operator_keys)
+        vault = vault_factory(owner, manager, operator_keys, universe_id)
         manager.register_intra_chain_strategy(
             vault.chain_address.chain_id, operator_keys=operator_keys, sender=owner
         )
@@ -123,6 +126,24 @@ def test_submit_node_attestation_accepts_the_shared_vector(
     assert manager.get_attested_key(operator_key.address) == signer_key
 
 
+def test_deploy_proxy_rejects_another_universe(manager_factory, vault_factory):
+    operator_keys = [OperatorKey.create()]
+    owner, _, manager = manager_factory(operator_keys, len(operator_keys))
+
+    with pytest.raises(ValueError, match="does not govern universe"):
+        vault_factory(owner, manager, operator_keys, bytes(Universe.STAGING.id))
+
+
+def test_validate_credential_manager_rejects_another_manager(manager_factory):
+    operator_keys = [OperatorKey.create()]
+    _, registry, manager = manager_factory(operator_keys, len(operator_keys))
+    _, _, other_manager = manager_factory(operator_keys, len(operator_keys))
+
+    registry.validate_credential_manager(manager.address)
+    with pytest.raises(ValueError, match="is governed by"):
+        registry.validate_credential_manager(other_manager.address)
+
+
 def test_vault_behind_a_receiver_starts_from_a_manager_on_another_chain(
     manager_factory, operator_keys, signer_keys
 ):
@@ -137,7 +158,12 @@ def test_vault_behind_a_receiver_starts_from_a_manager_on_another_chain(
     genesis = read_genesis(manager.address, backend=manager.backend)
 
     vault = DepositVault.deploy_proxy(
-        vault_owner, receiver, sender=vault_owner, genesis=genesis, backend=vault_chain
+        vault_owner,
+        receiver,
+        sender=vault_owner,
+        universe_id=DEV_UNIVERSE_ID,
+        genesis=genesis,
+        backend=vault_chain,
     )
 
     assert genesis == manager.get_governance_snapshot()

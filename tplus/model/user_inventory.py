@@ -9,7 +9,7 @@ class Spot(BaseModel):
     spot_account_balance: dict[str, Decimal]
 
 
-class Balance(BaseModel):
+class MarginPositionSide(BaseModel):
     """Represents either credits or liabilities for given asset"""
 
     credits: Decimal
@@ -19,23 +19,23 @@ class Balance(BaseModel):
 class MarginPosition(BaseModel):
     """Represents a single margin position: what is borrowed to buy what"""
 
-    base: Balance
-    quote: Balance
+    base: MarginPositionSide
+    quote: MarginPositionSide
 
 
 class Margin(BaseModel):
     """Represents a single margin account: Collection of margin postions"""
 
-    margins: dict[str, MarginPosition]
+    margin_positions: dict[str, MarginPosition]
 
 
 class UserAccount(BaseModel):
     """Represents a single user account: Combination of spot and margin accounts"""
 
     kind: str = Field(pattern=r"^(funding|cross_margin|isolated:[0-9]+)$")
-    custody: dict[str, Decimal | None]
-    custody_liabilities: dict[str, Decimal | None] | None = None
-    spot: Spot
+    spot_token_balances: dict[str, Decimal | None]
+    token_liabilities: dict[str, Decimal | None] | None = None
+    spot_canonical_balances: Spot
     margin: Margin
 
 
@@ -54,26 +54,27 @@ def parse_user_inventory(data: dict) -> UserInventory:
 
         # ---- Spot parsing ----
         spot_balances = {
-            asset_id: balance for asset_id, balance in account_data.get("spot", {}).items()
+            asset_id: balance
+            for asset_id, balance in account_data.get("spot_canonical_balances", {}).items()
         }
         spot = Spot(spot_account_balance=spot_balances)
 
         # ---- Margin parsing ----
         margin_positions = {
             asset_id: MarginPosition(
-                base=Balance(**position["base"]),
-                quote=Balance(**position["quote"]),
+                base=MarginPositionSide(**position["base"]),
+                quote=MarginPositionSide(**position["quote"]),
             )
-            for asset_id, position in account_data.get("margins", {}).items()
+            for asset_id, position in account_data.get("margin_positions", {}).items()
         }
-        margin = Margin(margins=margin_positions)
+        margin = Margin(margin_positions=margin_positions)
 
         # ---- UserAccount ----
         accounts[account_id] = UserAccount(
             kind=account_data["kind"],
-            custody=account_data["custody"],
-            custody_liabilities=account_data.get("custody_liabilities"),
-            spot=spot,
+            spot_token_balances=account_data["spot_token_balances"],
+            token_liabilities=account_data.get("token_liabilities"),
+            spot_canonical_balances=spot,
             margin=margin,
         )
 

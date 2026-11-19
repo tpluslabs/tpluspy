@@ -23,7 +23,7 @@ def _trade(trade_id: int, timestamp_ns: int, asset_id: str = "1") -> dict[str, A
         "timestamp_ns": timestamp_ns,
         "is_maker": False,
         "is_buyer": True,
-        "status": "Confirmed",
+        "status": "Finalized",
         "rollback_reason": None,
         "is_liquidation": False,
         "is_auto_deleverage": False,

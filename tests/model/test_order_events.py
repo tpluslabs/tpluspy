@@ -79,8 +79,8 @@ def _removed_wire() -> dict:
         "reason": "Completed",
         "filled_quantity": 43,
         "filled_amount": 1_081,
-        "confirmed_quantity": 43,
-        "confirmed_amount": 1_081,
+        "finalized_quantity": 43,
+        "finalized_amount": 1_081,
         "book_quantity_decimals": 8,
         "initial_receive_timestamp_ns": 1_756_425_599_125_000_000,
     }
@@ -94,7 +94,7 @@ def test_externally_tagged_removed_completed():
     assert event.order_id == ORDER_ID
     assert event.asset_id == AssetIdentifier("1")
     assert event.reason == "Completed"
-    assert event.filled_quantity == event.confirmed_quantity == 43
+    assert event.filled_quantity == event.finalized_quantity == 43
     assert event.initial_receive_timestamp_ns == 1_756_425_599_125_000_000
 
 
@@ -204,6 +204,66 @@ def test_every_rust_variant_parses(variant, payload, model, event_type):
     assert isinstance(event, model)
     assert event.event_type == event_type
     assert event.order_id == ORDER_ID
+
+
+TPLUS_ORDER_ID = "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+
+
+@pytest.mark.parametrize(
+    ("variant", "payload", "model"),
+    [
+        (
+            "Canceled",
+            {"order_id": ORDER_ID, "asset_id": "1", "user_id": USER, "timestamp_ns": 13},
+            OrderCancelledEvent,
+        ),
+        ("Removed", _removed_wire(), OrderRemovedEvent),
+        (
+            "Replaced",
+            {
+                "order_id": ORDER_ID,
+                "asset_id": "1",
+                "user_id": USER,
+                "new_quantity": 41,
+                "new_price": 2_510,
+            },
+            OrderReplacedEvent,
+        ),
+        (
+            "Amended",
+            {
+                "order_id": ORDER_ID,
+                "asset_id": "1",
+                "user_id": USER,
+                "new_quantity": 20,
+                "remaining_quantity": 18,
+            },
+            OrderAmendedEvent,
+        ),
+        (
+            "Triggered",
+            {
+                "order_id": ORDER_ID,
+                "asset_id": "1",
+                "user_id": USER,
+                "timestamp_ns": 12,
+                "quantity": 43,
+                "trigger_touched": True,
+            },
+            OrderTriggeredEvent,
+        ),
+    ],
+)
+def test_every_lifecycle_event_keeps_the_tplus_order_id(variant, payload, model):
+    """The book stamps the same id on every event of an order; each model keeps it, and a
+    frame from a book that predates it parses with ``None``."""
+    stamped = parse_order_event({variant: {**payload, "tplus_order_id": TPLUS_ORDER_ID}})
+    assert isinstance(stamped, model)
+    assert stamped.tplus_order_id == TPLUS_ORDER_ID
+
+    legacy = parse_order_event({variant: payload})
+    assert isinstance(legacy, model)
+    assert legacy.tplus_order_id is None
 
 
 def test_a_failure_names_its_market_and_reason():

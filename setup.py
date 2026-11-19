@@ -8,7 +8,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="tpluspy",
-    version="0.8.0",
+    version="0.9.0",
     description="""tpluspy: Client utilities for interacting with tplus""",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -20,7 +20,7 @@ setup(
         "anyio>=4",
         "click>=8.1",
         "cryptography>=44.0.1",
-        "eth-pydantic-types>=0.2.6,<0.3",
+        "eth-pydantic-types>=0.2.8,<0.3",
         "eth-utils>=5.1.0,<6",
         "httpx>=0.20",
         "pycryptodome>=3.17.1",

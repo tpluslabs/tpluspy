@@ -26,6 +26,8 @@ def test_parse_settlement_completed():
                 "amount_out": "1000000000000000000",
                 "chain_id": "000000000000000001",
                 "settlement_nonce": 4,
+                "fee_collected": "25000000000000000",
+                "fee_returned": "5000000000000000",
                 "timestamp_ns": 1,
             }
         }
@@ -33,6 +35,8 @@ def test_parse_settlement_completed():
     assert isinstance(event, SettlementCompleted)
     assert event.amount_in == "100000000000000000000"
     assert event.settlement_nonce == 4
+    assert event.fee_collected == "25000000000000000"
+    assert event.fee_returned == "5000000000000000"
 
 
 class TestParseUserEvent:
@@ -48,11 +52,11 @@ class TestParseUserEvent:
                     "1": {
                         "1": {
                             "funding_amount": "-12.5",
-                            "utilization_amount": "0",
-                            "quote_utilization_amount": "0.75",
+                            "borrow_interest_amount": "0",
+                            "quote_borrow_interest_amount": "0.75",
                             "funding_rate": "0.0001",
-                            "utilization_rate": "0.00002",
-                            "quote_utilization_rate": "0.00003",
+                            "borrow_rate": "0.00002",
+                            "quote_borrow_rate": "0.00003",
                         }
                     }
                 },
@@ -63,10 +67,10 @@ class TestParseUserEvent:
         assert isinstance(event, InterestEpochOccurred)
         payment = event.payments["1"][1]
         assert payment.funding_amount == Decimal("-12.5")
-        assert payment.quote_utilization_amount == Decimal("0.75")
+        assert payment.quote_borrow_interest_amount == Decimal("0.75")
         assert payment.funding_rate == Decimal("0.0001")
-        assert payment.utilization_rate == Decimal("0.00002")
-        assert payment.quote_utilization_rate == Decimal("0.00003")
+        assert payment.borrow_rate == Decimal("0.00002")
+        assert payment.quote_borrow_rate == Decimal("0.00003")
         assert event.timestamp_ns == 1_777_920_000_000_000_000
 
     def test_deposit_landed(self):
@@ -136,14 +140,14 @@ def test_sub_account_asset_transferred_per_fill_payload():
                 "target_sub_account_index": 0,
                 "nonce": 3,
                 "debited": {"Canonical": {"asset": 2, "amount": "4"}},
-                "credited": {"Custody": {"asset": "token", "amount": "8"}},
+                "credited": {"Token": {"asset": "token", "amount": "8"}},
                 "redemption": {"filled_principal": "4", "remaining_principal": "6"},
                 "timestamp_ns": 10,
             }
         }
     )
     assert isinstance(event, SubAccountAssetTransferred)
-    assert event.credited["Custody"]["amount"] == "8"
+    assert event.credited["Token"]["amount"] == "8"
     assert event.redemption is not None
     assert event.redemption.remaining_principal == "6"
 

@@ -1,5 +1,5 @@
 """
-Models for POST /account/simulate/{user_id} margin simulation responses.
+Models for POST /account/simulate/{user_id} trade simulation responses.
 """
 
 from decimal import Decimal
@@ -19,7 +19,7 @@ class SimulatedPositionMarginInfo(BaseModel):
     margin: Decimal
 
 
-class UserSimulatedMargin(BaseModel):
+class TradeSimulationResult(BaseModel):
     """Projected margin state after applying a hypothetical trade."""
 
     account_equity: Decimal
@@ -29,7 +29,7 @@ class UserSimulatedMargin(BaseModel):
     utilized_margin: Decimal
     margin_required: Decimal
     margin_impact: Decimal
-    is_solvent: bool
+    above_im_requirement: bool
     trade_accepted: bool
     liquidation_price: Decimal | None = None
     positions: list[SimulatedPositionMarginInfo]
@@ -45,7 +45,7 @@ def parse_simulated_position_margin_info(data: dict) -> SimulatedPositionMarginI
     )
 
 
-def parse_user_simulated_margin(data: dict) -> UserSimulatedMargin:
+def parse_trade_simulation_result(data: dict) -> TradeSimulationResult:
     leverage = None
     if data.get("account_leverage") is not None:
         leverage = Decimal(data["account_leverage"])
@@ -58,7 +58,7 @@ def parse_user_simulated_margin(data: dict) -> UserSimulatedMargin:
         parse_simulated_position_margin_info(position) for position in data.get("positions", [])
     ]
 
-    return UserSimulatedMargin(
+    return TradeSimulationResult(
         account_equity=Decimal(data["account_equity"]),
         available_margin=Decimal(data["available_margin"]),
         mm_surplus=Decimal(data["mm_surplus"]),
@@ -66,7 +66,7 @@ def parse_user_simulated_margin(data: dict) -> UserSimulatedMargin:
         utilized_margin=Decimal(data["utilized_margin"]),
         margin_required=Decimal(data["margin_required"]),
         margin_impact=Decimal(data["margin_impact"]),
-        is_solvent=data["is_solvent"],
+        above_im_requirement=data["above_im_requirement"],
         trade_accepted=data["trade_accepted"],
         liquidation_price=liquidation_price,
         positions=positions,

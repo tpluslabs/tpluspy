@@ -143,6 +143,9 @@ if _EVM_AVAILABLE:
     @tplus_network_option()
     @account_option()
     @click.argument("credential_manager")
+    @universe_option(
+        help="Governance universe of CREDENTIAL_MANAGER. Required off the local network."
+    )
     @click.option(
         "--owner",
         help="Vault owner address. Defaults to --account.",
@@ -164,8 +167,10 @@ if _EVM_AVAILABLE:
         help="RPC of the genesis manager's chain. Defaults to the connected chain.",
     )
     def _deploy(
+        provider,
         account,
         credential_manager: str,
+        universe: str | None,
         owner: str | None,
         skip_if_deployed: bool,
         genesis_manager: str | None,
@@ -183,14 +188,26 @@ if _EVM_AVAILABLE:
             genesis = read_genesis(genesis_manager or credential_manager, rpc_url=genesis_rpc_url)
 
         instance = DepositVault.deploy_proxy(
-            owner or account, credential_manager, sender=account, genesis=genesis
+            owner or account,
+            credential_manager,
+            sender=account,
+            universe_id=bytes(
+                compute_universe_id(resolve_universe(universe, provider.network.is_local))
+            ),
+            genesis=genesis,
         )
         click.echo(f"deployed: {instance.address}")
 
     @vaults.command("deploy-registry", cls=ConnectedProviderCommand)
     @tplus_network_option()
     @account_option()
-    @click.argument("registry_address")
+    @click.option(
+        "--registry",
+        "registry_address",
+        default=ZERO_ADDRESS,
+        show_default=True,
+        help="tplus Registry; leave unset and set it later with a SET_REGISTRY operation.",
+    )
     @click.option(
         "--operator",
         "operators",
@@ -250,7 +267,7 @@ if _EVM_AVAILABLE:
         withdrawal_quorum: int,
         skip_if_deployed: bool,
     ):
-        """Deploy a new CredentialManager pointing at REGISTRY_ADDRESS."""
+        """Deploy a new CredentialManager."""
         from ape import chain
 
         from tplus.evm.contracts import CredentialManager
@@ -448,41 +465,6 @@ if _EVM_AVAILABLE:
         )
         op_id = asyncio.run(owner.add_vault(chain_addr, config, sender=account, wait=wait))
         click.echo(f"operation: {op_id.hex()}")
-
-    @vaults.command("set-domain-separator", cls=ConnectedProviderCommand)
-    @tplus_network_option()
-    @clearing_url_option()
-    @ignore_ssl_option()
-    @vault_address_option()
-    @tplus_account_option()
-    @account_option()
-    @click.option("--separator", help="Hex-encoded domain separator. Computed if omitted.")
-    @pass_cli_context
-    def _set_domain_separator(
-        cli_ctx: CLIContext, account, separator: str | None, vault_address: str | None
-    ):
-        """Set the vault's domain separator."""
-        owner = _build_owner(cli_ctx, account, vault_address=vault_address)
-        value = bytes.fromhex(separator.removeprefix("0x")) if separator else None
-        receipt = owner.set_domain_separator(value)
-        click.echo(f"tx: {receipt.txn_hash}")
-
-    @vaults.command("set-credential-manager", cls=ConnectedProviderCommand)
-    @tplus_network_option()
-    @clearing_url_option()
-    @ignore_ssl_option()
-    @vault_address_option()
-    @tplus_account_option()
-    @account_option()
-    @click.argument("address")
-    @pass_cli_context
-    def _set_credential_manager(
-        cli_ctx: CLIContext, account, address: str, vault_address: str | None
-    ):
-        """Set the vault's stored credentialManager pointer to ADDRESS."""
-        owner = _build_owner(cli_ctx, account, vault_address=vault_address)
-        receipt = owner.set_credential_manager(address)
-        click.echo(f"tx: {receipt.txn_hash}")
 
     @vaults.command("admins")
     @output_format_option()

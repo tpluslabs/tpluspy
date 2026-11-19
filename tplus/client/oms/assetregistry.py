@@ -4,6 +4,7 @@ from tplus.client.auth import AuthenticatedClient
 from tplus.model.asset_identifier import AssetAddress
 from tplus.model.chain_address import ChainAddress
 from tplus.model.representation_rate import RepresentationRatesResponse
+from tplus.model.vault import RebalancingBacking
 
 
 def _prep_request(assets: Sequence[str | AssetAddress]) -> dict:
@@ -60,6 +61,38 @@ class AssetRegistryClient(AuthenticatedClient):
         response = await self._get("registry/netting-parameters", requires_auth=False)
         if not isinstance(response, list):
             raise TypeError(f"Expected list response for netting parameters, got: {type(response)}")
+        return response
+
+    async def get_rebalancing_backing(self) -> list[RebalancingBacking]:
+        """
+        Get every token's rebalancing anchor, backing and vault balances at 18 decimals, as the
+        clearing engine gossips them (`GET /registry/rebalancing-backing`). A 503 means OMS has
+        not received them yet, and raises.
+        """
+        response = await self._get("registry/rebalancing-backing", requires_auth=False)
+        if not isinstance(response, list):
+            raise TypeError(
+                f"Expected list response for rebalancing backing, got: {type(response)}"
+            )
+        return [RebalancingBacking.model_validate(entry) for entry in response]
+
+    async def get_venue_fade_parameters(self) -> list[dict]:
+        """
+        Get the venue fade table OMS is pricing against
+        (`GET /registry/venue-fade-parameters`).
+
+        Rows are `{venue, horizon_secs, step_secs, exponent}`: a state-locked
+        venue keeps `1 - (stepped lock age / horizon_secs)^exponent` of its
+        value and of its netting offer, the age moving in whole `step_secs`. An
+        empty list means the table is synced and every venue fades on the
+        default curve (2700 s, 300 s, 3); a 503 means OMS has not received one
+        from the clearing engine yet, and raises.
+        """
+        response = await self._get("registry/venue-fade-parameters", requires_auth=False)
+        if not isinstance(response, list):
+            raise TypeError(
+                f"Expected list response for venue fade parameters, got: {type(response)}"
+            )
         return response
 
     async def get_asset_decimals(self, assets: list[str | AssetAddress]) -> dict:

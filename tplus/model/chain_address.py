@@ -1,4 +1,3 @@
-import struct
 from functools import cached_property
 from typing import Any
 
@@ -6,6 +5,8 @@ from eth_pydantic_types.hex.bytes import HexBytes32
 from pydantic import RootModel, model_serializer, model_validator
 
 from tplus.model.types import ChainID
+from tplus.utils.address import to_evm_address
+from tplus.utils.bincode import encode_bytes
 
 
 def _parse_asset_from_dict(data: dict) -> str:
@@ -86,10 +87,6 @@ def validate_chain_address(chain_address: str) -> str:
     raise ValueError("Invalid ChainAddress")
 
 
-def _bincode_hex_field(value: str) -> bytes:
-    return struct.pack("<Q", len(value)) + value.encode("ascii")
-
-
 class ChainAddress(RootModel[str]):
     """
     Identifies an address on a chain in format hex_address@hex_chain.
@@ -119,7 +116,9 @@ class ChainAddress(RootModel[str]):
 
     def __bytes__(self) -> bytes:
         """The bincode form: each half as a length-prefixed hex string."""
-        return _bincode_hex_field(self.address) + _bincode_hex_field(self.chain_hex)
+        return encode_bytes(self.address.encode("ascii")) + encode_bytes(
+            self.chain_hex.encode("ascii")
+        )
 
     def __contains__(self, key: Any) -> bool:
         if isinstance(key, str):
@@ -145,13 +144,7 @@ class ChainAddress(RootModel[str]):
         return self._contains_address_bytes(key_bytes)
 
     def _contains_address_bytes(self, value: bytes) -> bool:
-        addr = self.evm_address if len(value) == 20 else self.address
-
-        addr = addr.removeprefix("0x")
-        if len(addr) % 2 != 0:
-            addr = f"0{addr}"
-
-        return bytes.fromhex(addr) == value
+        return self.address_bytes == value.ljust(32, b"\x00")
 
     @model_serializer
     def serialize_model(self) -> str:
@@ -163,19 +156,7 @@ class ChainAddress(RootModel[str]):
 
     @cached_property
     def evm_address(self) -> str:
-        address = f"0x{self.address[:40]}"
-
-        try:
-            # NOTE: This is installed as a peer-dependency if using [evm] extras.
-            from eth_utils import to_checksum_address
-
-        except ImportError:
-            return address  # Non-checksummed.
-
-        try:
-            return to_checksum_address(address)
-        except Exception as err:
-            raise ValueError(f"Invalid address '{address}'") from err
+        return to_evm_address(self.address)
 
     @cached_property
     def chain_hex(self) -> str:

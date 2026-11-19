@@ -17,13 +17,13 @@ from tplus.evm.governance import (
     REGISTRY_CONTRACT_NAME,
     SET_DELAY_BOUNDS_OP_TYPE,
     OperationScheduled,
-    ScheduleApproval,
     align_params,
     apply_operation,
     build_attestation_packet,
     build_delay_change,
     build_mock_quote,
     build_registry_operation,
+    compute_domain_separator,
     compute_majority_threshold,
     compute_op_type,
     compute_operator_address,
@@ -80,7 +80,7 @@ if TYPE_CHECKING:
 
     from tplus.evm.backends.base import EVMBackend
     from tplus.evm.governance import OperatorKey
-    from tplus.model.withdrawal import WithdrawalDelayParameters
+    from tplus.model.withdrawal import RedemptionDelayParameters
     from tplus.utils.user import User
 
 # A checksum-address string (aliased so annotations don't need Ape's AddressType).
@@ -98,6 +98,8 @@ CHAIN_MAP = {
     10143: "monad:testnet",
     42161: "arbitrum:mainnet",
     421614: "arbitrum:sepolia",
+    4663: "robinhood:mainnet",
+    46630: "robinhood:testnet",
 }
 NETWORK_MAP = {
     "ethereum": {
@@ -111,6 +113,10 @@ NETWORK_MAP = {
     "arbitrum": {
         "mainnet": 42161,
         "sepolia": 421614,
+    },
+    "robinhood": {
+        "mainnet": 4663,
+        "testnet": 46630,
     },
 }
 DEFAULT_DEPLOYMENTS: dict = {
@@ -585,34 +591,52 @@ class Registry(TPlusContract):
         cls,
         *,
         sender: Any,
+        credential_manager: "AddressType",
+        universe_id: bytes,
+        council: "list[AddressType]",
+        council_threshold: int,
         risk_param_delay_secs: int = 0,
         upgrade_delay_secs: int = 0,
         backend: "EVMBackend | None" = None,
     ) -> "Registry":
-        """Deploy a Registry behind an ERC1967 proxy, administered by `sender`."""
+        """Deploy a Registry behind an ERC1967 proxy, its `council` under `credential_manager`."""
         backend = backend or get_backend()
-        owner = backend.get_account(sender)
+        deployer = backend.get_account(sender)
         implementation = backend.deploy_contract(
-            cls.NAME, owner, risk_param_delay_secs, sender=owner
+            cls.NAME, risk_param_delay_secs, ZERO_ADDRESS, bytes(32), [], 0, sender=deployer
         )
-        factory = ERC1967ProxyFactory.deploy(sender=owner, backend=backend)
+        factory = ERC1967ProxyFactory.deploy(sender=deployer, backend=backend)
         proxy = factory.deploy_proxy(
             implementation.address,
             encode_initialization(
                 find_initialize_abi(cls.NAME),
-                [owner.address, risk_param_delay_secs, upgrade_delay_secs],
+                [
+                    risk_param_delay_secs,
+                    upgrade_delay_secs,
+                    credential_manager,
+                    universe_id,
+                    council,
+                    council_threshold,
+                ],
             ),
-            sender=owner,
+            sender=deployer,
         )
         return cls(
-            default_deployer=owner, chain_id=backend.chain_id, address=proxy, backend=backend
+            default_deployer=deployer, chain_id=backend.chain_id, address=proxy, backend=backend
         )
 
     @classmethod
     def deploy_dev(cls, **kwargs):
         backend = kwargs.get("backend") or get_backend()
+        sender = backend.get_account(kwargs.get("sender") or backend.default_test_account())
+        council = kwargs.get("council") or [sender.address]
         return cls.deploy_proxy(
-            sender=kwargs.get("sender") or backend.default_test_account(),
+            sender=sender,
+            credential_manager=kwargs.get("credential_manager") or credential_manager.address,
+            universe_id=kwargs.get("universe_id") or DEV_UNIVERSE_ID,
+            council=council,
+            council_threshold=kwargs.get("council_threshold")
+            or compute_majority_threshold(len(council)),
             risk_param_delay_secs=kwargs.get("risk_param_delay_secs", 0),
             upgrade_delay_secs=kwargs.get("upgrade_delay_secs", 0),
             backend=backend,
@@ -649,8 +673,8 @@ class Registry(TPlusContract):
         return [
             {
                 "chain_address": decode_registry_chain_address(itm.assetAddress, itm.chainId),
-                "max_deposits": itm.maxDeposits,
-                "max_1hr_deposits": itm.max1hrDeposits,
+                "admission_cap": itm.admissionCap,
+                "admission_cap_1hr": itm.admissionCap1hr,
                 "min_weight": itm.minWeight,
             }
             for itm in data
@@ -673,8 +697,8 @@ class Registry(TPlusContract):
         index: int,
         asset_address: "HexBytes32 | AddressType",
         chain_id: ChainID,
-        max_deposit: int,
-        max_1hr_deposits: int,
+        admission_cap: int,
+        admission_cap_1hr: int,
         min_weight: int,
         *,
         council: list,
@@ -682,19 +706,38 @@ class Registry(TPlusContract):
         **tx_kwargs,
     ):
         data = self.build_asset_data(
-            index, asset_address, chain_id, max_deposit, max_1hr_deposits, min_weight
+            index, asset_address, chain_id, admission_cap, admission_cap_1hr, min_weight
         )
+        operation_name, values = self.build_asset_operation(data)
         return self.schedule_and_execute_if_due(
-            "ASSET_DATA", [data], council=council, sender=sender, **tx_kwargs
+            operation_name, values, council=council, sender=sender, **tx_kwargs
         )
+
+    def add_new_asset(
+        self, listings: list[AssetData], *, council: list, sender: Any, **tx_kwargs
+    ) -> OperationScheduled:
+        """Register a new asset with its listings, which all carry the new index."""
+        return self.schedule_and_execute_if_due(
+            "ADD_NEW_ASSET", [listings], council=council, sender=sender, **tx_kwargs
+        )
+
+    def build_asset_operation(self, data: AssetData) -> tuple[str, list]:
+        """The op and values that write `data`: a new asset until the Registry has its index."""
+        if self.has_asset(data.index):
+            return "ADD_FUNGIBLE_ASSET_LISTING", [data]
+
+        return "ADD_NEW_ASSET", [[data]]
+
+    def has_asset(self, index: int) -> bool:
+        return any(listing.index == index for listing in self.contract.getAssets(0, 65_535))
 
     @staticmethod
     def build_asset_data(
         index: int,
         asset_address: "HexBytes32 | AddressType",
         chain_id: ChainID,
-        max_deposit: int,
-        max_1hr_deposits: int,
+        admission_cap: int,
+        admission_cap_1hr: int,
         min_weight: int,
     ) -> AssetData:
         """The `Registry.AssetData` of an asset entry."""
@@ -702,8 +745,8 @@ class Registry(TPlusContract):
             index=index,
             asset_address=to_registry_token(asset_address),
             chain_id=chain_id.to_registry_chain(),
-            max_deposits=max_deposit,
-            max_1hr_deposits=max_1hr_deposits,
+            admission_cap=admission_cap,
+            admission_cap_1hr=admission_cap_1hr,
             min_weight=min_weight,
         )
 
@@ -773,29 +816,23 @@ class Registry(TPlusContract):
 
         self.contract.validateRiskParameters(params)
 
-    def get_withdrawal_delay_parameters(self) -> "WithdrawalDelayParameters":
-        from tplus.model.withdrawal import WithdrawalDelayParameters
+    def get_redemption_delay_parameters(self) -> "RedemptionDelayParameters":
+        from tplus.model.withdrawal import RedemptionDelayParameters
 
-        result = self.contract.getWithdrawalDelayParameters()
-        return WithdrawalDelayParameters.model_validate(result.__dict__)
+        result = self.contract.getRedemptionDelayParameters()
+        return RedemptionDelayParameters.model_validate(result.__dict__)
 
     def get_credential_manager(self) -> "AddressType":
         """The CredentialManager governing the risk council, or the zero address before one."""
         return self.contract.credentialManager()
 
-    def initialize_risk_council(
-        self,
-        manager: "AddressType",
-        universe_id: bytes,
-        members: "list[AddressType]",
-        threshold: int,
-        *,
-        sender: Any,
-        **tx_kwargs,
-    ) -> Any:
-        return self.contract.initializeRiskCouncil(
-            manager, universe_id, members, threshold, sender=sender, **tx_kwargs
-        )
+    def validate_credential_manager(self, credential_manager: "AddressType") -> None:
+        governing_manager = to_checksum_address(self.get_credential_manager())
+        if governing_manager != to_checksum_address(credential_manager):
+            raise ValueError(
+                f"Registry {self.address} is governed by {governing_manager}, "
+                f"not {credential_manager}; deploy a new Registry for this credential manager."
+            )
 
     def schedule_operation(
         self, name: str, values: list, *, council: list, sender: Any, **tx_kwargs
@@ -948,7 +985,7 @@ class DepositVault(TPlusContract):
 
     @property
     def domain_separator(self) -> HexBytes:
-        return HexBytes(self.backend.get_storage(self.address, 3))
+        return HexBytes(self.contract.domainSeparator())
 
     @property
     def approved_settlers(self) -> list:
@@ -1068,13 +1105,15 @@ class DepositVault(TPlusContract):
         credential_manager: "AddressType",
         *,
         sender: Any,
+        universe_id: bytes,
         upgrade_delay_secs: int = 0,
         genesis: "tuple | None" = None,
         backend: "EVMBackend | None" = None,
     ) -> "DepositVault":
         """Deploy a DepositVault behind an ERC1967 proxy.
 
-        A vault starts from a governance snapshot. ``genesis`` defaults to the one
+        ``universe_id`` is the governance universe of ``credential_manager``, which signs the
+        vault's upgrades. A vault starts from a governance snapshot. ``genesis`` defaults to the one
         ``credential_manager`` has committed, which exists once attested keys reach its
         withdrawal quorum; before that the read reverts with ``GovernanceSnapshotUnavailable``.
         Pass ``genesis`` where ``credential_manager`` is a receiver rather than the manager.
@@ -1087,6 +1126,7 @@ class DepositVault(TPlusContract):
             manager = CredentialManager(
                 address=credential_manager, chain_id=backend.chain_id, backend=backend
             )
+            manager.validate_universe(universe_id)
             genesis = manager.get_governance_snapshot()
 
         implementation = backend.deploy_contract(
@@ -1097,7 +1137,7 @@ class DepositVault(TPlusContract):
             implementation.address,
             encode_initialization(
                 find_initialize_abi(cls.NAME),
-                [owner, credential_manager, upgrade_delay_secs, genesis],
+                [owner, credential_manager, universe_id, upgrade_delay_secs, genesis],
             ),
             sender=account,
         )
@@ -1122,12 +1162,6 @@ class DepositVault(TPlusContract):
         return cast(
             "DepositVault", cls.deploy(sender, credman, genesis, sender=sender, backend=backend)
         )
-
-    def set_domain_separator(self, domain_separator: bytes, *, sender: Any):
-        return self.contract.setDomainSeparator(domain_separator, sender=sender)
-
-    def set_credential_manager(self, new_credential_manager: "AddressType", *, sender: Any) -> Any:
-        return self.contract.setCredentialManager(new_credential_manager, sender=sender)
 
 
 def _decode_erc20_error(err: Any) -> str | None:
@@ -1161,6 +1195,13 @@ class CredentialManager(TPlusContract):
 
     NAME = "CredentialManager"
 
+    def validate_universe(self, universe_id: bytes) -> None:
+        if bytes(self.contract.domainSeparator()) != compute_domain_separator(universe_id):
+            raise ValueError(
+                f"Credential manager {self.address} does not govern universe 0x{universe_id.hex()}; "
+                "pass the universe ID it was deployed with."
+            )
+
     @classmethod
     def deploy_dev(cls, **kwargs):
         backend = kwargs.get("backend") or get_backend()
@@ -1179,7 +1220,7 @@ class CredentialManager(TPlusContract):
             security_council_threshold=kwargs.get("security_council_threshold")
             or compute_majority_threshold(len(security_council)),
             automata_verifier=kwargs.get("automata_verifier") or ZERO_ADDRESS,
-            registry=kwargs.get("registry") or registry.address,
+            registry=kwargs.get("registry") or ZERO_ADDRESS,
             withdrawal_quorum=kwargs.get("withdrawal_quorum") or DEV_WITHDRAWAL_QUORUM,
         )
 
@@ -1273,6 +1314,18 @@ class CredentialManager(TPlusContract):
             operator_keys=operator_keys,
             sender=sender,
             **tx_kwargs,
+        )
+
+    def set_registry(
+        self,
+        registry: "AddressType",
+        *,
+        operator_keys: "list[OperatorKey]",
+        sender: Any,
+        **tx_kwargs,
+    ):
+        return self.apply_operation(
+            "SET_REGISTRY", [registry], operator_keys=operator_keys, sender=sender, **tx_kwargs
         )
 
     def set_profile_registry(
@@ -1490,39 +1543,30 @@ class MeasurementProfileRegistry(TPlusContract):
             default_deployer=sender, chain_id=backend.chain_id, address=proxy, backend=backend
         )
 
-    def schedule_profile(
+    def schedule_profiles(
         self,
         kind: int,
-        profile: MeasurementProfile,
+        profiles: list[MeasurementProfile],
         *,
         operator_keys: "list[OperatorKey]",
         sender: Any,
         **tx_kwargs,
     ) -> OperationScheduled:
-        """Schedule `kind`'s measurements."""
+        """Schedule the approved measurements of `kind`, replacing its current ones."""
         op_type = bytes(self.contract.profileOpType(kind))
         params = encode(
             *align_params(
-                self.NAME, ["uint32", "struct MeasurementProfileRegistry.Profile"], [kind, profile]
+                self.NAME,
+                ["uint32", "struct MeasurementProfileRegistry.Profile[]"],
+                [kind, profiles],
             )
         )
         approval = sign_schedule(
             self.contract, op_type, op_type, params, signers=operator_keys, backend=self.backend
         )
-        return self._submit_profile_schedule(kind, profile, approval, sender=sender, **tx_kwargs)
-
-    def _submit_profile_schedule(
-        self,
-        kind: int,
-        profile: MeasurementProfile,
-        approval: ScheduleApproval,
-        *,
-        sender: Any,
-        **tx_kwargs,
-    ) -> OperationScheduled:
-        receipt = self.contract.scheduleSetProfile(
+        receipt = self.contract.scheduleSetProfiles(
             kind,
-            profile,
+            profiles,
             approval.nonce,
             approval.deadline_secs,
             approval.signers,
@@ -1532,17 +1576,17 @@ class MeasurementProfileRegistry(TPlusContract):
         )
         return OperationScheduled.from_receipt(receipt, self.contract, self.backend)
 
-    def execute_profile(
+    def execute_profiles(
         self,
         op_id: bytes,
         kind: int,
-        profile: MeasurementProfile,
+        profiles: list[MeasurementProfile],
         *,
         sender: Any,
         **tx_kwargs,
     ):
-        return self.contract.executeSetProfile(
-            op_id, kind, profile, [], [], sender=sender, **tx_kwargs
+        return self.contract.executeSetProfiles(
+            op_id, kind, profiles, [], [], sender=sender, **tx_kwargs
         )
 
 

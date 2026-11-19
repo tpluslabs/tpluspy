@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import json
+from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 import click
@@ -23,7 +24,10 @@ from tplus.cli_tools import (
 )
 
 if TYPE_CHECKING:
+    from tplus.client.clearingengine import ClearingEngineClient
     from tplus.evm.managers.registry import RegistryOwner
+    from tplus.model.approval_durations import ApprovalDurations
+    from tplus.model.types import ChainID
 
 
 _EVM_AVAILABLE = importlib.util.find_spec("ape") is not None
@@ -64,6 +68,7 @@ if _EVM_AVAILABLE:
     from ape.cli import ConnectedProviderCommand, account_option
 
     from tplus.cli_tools import tplus_network_option
+    from tplus.evm.governance import OperatorKey
 
     @params.command("list")
     @click.option(
@@ -143,6 +148,56 @@ if _EVM_AVAILABLE:
             "RISK_PARAMETERS", [index, json.loads(params_json)]
         )
         click.echo(describe_schedule_event(schedule_event))
+
+    async def _apply_chain_approval_durations(
+        client: "ClearingEngineClient",
+        chain_id: "ChainID",
+        durations: "ApprovalDurations",
+        signers: dict[str, Callable[[bytes], str]],
+    ):
+        from tplus.model.approval_durations import ApprovalDurationChainMap
+
+        current = await client.approval_durations.get_approval_durations()
+        if current.per_chain.get(chain_id) == durations:
+            click.echo(f"approval durations on {chain_id} already set")
+            return
+
+        merged = ApprovalDurationChainMap(per_chain={**current.per_chain, chain_id: durations})
+        await client.approval_durations.set_approval_durations(merged, signers, len(signers))
+        click.echo(f"approval durations on {chain_id} set")
+
+    @params.command("set-approval-durations", cls=ConnectedProviderCommand)
+    @tplus_network_option()
+    @clearing_url_option()
+    @ignore_ssl_option()
+    @account_option()
+    @click.option("--chain-id", "chain_id", type=int, required=True, help="EVM chain id.")
+    @click.option("--withdrawal-secs", "withdrawal_secs", type=int, required=True)
+    @click.option("--settlement-secs", "settlement_secs", type=int, required=True)
+    @pass_cli_context
+    def _set_approval_durations(
+        cli_ctx: CLIContext,
+        account,
+        chain_id: int,
+        withdrawal_secs: int,
+        settlement_secs: int,
+    ):
+        """Set a chain's withdrawal and settlement approval durations, signed as the operator committee."""
+        from tplus.model.approval_durations import ApprovalDurations
+        from tplus.model.types import ChainID
+
+        operator_key = OperatorKey.from_ape_account(account)
+        durations = ApprovalDurations(
+            withdrawal_secs=withdrawal_secs, settlement_secs=settlement_secs
+        )
+        asyncio.run(
+            _apply_chain_approval_durations(
+                cli_ctx.clearing_engine_client(anonymous=True),
+                ChainID.evm(chain_id),
+                durations,
+                {operator_key.compressed_public_key: operator_key.sign_compact_digest},
+            )
+        )
 
     @params.command("execute", cls=ConnectedProviderCommand)
     @tplus_network_option()

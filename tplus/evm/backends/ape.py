@@ -21,6 +21,8 @@ CHAIN_MAP = {
     11155111: "ethereum:sepolia",
     42161: "arbitrum:mainnet",
     421614: "arbitrum:sepolia",
+    4663: "robinhood:mainnet",
+    46630: "robinhood:testnet",
 }
 
 # Make ``ape.convert(handle, AddressType)`` work for any t+ contract handle.

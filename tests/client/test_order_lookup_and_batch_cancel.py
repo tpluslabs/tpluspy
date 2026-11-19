@@ -18,12 +18,12 @@ def book_order():
         amount=None,
         max_sellable_amount=None,
         max_sellable_quantity=None,
+        finalized_filled_quantity=Decimal(0),
         confirmed_filled_quantity=Decimal(0),
-        pending_filled_quantity=Decimal(0),
+        finalized_filled_amount=Decimal(0),
         confirmed_filled_amount=Decimal(0),
-        pending_filled_amount=Decimal(0),
+        finalized_trading_fees_amount=Decimal(0),
         confirmed_trading_fees_amount=Decimal(0),
-        pending_trading_fees_amount=Decimal(0),
         good_until_timestamp_ns=None,
         timestamp_ns=1_700_000_000_000_000_000,
         status="Open",
@@ -31,6 +31,21 @@ def book_order():
         trigger_below_price=None,
         last_update_timestamp_ns=None,
     )
+
+
+@pytest.fixture(scope="session")
+def ended_book_order(book_order):
+    return book_order.model_copy(
+        update={
+            "tplus_order_id": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "status": "Completed",
+        }
+    )
+
+
+@pytest.fixture(scope="session")
+def live_book_order(book_order):
+    return book_order.model_copy(update={"tplus_order_id": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"})
 
 
 @pytest.mark.anyio
@@ -43,6 +58,42 @@ async def test_get_order_looks_up_by_query(mock_client, book_order):
     assert request.call_args.args[:2] == ("GET", "/orders/lookup")
     assert request.call_args.kwargs["params"] == {"order_id": "order-1"}
     assert order == book_order
+
+
+@pytest.mark.anyio
+async def test_get_order_reads_the_tplus_order_id(mock_client, live_book_order):
+    client, request = mock_client
+    request.return_value = live_book_order.model_dump(mode="json")
+
+    order = await client.get_order("order-1")
+
+    assert request.call_args.args[:2] == ("GET", "/orders/lookup")
+    assert order == live_book_order
+
+
+@pytest.mark.anyio
+async def test_get_orders_returns_every_order(mock_client, ended_book_order, live_book_order):
+    client, request = mock_client
+    request.return_value = [
+        ended_book_order.model_dump(mode="json"),
+        live_book_order.model_dump(mode="json"),
+    ]
+
+    orders = await client.get_orders("order-1", asset_id=AssetIdentifier("200"))
+
+    assert request.call_args.args[:2] == ("GET", "/orders/lookup/all")
+    assert request.call_args.kwargs["params"] == {"order_id": "order-1", "asset_id": "200"}
+    assert orders == [ended_book_order, live_book_order]
+
+
+@pytest.mark.anyio
+async def test_get_orders_returns_an_empty_list_for_an_unknown_id(mock_client):
+    client, request = mock_client
+    request.return_value = []
+
+    assert await client.get_orders("order-1") == []
+    assert request.call_args.args[:2] == ("GET", "/orders/lookup/all")
+    assert request.call_args.kwargs["params"] == {"order_id": "order-1"}
 
 
 @pytest.mark.anyio

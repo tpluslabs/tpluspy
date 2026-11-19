@@ -30,9 +30,9 @@ class AdminSettlementClient(BaseClearingEngineClient):
 
     async def get_approved_settlers(self, chain_id: ChainID) -> dict[str, list[UserPublicKey]]:
         """
-        Get the approved settlers for a chain, keyed by registered vault
-        address (32-byte hex). The latest-registered vault is the default a
-        settlement executes against when its request names no vault.
+        Get the approved settlers of a chain's vault, keyed by the vault's
+        address (32-byte hex). A chain has one vault, so the map holds at most
+        one entry, and none when the chain has no vault.
 
         Args:
             chain_id (ChainID): The chain ID to check.

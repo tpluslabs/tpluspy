@@ -1,18 +1,23 @@
 from pydantic import BaseModel
 
+from tplus.model.asset_identifier import AssetAddress
 from tplus.model.chain_address import ChainAddress
 from tplus.model.types import ChainID
 
 
 class RebalancingBacking(BaseModel):
-    """The clearing engine's rebalancing view of a token at 18 decimals: the anchor an outgoing
-    approval set, if any, the backing the vault holds admitted to the asset, what its approved
-    payouts will take out, and what stays once they do."""
+    """One token of ``GET /registry/rebalancing-backing``, in its own units at 18 decimals: the
+    anchor an outgoing approval set, if any, its admitted backing, what its approved payouts will
+    take out, what stays once they do, and the free and locked parts of that backing. The three
+    backing amounts are ``None`` while the clearing engine cannot price the token."""
 
+    token: AssetAddress
     anchor: int | None
-    ingested: int
-    approved_outflows: int
-    available: int
+    ingested: int | None
+    approved_outflows: int | None
+    available: int | None
+    admitted_balance: int
+    locked_admitted_balance: int
 
 
 class ChildManager(BaseModel):
