@@ -14,7 +14,7 @@ def int_to_bytes32(value: int) -> HexBytes32:
     return HexBytes32.__eth_pydantic_validate__(value)
 
 
-def get_dstack_domain(vault: "ChainAddress") -> HexBytes32:
+def vault_domain_separator(vault: "ChainAddress") -> HexBytes32:
     chain = vault.chain_id
 
     parts = [

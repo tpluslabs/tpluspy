@@ -27,14 +27,17 @@ class TplusApiClient(AuthenticatedClient):
     when swapped to this facade. Use ``.oms`` / ``.mds`` explicitly to disambiguate
     when both define the same name.
 
-    Closing this client (or exiting its ``async with`` block) closes the one
-    shared connection.
+    Pass ``use_ws_control=True`` to submit OMS order mutations over its persistent
+    ``/control`` WebSocket. Closing the facade also closes that control connection
+    and the shared HTTP connection.
     """
 
-    def __init__(self, base_url: str = DEFAULT_BASE_URL, **kwargs) -> None:
+    def __init__(
+        self, base_url: str = DEFAULT_BASE_URL, *, use_ws_control: bool = False, **kwargs
+    ) -> None:
         super().__init__(base_url, **kwargs)
         self._auth_service = OMS_SERVICE
-        self.oms = OrderBookClient.from_client(self)
+        self.oms = OrderBookClient.from_client(self, use_ws_control=use_ws_control)
         self.mds = MarketDataClient.from_client(
             self,
             auth=Auth(cache_dir=self._auth.cache_dir),
@@ -43,6 +46,9 @@ class TplusApiClient(AuthenticatedClient):
         self.mds._auth_service = MDS_SERVICE
         self._pair_tokens_with(self.mds)
         self.oms._pair_tokens_with(self.mds)
+
+    async def close(self) -> None:
+        await self.oms.close()
 
     def __getattr__(self, name: str) -> Any:
         # Only reached when normal lookup fails, so real inherited attributes

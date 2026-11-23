@@ -19,7 +19,7 @@ from tplus.evm.contracts import (
 from tplus.evm.exceptions import ContractNotExists
 from tplus.evm.governance import OperatorKey
 from tplus.model.asset_identifier import ChainAddress
-from tplus.utils.domain import get_dstack_domain
+from tplus.utils.domain import vault_domain_separator
 
 _HAS_APE = importlib.util.find_spec("ape") is not None
 ape_only = pytest.mark.skipif(not _HAS_APE, reason="requires Ape (tpluspy[evm-ape])")
@@ -124,7 +124,7 @@ class TestDepositVaultDeploy:
             build_dev_genesis(evm_backend.convert_address(owner)),
             sender=owner,
         )
-        expected = get_dstack_domain(instance.chain_address)
+        expected = vault_domain_separator(instance.chain_address)
 
         # Reads using ``eth_getStorageAt`` -- backend-neutral.
         assert instance.domain_separator == expected

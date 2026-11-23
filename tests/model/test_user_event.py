@@ -152,6 +152,26 @@ def test_sub_account_asset_transferred_per_fill_payload():
     assert event.redemption.remaining_principal == "6"
 
 
+def test_withdrawal_expired_decodes():
+    from tplus.model.user_event import WithdrawalExpired
+
+    event = parse_user_event(
+        {
+            "WithdrawalExpired": {
+                "user": "ab" * 32,
+                "asset": "2",
+                "amount": "10",
+                "chain_id": "chain",
+                "withdrawal_nonce": 3,
+                "timestamp_ns": 10,
+            }
+        }
+    )
+    assert isinstance(event, WithdrawalExpired)
+    assert event.amount == "10"
+    assert event.withdrawal_nonce == 3
+
+
 def test_signature_hint_decodes():
     from tplus.model.user_event import WithdrawalSignatureAvailable
 

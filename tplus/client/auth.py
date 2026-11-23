@@ -9,7 +9,7 @@ from typing_extensions import Self
 
 from tplus.client.base import BaseClient, WebSocketConnection, strip_query_from_path
 from tplus.client.websocket import TplusWebSocket
-from tplus.exceptions import is_unauthenticated_status
+from tplus.exceptions import is_session_rejected
 from tplus.model.auth import AuthRequestBody, AuthTokenResponse
 from tplus.model.multisig import AdditionalSigner, SignerKey
 from tplus.utils.user import User, to_user, token_cache
@@ -111,6 +111,7 @@ class AuthenticatedClient(BaseClient):
         auth: Auth | None = None,
         auth_path_prefix: str | None = None,
         auth_additional_signers: "Sequence[UserLike] | None" = None,
+        **kwargs,
     ) -> Self:
         if isinstance(client, AuthenticatedClient):
             auth = auth or client._auth
@@ -126,6 +127,7 @@ class AuthenticatedClient(BaseClient):
             auth=auth,
             auth_path_prefix=auth_path_prefix or "",
             auth_additional_signers=auth_additional_signers,
+            **kwargs,
         )
         if isinstance(client, AuthenticatedClient):
             new_client._auth_service = client._auth_service
@@ -241,11 +243,7 @@ class AuthenticatedClient(BaseClient):
             request_timeout=request_timeout,
         )
 
-        if (
-            use_auth
-            and is_unauthenticated_status(response.status_code)
-            and not relative_url.startswith("/auth")
-        ):
+        if use_auth and is_session_rejected(response) and not relative_url.startswith("/auth"):
             self.logger.info(
                 "Received %s for %s, refreshing auth token and retrying once.",
                 response.status_code,

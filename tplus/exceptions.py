@@ -124,8 +124,11 @@ _AUTH_CODES = frozenset(
 )
 _AUTH_PREFIXES = ("SIGNER_", "NONCE_")
 
-# Our services only 401 a stale token; gateways fronting them often 403 it instead.
+# Statuses classified as an ``AuthError`` when the body carries no known code.
 UNAUTHENTICATED_STATUS_CODES = frozenset({401, 403})
+
+# The status of a refusal that logging in again can cure. See ``is_session_rejected``.
+SESSION_REJECTED_STATUS = 401
 
 _RATE_LIMIT_CODES = frozenset({"RATE_LIMITED"})
 
@@ -158,6 +161,36 @@ _ORDER_PREFIXES = (
 
 def is_unauthenticated_status(status_code: int) -> bool:
     return status_code in UNAUTHENTICATED_STATUS_CODES
+
+
+def is_session_rejected(response: httpx.Response) -> bool:
+    """Whether ``response`` refuses the session token itself, before the request ran.
+
+    Only then can a new login help. The OMS and the MDS answer a missing, unknown
+    or expired token with ``401`` and the code ``UNAUTHORIZED``. The API gateway
+    answers ``401`` ``GATEWAY_ROUTE_CHANGED`` when the user moved to another OMS,
+    and states that the request was not executed. Every other refusal would be
+    repeated with a new token: a ``403`` is a missing permission, and the other
+    ``401`` codes are about the request's own signature.
+    """
+    if response.status_code != SESSION_REJECTED_STATUS:
+        return False
+
+    try:
+        error = response.json()["error"]
+        code = error["code"]
+    except (ValueError, KeyError, TypeError):
+        return False
+
+    if code == "UNAUTHORIZED":
+        return True
+
+    details = error.get("details")
+    return (
+        code == "GATEWAY_ROUTE_CHANGED"
+        and isinstance(details, dict)
+        and details.get("request_executed") is False
+    )
 
 
 def _classify(code: str, status_code: int) -> type[OmsError]:

@@ -1,16 +1,17 @@
 """
 End-to-end REST walkthrough for tpluspy.
 
-Connects to a running tplus-core OMS, places a market and a limit order on a
-single asset, and then reads back the user's orders / trades / inventory.
+Connects to one gateway URL, places orders through the owning OMS, and reads
+private history from its paired MDS without configuring either backend address.
 """
 
 import asyncio
 import logging
+import os
 
 import httpx
 
-from tplus.client import MarketDataClient, OrderBookClient
+from tplus.client import TplusApiClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.model.limit_order import GTC
 from tplus.utils.user import User
@@ -20,10 +21,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("RestExample")
 
-# Replace with your running tplus-core OMS URL.
-API_BASE_URL = "http://127.0.0.1:8000"
-# Read-only market-data service.
-MARKET_DATA_URL = "http://127.0.0.1:8011"
+# Point this at your gateway. The local e2e runner uses port 8085.
+API_BASE_URL = os.getenv("TPLUS_API_BASE_URL", "http://127.0.0.1:8085")
 
 # Asset to trade. Either a registry index (e.g. 200) or an `address@chain_id`
 # string in the t+ 9-byte chain form -- see docs/userguides/asset-identifiers.md.
@@ -36,15 +35,13 @@ async def main() -> None:
     logger.info("Trading asset: %s", EXAMPLE_ASSET)
     logger.info("Public key: %s", user.public_key)
 
-    async with (
-        OrderBookClient(API_BASE_URL, default_user=user) as client,
-        MarketDataClient(MARKET_DATA_URL, default_user=user) as md_client,
-    ):
+    async with TplusApiClient(API_BASE_URL, default_user=user) as client:
+        md_client = client.mds
         # ---------------- read-only sanity check ----------------
         try:
             book = await md_client.get_orderbook_snapshot(EXAMPLE_ASSET)
         except httpx.RequestError as err:
-            logger.error("Cannot reach the market-data-service at %s: %s", MARKET_DATA_URL, err)
+            logger.error("Cannot reach market data through %s: %s", API_BASE_URL, err)
             return
 
         logger.info(

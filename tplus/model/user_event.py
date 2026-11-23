@@ -44,6 +44,17 @@ class WithdrawalCompleted(BaseModel):
     timestamp_ns: int = Field(alias="timestamp_ns")
 
 
+class WithdrawalExpired(BaseModel):
+    """A withdrawal's approval expired unused and its locked amount was returned."""
+
+    user: str
+    asset: str
+    amount: str  # U256 in INVENTORY_DECIMALS (1e18).
+    chain_id: str
+    withdrawal_nonce: int
+    timestamp_ns: int
+
+
 class SettlementCompleted(BaseModel):
     """An on-chain settlement has been ingested into the user's sub-account.
 
@@ -218,6 +229,7 @@ class SyncBookCreated(BaseModel):
 UserActivityEvent = (
     DepositLanded
     | WithdrawalCompleted
+    | WithdrawalExpired
     | SettlementCompleted
     | PositionCleared
     | SubAccountAssetTransferred
@@ -232,6 +244,7 @@ UserActivityEvent = (
 _VARIANTS: dict[str, type[BaseModel]] = {
     "DepositLanded": DepositLanded,
     "WithdrawalCompleted": WithdrawalCompleted,
+    "WithdrawalExpired": WithdrawalExpired,
     "SettlementCompleted": SettlementCompleted,
     "PositionCleared": PositionCleared,
     "SubAccountAssetTransferred": SubAccountAssetTransferred,

@@ -4,7 +4,7 @@ from tplus.client.auth import AuthenticatedClient
 from tplus.model.asset_identifier import AssetAddress
 from tplus.model.chain_address import ChainAddress
 from tplus.model.representation_rate import RepresentationRatesResponse
-from tplus.model.vault import RebalancingBacking
+from tplus.model.vault import RebalancingBacking, RebalancingFeeQuote
 
 
 def _prep_request(assets: Sequence[str | AssetAddress]) -> dict:
@@ -75,6 +75,26 @@ class AssetRegistryClient(AuthenticatedClient):
                 f"Expected list response for rebalancing backing, got: {type(response)}"
             )
         return [RebalancingBacking.model_validate(entry) for entry in response]
+
+    async def get_rebalancing_fee_quote(
+        self, token: str | AssetAddress, amount: int
+    ) -> RebalancingFeeQuote:
+        """
+        Quote the rebalancing fee of paying ``amount`` of ``token`` out and the rebalancing reward
+        of admitting it (`POST /registry/rebalancing-fee-quote`). ``amount`` is in the token's own
+        units at 18 decimals. The quote is non-binding: the clearing engine prices again when it
+        acts. A 400 means the quote cannot be computed on the token or the amount, as for a token
+        in no asset index, and a 503 that OMS cannot price it yet; both raise.
+        """
+        response = await self._post(
+            "registry/rebalancing-fee-quote",
+            json_data={
+                "token": AssetAddress.model_validate(token).model_dump(),
+                "amount": str(amount),
+            },
+            requires_auth=False,
+        )
+        return RebalancingFeeQuote.model_validate(response)
 
     async def get_venue_fade_parameters(self) -> list[dict]:
         """

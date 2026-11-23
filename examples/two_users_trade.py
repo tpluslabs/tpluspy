@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 
-from tplus.client import OrderBookClient
+from tplus.client import TplusApiClient
 from tplus.model.asset_identifier import AssetIdentifier
 from tplus.utils.user import User
 
@@ -10,9 +10,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("TwoUsersTradeExample")
 
 # ---------------------------------------------------------------------------
-# Configuration – adjust to match your running OMS instance
+# Configuration – the gateway finds each user's OMS and paired MDS.
 # ---------------------------------------------------------------------------
-API_BASE_URL = os.getenv("TPLUS_API", "http://127.0.0.1:8000")
+API_BASE_URL = os.getenv("TPLUS_API_BASE_URL", "http://127.0.0.1:8085")
 
 # Use a simple index-based asset. 200 is the default that ships with the
 # docker-compose setup. Replace it with your own if necessary.
@@ -30,21 +30,13 @@ async def main() -> None:
 
     logger.info("User A pk=%s", user_a.public_key)
     logger.info("User B pk=%s", user_b.public_key)
-    logger.info("Connecting to OMS at %s", API_BASE_URL)
+    logger.info("Connecting to gateway at %s", API_BASE_URL)
 
     async with (
-        OrderBookClient(API_BASE_URL, default_user=user_a) as client_a,
-        OrderBookClient(API_BASE_URL, default_user=user_b) as client_b,
+        TplusApiClient(API_BASE_URL, default_user=user_a) as client_a,
+        TplusApiClient(API_BASE_URL, default_user=user_b, use_ws_control=True) as client_b,
     ):
-        # -------------------------------------------------------------------
-        # Ensure the market exists (idempotent – returns 409 if already there)
-        # -------------------------------------------------------------------
-        try:
-            await client_a.create_market(asset_id)
-            logger.info("Market %s created (or already existed)", asset_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("create_market failed (likely already exists): %s", exc)
-
+        # The market must already exist: the gateway does not forward `POST /market/create`.
         # Fetch market details to understand the decimal scaling factors
         market = await client_a.get_market(asset_id)
         qty_decimals = market.book_quantity_decimals

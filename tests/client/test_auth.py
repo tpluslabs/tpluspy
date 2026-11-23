@@ -17,6 +17,15 @@ from tplus.model.multisig import AdditionalSigner, SignerKey
 from tplus.model.types import UserPublicKey
 from tplus.utils.user import DelegatedUser, User
 
+# What the OMS and the MDS answer for a missing, unknown or expired token.
+SESSION_REJECTED = {
+    "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Invalid or missing auth token",
+        "retryable": False,
+    }
+}
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("busy_count, expected_status, expected_calls", [(1, 200, 2), (5, 503, 4)])
@@ -469,7 +478,7 @@ class TestAuthenticatedClient:
             if path == "/data":
                 data_calls += 1
                 if data_calls == 1:
-                    return httpx.Response(401, json={"error": "expired"})
+                    return httpx.Response(401, json=SESSION_REJECTED)
                 return httpx.Response(200, json={"ok": True})
             return httpx.Response(404)
 
@@ -646,7 +655,7 @@ class TestAuthenticatedClient:
             data_calls += 1
             seen.append(request.headers.get("Authorization"))
             if data_calls == 1:
-                return httpx.Response(401, text="expired")
+                return httpx.Response(401, json=SESSION_REJECTED)
 
             return httpx.Response(200, json={"ok": True})
 
@@ -715,10 +724,9 @@ class TestAuthenticatedClient:
         "rejection",
         [
             InvalidStatus(Response(401, "Unauthorized", Headers())),
-            InvalidStatus(Response(403, "Forbidden", Headers())),
             InvalidStatusCode(401, Headers()),
         ],
-        ids=["invalid_status_401", "invalid_status_403", "legacy_invalid_status_code_401"],
+        ids=["invalid_status_401", "legacy_invalid_status_code_401"],
     )
     async def test_open_ws_reauthenticates_after_rejected_handshake(self, mocker, rejection):
         backend = FakeAuthBackend(token=lambda attempt: f"tok-{attempt}")
@@ -751,9 +759,14 @@ class TestAuthenticatedClient:
         ("failure", "expected_auth_calls"),
         [
             (InvalidStatus(Response(401, "Unauthorized", Headers())), 2),
+            (InvalidStatus(Response(403, "Forbidden", Headers())), 1),
             (ConnectionRefusedError("no listener"), 1),
         ],
-        ids=["second_rejection_is_not_retried", "non_auth_failure_is_not_refreshed"],
+        ids=[
+            "second_rejection_is_not_retried",
+            "permission_refusal_is_not_refreshed",
+            "non_auth_failure_is_not_refreshed",
+        ],
     )
     async def test_open_ws_raises_without_retrying_again(
         self, mocker, failure, expected_auth_calls
@@ -857,7 +870,7 @@ class TestAuthenticatedClient:
         def on_request(request: httpx.Request) -> httpx.Response:
             seen.append(request.headers.get("Authorization"))
             if len(seen) == 2:
-                return httpx.Response(401, text="token expired")
+                return httpx.Response(401, json=SESSION_REJECTED)
 
             return httpx.Response(200, json={"ok": True})
 
@@ -925,7 +938,7 @@ class TestAuthenticatedClient:
 
         def on_request(request: httpx.Request) -> httpx.Response:
             if backend.auth_calls == 1:
-                return httpx.Response(401, text="token expired")
+                return httpx.Response(401, json=SESSION_REJECTED)
             return httpx.Response(200, json={"ok": True})
 
         client = mock_client(backend, on_request, default_user=master)

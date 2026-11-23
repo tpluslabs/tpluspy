@@ -20,6 +20,36 @@ class RebalancingBacking(BaseModel):
     locked_admitted_balance: int
 
 
+class RebalancingFeeQuote(BaseModel):
+    """Reply of ``POST /registry/rebalancing-fee-quote``: every amount but ``amount`` is in
+    canonical credits of the token's asset index at 18 decimals."""
+
+    token: AssetAddress
+    """Token representation quoted."""
+
+    amount: int
+    """Amount quoted, in the token's own units at 18 decimals."""
+
+    fee: int
+    """Rebalancing fee of paying ``amount`` out."""
+
+    reward: int
+    """Rebalancing reward of admitting ``amount``, before the reward haircut and the rebalancing
+    fee account's balance cap it."""
+
+    canonical_amount_in: int
+    """Canonical amount a Funding account transfer in credits to the trading account for
+    ``amount``: the value of ``amount``, rounded down, plus ``reward``. It counts ``reward``
+    before the reward haircut and the rebalancing fee account's balance cap it, so the transfer
+    can credit less."""
+
+    canonical_amount_out: int
+    """Canonical amount a Funding account transfer out debits from the trading account to pay
+    ``amount`` out: the value of ``amount``, rounded up, plus the rebalancing fee of the tokens
+    that value pays out. Rounding up can make those more than ``amount``, so the fee counted here
+    can be higher than ``fee``."""
+
+
 class ChildManager(BaseModel):
     """A child credential manager the clearing engine's credential manager lists."""
 

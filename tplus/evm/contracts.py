@@ -38,6 +38,7 @@ from tplus.evm.governance import (
 from tplus.logger import get_logger
 from tplus.model.asset_identifier import ChainAddress
 from tplus.model.config import ChainConfig
+from tplus.model.oracle_config import RegistryOracleConfig
 from tplus.model.registry_asset import AssetData
 from tplus.model.representation_rate import RegistryRepresentationConfig
 from tplus.model.risk_parameters import RiskParameters
@@ -775,6 +776,31 @@ class Registry(TPlusContract):
     ) -> list:
         """The `REPRESENTATION_CONFIG` operation values of a token's config."""
         return [chain_id.to_registry_chain(), to_registry_token(token), config]
+
+    def set_oracle_config(
+        self,
+        index: int,
+        config: RegistryOracleConfig,
+        *,
+        council: list,
+        sender: Any,
+        **tx_kwargs,
+    ) -> OperationScheduled:
+        """Configure the sources a registered asset's oracle price is read from."""
+        return self.schedule_and_execute_if_due(
+            "ORACLE_CONFIG",
+            [index, config],
+            council=council,
+            sender=sender,
+            **tx_kwargs,
+        )
+
+    def get_oracle_configs(self, start: int, end: int) -> list[RegistryOracleConfig]:
+        """One entry per asset index in `[start, end)`; an unconfigured asset has no sources."""
+        return [
+            RegistryOracleConfig.from_struct(config)
+            for config in self.contract.getOracleConfigs(start, end)
+        ]
 
     def get_representation_configs(
         self, start: int = 0, end: int = REPRESENTATION_CONFIG_PAGE_LIMIT

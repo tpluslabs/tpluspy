@@ -116,7 +116,8 @@ from tplus.utils.signing import (
 from tplus.utils.user import DelegatedUser, User, to_user
 
 CONTROL_WS_MAX_ATTEMPTS = 5
-# The handshake already re-authenticated and retried, so don't let a non-auth 403 burn all attempts.
+# The handshake already re-authenticated and retried a 401, and a 403 is a
+# permission refusal: neither gets better with more attempts.
 CONTROL_WS_MAX_ATTEMPTS_BY_STATUS = {401: 1, 403: 1}
 CONTROL_WS_PROTOCOL = "tplus.ws.v1"
 CONTROL_WS_ERROR_STATUS = {
@@ -1714,7 +1715,7 @@ class OrderBookClient(AuthenticatedClient):
     ) -> AsyncIterator[UserActivityEvent]:
         """Stream typed user-activity events on `/account/events/{user_id}`.
 
-        Each event is a `DepositLanded`, `WithdrawalCompleted`,
+        Each event is a `DepositLanded`, `WithdrawalCompleted`, `WithdrawalExpired`,
         `SettlementCompleted`, `PositionCleared`, `SubAccountAssetTransferred`,
         `MarginCallUpdated`, or `InterestEpochOccurred` model carrying the context
         the FE needs to render notifications without diffing balance state.
@@ -1952,7 +1953,9 @@ class OrderBookClient(AuthenticatedClient):
             is_buy: True for buy, False for sell.
             size: Trade size as an integer or decimal string.
             limit_price: Limit price as an integer or decimal string.
-            pending_transfers: Optional pending deposits to apply before the trade.
+            pending_transfers: Optional trading account transfers into ``sub_account`` to apply
+                before the trade, each ``{"source_sub_account": <trading account index>,
+                "asset": <canonical asset>, "amount": <decimal string>}``.
             trade_type: ``"margin"`` (default) or ``"spot"``.
             user: Optional User or public key. Falls back to the default user.
 

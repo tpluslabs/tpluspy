@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 from logging import Logger
 
 from tplus.client.base import WebSocketConnection
-from tplus.exceptions import is_unauthenticated_status
+from tplus.exceptions import SESSION_REJECTED_STATUS
 
 
 def resolve_rejected_status_code(error: BaseException) -> int | None:
@@ -19,10 +19,10 @@ class TplusWebSocket:
     An async context manager wrapping a WebSocket connection that has not been
     opened yet. Entering it performs the handshake and yields the connection.
 
-    A handshake the server rejects as unauthenticated is retried once against a
-    freshly issued token, so a connection outliving its token recovers instead of
-    presenting the rejected one forever. Any other failure, including a second
-    rejection, is raised to the caller.
+    A handshake the server rejects with ``401`` is retried once against a freshly
+    issued token, so a connection outliving its token recovers instead of
+    presenting the rejected one forever. Any other failure, including a ``403``
+    and a second rejection, is raised to the caller.
     """
 
     def __init__(
@@ -42,7 +42,7 @@ class TplusWebSocket:
             return await self._connection.__aenter__()
         except Exception as err:
             rejected_status_code = resolve_rejected_status_code(err)
-            if rejected_status_code is None or not is_unauthenticated_status(rejected_status_code):
+            if rejected_status_code != SESSION_REJECTED_STATUS:
                 raise
 
             self._logger.debug(

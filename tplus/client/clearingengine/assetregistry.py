@@ -43,3 +43,9 @@ class AdminAssetRegistryClient(BaseClearingEngineClient):
         Request that the clearing engine reads the registry's representation configs.
         """
         await self._post("representation-configs/update")
+
+    async def update_oracle_configs(self):
+        """
+        Request that the clearing engine reads the registry's oracle configs.
+        """
+        await self._post("oracle-configs/update")

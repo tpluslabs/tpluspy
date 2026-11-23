@@ -1,4 +1,5 @@
 from decimal import Decimal
+from enum import Enum
 
 from pydantic import BaseModel
 
@@ -29,6 +30,18 @@ class TickerOpenInterest(BaseModel):
         return max(sides)
 
 
+class TickerPriceState(str, Enum):
+    """How far an asset's prices can be trusted."""
+
+    WARMING_UP = "warming_up"
+    READY = "ready"
+    DEGRADED = "degraded"
+    CIRCUIT_BREAKER = "circuit_breaker"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class Ticker(BaseModel):
     """24h summary for one market."""
 
@@ -36,6 +49,7 @@ class Ticker(BaseModel):
     last_price: Decimal | None = None
     mark_price: Decimal | None = None
     index_price: Decimal | None = None
+    price_state: TickerPriceState = TickerPriceState.WARMING_UP
     best_bid: BookLevel | None = None
     best_ask: BookLevel | None = None
     open_interest: TickerOpenInterest | None = None

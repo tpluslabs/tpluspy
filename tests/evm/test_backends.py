@@ -33,6 +33,10 @@ from tplus.evm.governance import (  # noqa: E402
 )
 from tplus.model.asset_identifier import ChainAddress  # noqa: E402
 from tplus.model.config import ChainConfig  # noqa: E402
+from tplus.model.oracle_config import (  # noqa: E402
+    RegistryOracleConfig,
+    RegistryOracleSourceConfig,
+)
 from tplus.model.representation_rate import (  # noqa: E402
     RegistryRepresentationConfig,
     RepresentationSourceKind,
@@ -418,6 +422,37 @@ def test_registry_set_representation_config_round_trips(
     assert registry.get_representation_configs() == [
         (token, RegistryRepresentationConfig.removed())
     ]
+
+
+def test_registry_set_oracle_config_round_trips(
+    web3_backend, operator_account, deploy_governed_registry
+):
+    registry, credential_manager, council = deploy_governed_registry()
+    token = ChainAddress.from_evm_address(operator_account.address, credential_manager.chain_id)
+    registry.set_asset(
+        0,
+        operator_account.address,
+        token.chain_id,
+        100_000,
+        10_000,
+        1,
+        council=council,
+        sender=operator_account,
+    )
+    config = RegistryOracleConfig(
+        sources=[
+            RegistryOracleSourceConfig.hyperliquid("kPEPE", "localhost", units_per_contract=1000)
+        ],
+        priceDecimals=8,
+    )
+
+    registry.set_oracle_config(0, config, council=council, sender=operator_account)
+    assert registry.get_oracle_configs(0, 1) == [config]
+
+    registry.set_oracle_config(
+        0, RegistryOracleConfig.unconfigured(), council=council, sender=operator_account
+    )
+    assert registry.get_oracle_configs(0, 1)[0].sources == []
 
 
 @pytest.fixture(scope="session")

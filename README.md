@@ -46,6 +46,36 @@ local dev bootstrap flow, see [docs/userguides/cli.md](docs/userguides/cli.md).
 
 ### REST and WebSocket Client (`tplus.client`)
 
+Use `TplusApiClient` when a gateway fronts OMS and MDS:
+
+```python
+from tplus.client import TplusApiClient
+from tplus.utils.user import User
+
+async with TplusApiClient("https://api.example.com", default_user=User()) as client:
+    inventory = await client.oms.get_user_inventory()
+    history = await client.mds.get_user_trades()
+```
+
+Both services use that same URL. The gateway resolves the user's owning OMS and
+paired MDS; the client retains separate tokens and uses `/market-data/nonce/...`
+and `/market-data/auth` for MDS authentication. A REST request refused with
+`401` and the code `UNAUTHORIZED`, or with the gateway's `GATEWAY_ROUTE_CHANGED`,
+and a WebSocket handshake refused with `401`, refresh only that service's token
+and retry once. Every other refusal propagates to the caller, such as a `403`
+for a missing permission or a routing failure such as `503`.
+
+Pass `use_ws_control=True` to submit order mutations over the OMS `/control`
+WebSocket. Exiting the facade's context closes that socket and the shared HTTP
+connection. TLS certificates are validated by default. The examples
+[`rest_usage.py`](examples/rest_usage.py) and
+[`two_users_trade.py`](examples/two_users_trade.py) take the gateway URL from
+`TPLUS_API_BASE_URL` (local e2e default: `http://127.0.0.1:8085`).
+
+`OrderBookClient` and `MarketDataClient` remain available for direct service
+connections. Administrative CE and OMS clients still need their direct service
+addresses. The CLI retains its existing per-service configuration.
+
 The `tpluspy` library also provides an asynchronous client (`OrderBookClient`) for interacting with the `tplus-core` REST API and WebSocket streams.
 
 #### Initialization
@@ -249,7 +279,7 @@ See `examples/websocket_usage.py` for a runnable demonstration using `asyncio.ga
 
 #### Token Recovery
 
-When a bearer token stops working before it actually expires (e.g. from a service restart), both transports recover on their own. A REST response or WebSocket handshake rejected with `401` or `403` re-authenticates and retries once; a second rejection is raised to the caller. Requests rejected concurrently share a single re-authentication.
+When a bearer token stops working before it actually expires (e.g. from a service restart), both transports recover on their own. A REST response rejected with `401` and the code `UNAUTHORIZED`, or a WebSocket handshake rejected with `401`, re-authenticates and retries once; a second rejection is raised to the caller. A `403` is a missing permission and is raised as it is. Requests rejected concurrently share a single re-authentication.
 
 ### Contracts
 

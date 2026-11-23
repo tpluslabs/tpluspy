@@ -10,7 +10,7 @@ class OrderBook(BaseModel):
     asks: list[list[float]] = []  # List of [price, quantity]
     bids: list[list[float]] = []  # List of [price, quantity]
     sequence_number: int = 0
-    # The depth may not reflect the book, until a reset replaces it.
+    # The depth may not reflect the book, until a snapshot or diff comes without the flag.
     stale: bool = False
 
 
@@ -21,7 +21,8 @@ class OrderBookDiff(BaseModel):
     sequence_number: int
     # The book was replaced: drop every level held and fetch the book again.
     reset: bool = False
-    # The depth this diff builds may not reflect the book, until a reset replaces it.
+    # The depth this diff builds may not reflect the book, until a diff comes without the flag:
+    # an ordinary one after the orderbook's next full book, or a reset.
     stale: bool = False
 
 

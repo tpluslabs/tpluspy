@@ -15,6 +15,7 @@ from tplus.exceptions import (
     ServerError,
     SignerRegistryUnavailable,
     from_error_body,
+    is_session_rejected,
 )
 
 # ---------------------------------------------------------------------------
@@ -256,3 +257,37 @@ class TestOmsErrorHierarchy:
         )
         with pytest.raises(OmsError):
             raise exc
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    [
+        (401, {"error": {"code": "UNAUTHORIZED"}}, True),
+        (
+            401,
+            {"error": {"code": "GATEWAY_ROUTE_CHANGED", "details": {"request_executed": False}}},
+            True,
+        ),
+        # The gateway does not say the request was left unexecuted.
+        (
+            401,
+            {"error": {"code": "GATEWAY_ROUTE_CHANGED", "details": {"request_executed": True}}},
+            False,
+        ),
+        (401, {"error": {"code": "GATEWAY_ROUTE_CHANGED"}}, False),
+        # About the request's own signature, not the session.
+        (401, {"error": {"code": "INVALID_SIGNATURE"}}, False),
+        (401, {"error": "expired"}, False),
+        (401, None, False),
+        # A missing permission, whatever the code.
+        (403, {"error": {"code": "UNAUTHORIZED"}}, False),
+        (403, {"error": {"code": "WRONG_AUTHORIZATION"}}, False),
+    ],
+)
+def test_is_session_rejected(status, body, expected):
+    if body is None:
+        response = httpx.Response(status, text="refused")
+    else:
+        response = httpx.Response(status, json=body)
+
+    assert is_session_rejected(response) is expected

@@ -135,11 +135,13 @@ class BaseClient:
         )
 
     @classmethod
-    def from_client(cls, client: "BaseClient") -> Self:
+    def from_client(cls, client: "BaseClient", **kwargs) -> Self:
+        """A client on ``client``'s settings, user and connection; ``kwargs`` go to the constructor."""
         return cls.from_settings(
             client._settings,
             default_user=client._default_user,
             client=client._client,
+            **kwargs,
         )
 
     def set_default_user(self, user: "UserLike | None") -> None:

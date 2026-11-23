@@ -86,7 +86,8 @@ await oms.cancel_transfer(request)
 `await oms.get_queued_transfers(user.public_key)` reads delayed/fillable transfer intents.
 Cancellation retains prior fills and ends only the unfilled remainder. Transfers
 do not expire. Chain withdrawal approval expiry instead requires an on-chain
-non-execution check before token locks are released.
+non-execution check before token locks are released; the account-events stream
+then carries a `WithdrawalExpired` event for that withdrawal.
 
 ## On-chain replay (EVM)
 
